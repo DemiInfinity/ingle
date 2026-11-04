@@ -39,7 +39,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
 
-**Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness, with Wi-Fi on and off. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
+**Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Optional reference point: the same tasks through a cloud assistant (e.g. `claude -p`), only if the user chooses, to show the remaining gap honestly. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
@@ -566,6 +566,11 @@ in scripts, and offline. The benchmark also needs a headless way to run tasks, a
   `--json` for machine-readable output, `--effort`, `--model`, `--allow "run_command:npm test"` to pre-approve
   specific scoped actions. With no terminal to ask in, anything not pre-approved is **denied**, never silently allowed.
   Exit codes say whether it succeeded.
+- **`--harness off` for benchmarking.** It turns off Ingle's compensations: per-turn tool filtering (all tools offered),
+  commands enforcement, the repeat/stuck guards, sampling tuning (Ollama defaults), the repo map, rule/skill suggestions,
+  effort verification and coverage checks. It keeps the same model, tools, prompt facts and task, so the only
+  difference is the harness. Individual switches (`--no-tool-filter`, `--no-commands`, …) show which part helps most.
+  It's for measurement only and is hidden from normal help.
 - **Same brain.** It reads `~/.ingle` (rules, skills, commands, memory, secrets via the Keychain or the Mac app,
   `mcp.json`, settings), uses the same engine (starts the bundled one from `Ingle.app` if it's installed and not
   running, otherwise uses `OLLAMA_HOST`), and saves sessions under `~/.ingle/` so they can be resumed (`ingle
