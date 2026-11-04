@@ -452,7 +452,7 @@ other apps. Why: small models struggle with the two-step `mcp_tools` → `mcp_ca
 call, and coverage checks (task 34) need to understand the results. A separate engine still means one
 implementation, crash isolation and use outside Ingle.
 
-### [ ] 33. Code intelligence engine + MCP server (`ingle-code`) — can start any time (new folder only)
+### [x] 33. Code intelligence engine + MCP server (`ingle-code`) — can start any time (new folder only)
 **Why.** Today the model finds code with text search and the repo map, and it misses things. Language servers
 already know every definition, reference and type error exactly.
 **Design.**
