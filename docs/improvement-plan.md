@@ -295,11 +295,25 @@ Claude Code (D) runs with permissions limited to the task copy. Clean up every c
 **Offline.** A–C run with Ingle's network blocked. One extra B run is done with Wi-Fi actually off; the user switches
 it, since the benchmark doesn't change system settings.
 
-**Time.** This is a lot of local inference. About 30 tasks × 3 runs × 3 local conditions × 2 models ≈ 540 runs, at
-roughly 2–5 minutes each ≈ **18–45 hours**. So there are two tiers:
-- **Quick** (10 tasks × 1 run × A/B × both models, about 1–2 hours) to check everything works;
-- **Full** (run overnight across a few nights, resumable, skipping finished runs).
-Ingle's own engine handles one request at a time, so runs are sequential. Battery is refused; it must be plugged in.
+**Time: built for a laptop** (the user's Mac is a MacBook Pro, M4 Max, 36 GB). Overnight runs across several nights
+aren't realistic: the lid closes, it travels, and while a 23 GB model is loaded the Mac isn't much use for anything
+else. So:
+- **Smaller default suite.** **Standard** = 20 tasks (10 tuning + 10 held out) × conditions A and B × both models × **2
+  runs** = 160 runs. With a 6-minute cap per run (most finish in 2–4), that's about **5–8 hours in total**, run in
+  chunks. Condition C (High effort) runs on Ember only. Ablations run once, on 8 tasks, Ember only.
+- **Quick** (10 tasks × A/B × both models × 1 run ≈ **1–2 hours**) checks everything works first, and **measures real
+  minutes per run** so the runner can give an honest estimate before the standard run.
+- **Full** (all ~30 tasks × 3 runs × A/B/C) is optional, for later, e.g. on a desktop Mac or a home server.
+- **Runs in chunks, whenever it suits you.** `bench/run.sh --for 60m` runs for about an hour, then stops at the end of
+  the current task. It resumes exactly where it left off and never repeats a finished run.
+- **Grouped by model.** All Ember runs, then all Flint runs, so each model loads once per chunk instead of swapping
+  23 GB and 18 GB in and out.
+- **Gets out of your way.** It only starts on mains power, pauses between runs if you unplug, and keeps the Mac awake
+  only while it's running (`caffeinate -i -s`, released at the end; the lid must stay open, since macOS sleeps on lid
+  close without an external display). With `--yield`, it pauses between runs when you start using the Mac and carries on
+  when you've been idle for a few minutes.
+- **Heat is recorded, not hidden.** Each run records the Mac's thermal state. Times from throttled runs are flagged, and
+  pass/fail results stay valid.
 
 **Output.** `bench/run.sh` (with `--tier quick|full`, `--models`, `--conditions`, `--tasks`, `--resume`) writes
 `bench/results/<date>/` (raw JSONL, environment details: Mac model, memory, macOS, Ollama and Ingle versions, model
@@ -330,7 +344,7 @@ The two things that make Ingle work like Claude Code: you choose **how hard it t
 **Code mode** for working in a project folder, not just chatting. Order: 29 and 30 in parallel → then 31 and 32 in
 parallel (both need 30) → task 15 (checkpoints) is pulled forward to land with them.
 
-### [ ] 29. Effort levels (both apps)
+### [x] 29. Effort levels (both apps)
 **Why.** Today there's only a **Think** on/off pill (`ThinkToggle` in `ChatViews.swift`, `think: Bool` in
 `Ollama.swift`/`ollama.ts`). One switch doesn't let you say "quick answer" vs "take your time and check your work".
 **Design.** Replace the Think pill with an **Effort** menu: **Low · Medium · High · Max**. It's set per chat. The
