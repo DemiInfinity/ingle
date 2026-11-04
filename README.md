@@ -50,6 +50,8 @@ Ingle isn't trying to be Claude or ChatGPT. It's trying to be the best *local* a
   own.
 - **Never lose privacy or control.** Nothing leaves your Mac unless you choose, and every action asks first unless you
   say otherwise.
+- **On demand.** It runs only when you need it: ask and it wakes, leave it and it sleeps, and it picks up where you left
+  off.
 - **Never stuck.** A local model has limits. When a job is beyond it, Ingle should say so plainly and help you take it
   further (with a bigger local model, or a ready-made brief you can take to a cloud assistant) instead of failing
   quietly. *This part is being built now.*
@@ -99,6 +101,19 @@ and its tools work, so nothing breaks when you make it yours.
 - **Skills and rules** in Claude's `SKILL.md` format, plus **MCP servers** — indexed in a tiny `INGLE.md`, so the
   model loads details only when needed.
 - **Helpers** — hand a self-contained job to a read-only sub-agent.
+
+### 💻 Laptop-friendly by design
+
+Most local AI tools are model servers you happen to run on a laptop. Ingle is built the other way round: for a
+laptop you also use for everything else.
+
+- **On demand.** Nothing to start. Open a chat or just ask, and the engine wakes and the model loads by itself.
+- **Gets out of the way.** Models go to sleep after a timer (or with one click), so a 20 GB model isn't sitting in your
+  memory all day, and autocomplete steps aside when it would compete with the chat.
+- **Knows what it costs.** CPU, GPU and memory are always a glance away in the menu bar, and Ingle warns before
+  loading a big model on battery.
+- **Picks up where you left off.** The model forgets between sessions, but Ingle doesn't: chats, plans, memory and
+  rules live in files, so it's back up to speed in seconds.
 
 ### 🧩 Built for small models
 

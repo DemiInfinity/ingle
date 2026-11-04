@@ -623,12 +623,19 @@ its turn. The engine serving one request at a time is fine: jobs simply queue.
 - **Power and offline.** Runs only while Ingle is open and the Mac is awake. On battery, big-model jobs wait unless
   allowed. Jobs that need the network wait while offline and resume when it's back.
 - Tears down cleanly. Stopping a job stops its commands and any processes it started.
+- **Resume interrupted runs (the user's decision: "pick up where it left off").** If Ingle quits, the Mac sleeps or the
+  lid closes mid-run, the run is saved as interrupted (its chat, plan file, task list and checkpoint). Next time the chat
+  is opened (or at launch, for background jobs), Ingle shows **Resume · Discard**. Resume first checks the files the run
+  touched against their checkpoints (and says if something changed since), then carries on from the first unticked
+  step of the plan or task list, with a short "where we were" summary for the model. Discard can also **Undo** the
+  partial run. Works for foreground chats as well as jobs, and in the CLI (`ingle --resume`).
 **Files.** `ChatStore.swift` (the run refactor, the biggest part; split into a new `Sources/Ingle/Run.swift` +
 `RunQueue.swift`), new `Sources/Ingle/Jobs.swift`, `JobsViews.swift`, `RunNotifications.swift`, `ChatViews.swift`
 (sidebar section, composer menu), new `EngineQueue.swift`, `SettingsViews.swift`, `EditorBridge.swift`
 (list/start jobs for VS Code), VS Code: a read-only Jobs view in the webview and a "Run in background" command that
 sends the job to the Mac app. Docs: `docs/agent-loop.md`, `docs/mac-app.md`, `HelpTopics`.
-**Done when.** You can start "run the tests and fix failures" in the background and keep chatting normally,
+**Done when.** Quitting Ingle mid-run and reopening it offers Resume, which carries on from the next unticked step.
+You can start "run the tests and fix failures" in the background and keep chatting normally,
 including in the same chat. You can approve its command from a notification. When it finishes, a job event appears in
 the chat that started it, and the assistant checks the result (e.g. reruns the tests) before reporting what's confirmed.
 An event that arrives mid-reply waits until the reply ends. Stopping a job leaves nothing running.
