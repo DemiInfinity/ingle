@@ -126,6 +126,13 @@ enum MacTools {
         case "report_search": return Info(title: "Search research reports", detail: call.arg("query"), icon: "doc.richtext")
         case "report_read": return Info(title: "Read a research report", detail: call.arg("name"), icon: "doc.richtext")
         case "delegate": return Info(title: "Hand a task to a helper", detail: call.arg("task"), icon: "person.2")
+        case "update_tasks":
+            switch TaskList.parse(call) {
+            case .success(let list):
+                let done: Int = list.filter { $0.status == .done }.count
+                return Info(title: "Update the task list", detail: "\(done)/\(list.count) done", icon: "checklist")
+            case .failure: return Info(title: "Update the task list", detail: "", icon: "checklist")
+            }
         case "skill_create":
             return Info(title: "Create a skill", detail: "\(call.arg("name")) — \(call.arg("description"))\n\n\(call.arg("instructions").prefix(1500))", icon: "book")
         case "command_create":
@@ -208,6 +215,8 @@ enum MacTools {
             return ApprovalScope(key: "applescript\n\(call.arg("script"))", label: "this exact script")
         case "screenshot":
             return ApprovalScope(key: "screenshot", label: "taking screenshots")
+        case "git_commit":
+            return ApprovalScope(key: "", label: "")   // the Commit button: asks every time
         case "mcp_call":
             let server: String = call.arg("server").trimmingCharacters(in: .whitespaces)
             let tool: String = call.arg("tool").trimmingCharacters(in: .whitespaces)
@@ -246,7 +255,7 @@ enum MacTools {
             if let codeFolder { return !Project.contains(codeFolder, call.arg("path")) }
             return !(Prefs.autoReadWorkspace && Prefs.inWorkspace(call.arg("path")))
         case "use_skill", "use_rule", "ingle_help", "mcp_tools", "secret_list", "web_search", "web_fetch", "memory_search", "memory_read",
-             "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate":
+             "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate", "update_tasks":
             return false
         case "find_files", "search_code", "repo_map":
             return false   // Code mode only, and they only read inside the project

@@ -44,6 +44,8 @@ enum Prefs {
         /// Default effort for new chats with each assistant ("low" | "medium" | "high" | "max"). See Effort.swift.
         static let dailyEffort = "dailyEffort"
         static let hardEffort = "hardEffort"
+        /// Add a Signed-off-by line (git commit -s) when committing a run with the Commit button. Off by default.
+        static let commitSignOff = "commitSignOff"
     }
 
     static let defaults: [String: Any] = [
@@ -113,6 +115,7 @@ enum Prefs {
     /// Ask for Touch ID (or the Mac's password) each time a secret is used. On by default.
     static var secretsTouchID: Bool { d.object(forKey: K.secretsTouchID) as? Bool ?? true }
     static var memoryAskFirst: Bool { d.object(forKey: K.memoryAsk) as? Bool ?? false }
+    static var commitSignOff: Bool { d.object(forKey: K.commitSignOff) as? Bool ?? false }
     static var unloadOnSwitch: Bool { str(K.switchMode) != "keep" }
     /// Fallback for models other than the two assistants.
     static var contextLength: Int { d.object(forKey: K.ctx) as? Int ?? 32768 }
@@ -247,12 +250,14 @@ enum Persona {
         - \(other)
         - You mostly help with software development, but you're happy to help with anything.
         - \(files)
-        - Ingle saves the files you change, so the user can undo a whole run (every file you changed in one reply) with Undo this run. Changes made by commands aren't covered.
+        - Ingle saves the files you change, so the user can see them in the changes panel under your reply, undo the whole run (every file you changed in one reply) with Undo this run, or commit exactly those files. Changes made by commands aren't covered.
+        - For a job of 3 or more steps, keep a short task list with update_tasks (the user sees it with ticks): mark one item in_progress as you start it and done when finished. Not for quick questions.
+        - The user can type while you work: their message appears in the chat marked as sent while you were working. Take it into account from that point.
         - SSH: \(SSH.promptFact)
         - \(Secrets.promptFact)
         - \(mac)
         - The user can set Commands — rules Ingle enforces. If a COMMANDS block appears below, follow it exactly; Ingle checks what you did and will send you back to redo work that ignores it.
-        - Effort (the pill in the message bar: Low, Medium, High, Max) sets how hard you try in this chat. High and Max: after changing files Ingle makes you run the project's check command once before finishing. Max: you write a short plan first, and a read-only helper reviews your changes at the end. Follow any Effort line below.
+        - Effort (the pill in the message bar: Low, Medium, High, Max) sets how hard you try in this chat. High and Max: after changing files Ingle makes you run the project's check command once before finishing. Max: your short plan becomes the task list, and a read-only helper reviews your changes at the end. Follow any Effort line below. The Mode pill sets what may happen without asking: Ask (everything asks), Edit (file changes inside the project are approved automatically), Auto (also safe commands inside the project; risky ones still ask), Plan (only read and search, then end with a numbered plan for the user to approve) and Debug (reproduce or locate the failure, state the cause in a line starting \"Cause:\", then fix and rerun to confirm). Plans from Plan mode or Max are saved as Markdown in .ingle/plans and ticked as your task list moves on. Follow any Mode line below.
         - \(companion)
         - Don't describe yourself as a generic chatbot, and don't claim abilities you don't have.
         - Your INGLE.md index (below) lists what you can use. For questions about Ingle itself, call ingle_help rather than guessing.

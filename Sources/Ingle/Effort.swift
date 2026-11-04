@@ -34,8 +34,8 @@ enum EffortLevel: String, CaseIterable, Identifiable {
         switch self {
         case .low: return "Answer directly in as few steps as possible."
         case .medium: return ""
-        case .high: return "Investigate before changing anything: read the related code, then check your work."
-        case .max: return "Plan first, investigate fully, verify with the project's checks, then review your own changes before finishing."
+        case .high: return "Investigate before changing anything: read the related code, then check your work. For a job of 3 or more steps, keep a task list with update_tasks."
+        case .max: return "Plan first, investigate fully, verify with the project's checks, then review your own changes before finishing. Work through your task list and keep it current with update_tasks."
         }
     }
 
@@ -50,7 +50,7 @@ enum EffortLevel: String, CaseIterable, Identifiable {
 
     /// Run the project's check command once after changing files, before finishing.
     var verify: Bool { self == .high || self == .max }
-    /// A short plan message first.
+    /// A short plan first, which becomes the chat's task list.
     var plan: Bool { self == .max }
     /// A read-only helper reviews the changes at the end.
     var review: Bool { self == .max }
@@ -65,7 +65,7 @@ enum EffortLevel: String, CaseIterable, Identifiable {
         case .low: return "Low: quick answers, no thinking, fewest tools."
         case .medium: return "Medium: thinks a little. Good for everyday work."
         case .high: return "High: thinks more, reads the related code first, and runs the project’s checks after editing."
-        case .max: return "Max: shows a plan first, thinks hardest, runs the checks, and a helper reviews the changes at the end."
+        case .max: return "Max: plans first as a task list, thinks hardest, runs the checks, and a helper reviews the changes at the end."
         }
     }
 
@@ -174,7 +174,6 @@ enum EffortLevel: String, CaseIterable, Identifiable {
     /// The question asked of the model for Max's plan step (not saved in the chat).
     static let planRequest = "Ingle: before doing anything, write a short plan for this request: 2–6 numbered steps, one line each. Don't do the work yet and don't call tools. If the request is simple, one line is enough."
 
-    static let planHeading = "**Plan**"
     static let reviewHeading = "**Review**"
 
     /// The task given to the read-only helper that reviews Max's changes. Same as reviewTask in effort.ts.
@@ -248,12 +247,9 @@ enum OllamaThink: Equatable {
 // MARK: Max's plan and review (kept here so ChatStore's loop only calls them)
 
 extension ChatStore {
-    /// Max's plan step: asks for a short plan (no tools) and shows it as its own message. Returns false if stopped.
-    /// The plan stays in the history, so the work that follows starts from it. Same as writePlan in chatEngine.ts.
+    /// Max's plan step: asks for a short numbered plan (no tools) and makes it the chat's task list, shown live under
+    /// the reply. One line (a simple request) means no list. Returns false if stopped. Same as writePlan in chatEngine.ts.
     func writePlan(_ id: Conversation.ID, model: String, history: [[String: Any]], effort: EffortLevel) async -> Bool {
-        guard let i = index(id) else { return false }
-        let plan = ChatMessage(role: .assistant, content: "", model: model)
-        conversations[i].messages.append(plan)
         activity = "Planning…"
         var text = ""
         do {
@@ -265,18 +261,23 @@ extension ChatStore {
             text = ""
         }
         activity = nil
-        let body: String = ThinkSplitter.split(text, extra: "").body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let j = index(id), let k = conversations[j].messages.firstIndex(where: { $0.id == plan.id }) else { return false }
-        if Task.isCancelled {
-            conversations[j].messages.remove(at: k)
-            return false
+        if Task.isCancelled { return false }
+        // No plan, or a one-liner: carry on without a list rather than stopping the work.
+        let body: String = ThinkSplitter.split(text, extra: "").body
+        let list: [TaskItem] = TaskList.fromPlan(body)
+        guard !list.isEmpty, let j = index(id) else { return true }
+        // Saved as a plan file too (approved: Max goes straight on), with a card in the chat.
+        let conv: Conversation = conversations[j]
+        let request: String = conv.messages.last(where: { $0.isRealUser })?.content ?? ""
+        let project: String? = conv.codeFolder ?? ((conv.useEditor ?? true) ? EditorBridge.shared.freshContext?.workspace : nil)
+        if var card = savePlanFile(id, reply: body, request: request, project: project) {
+            card.status = "approved"
+            conversations[j].planFile = card.file
+            var note = ChatMessage(role: .assistant, content: "", model: model)
+            note.plan = card
+            conversations[j].messages.append(note)
         }
-        if body.isEmpty {
-            // No plan came back: carry on without one rather than stopping the work.
-            conversations[j].messages.remove(at: k)
-            return true
-        }
-        conversations[j].messages[k].content = EffortLevel.planHeading + "\n\n" + body
+        setTasks(id, list)
         save()
         return true
     }

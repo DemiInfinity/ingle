@@ -38,6 +38,10 @@
     slashItems: [],
     mcpServers: null,   // non-null while the /mcp dialog is open
     secretPrompt: null, // non-null while "This looks like a secret" is asked
+    tasks: [],          // the chat's task list (update_tasks), pinned under the latest reply
+    workMode: 'ask',    // ask | edit | auto | plan | debug (Mode pill, ⇧Tab cycles); plan ends with a plan to Approve
+    modes: [],          // [{ id, label, role, help }] from the engine
+    queued: [],         // messages typed during the run, waiting for the model's next step
     draft: typeof saved.draft === 'string' ? saved.draft : '',
   };
 
@@ -46,9 +50,14 @@
   const openTools = new Set();
   const openThinking = new Set();
   const openSummaries = new Set();
-  /** "Undo this run": replies whose preview is open, and refusals waiting for "Undo anyway" (id → { message, canForce }). */
+  /** The changes panel under a run's last reply: which are open, refusals waiting for "Undo anyway"
+   *  (id → { message, canForce }), each run's files and diffs from the engine, open file diffs ("id|index") and the
+   *  Commit flow (id → { phase: 'drafting' | 'editing' | 'committing', message, error }). */
   const openUndo = new Set();
   const undoNotes = new Map();
+  const changesData = new Map();
+  const openDiffs = new Set();
+  const commits = new Map();
   /** Message ids waiting for a throttled re-render while streaming. */
   const dirty = new Set();
   let flushTimer = 0;
@@ -711,8 +720,10 @@
   const histBtn = h('button', {
     class: 'icon-btn', type: 'button', 'aria-label': 'Chat history', title: 'Chat history', 'aria-expanded': 'false',
   }, icon('history'));
+  // The chat's mode when it isn't Ask, so it's visible at a glance.
+  const modeBadge = h('span', { class: 'mode-badge', hidden: true });
   const header = h('header', { class: 'top' },
-    h('div', { class: 'picker' }, asstBtn, asstMenu),
+    h('div', { class: 'picker' }, asstBtn, asstMenu), modeBadge,
     h('span', { class: 'grow' }),
     newBtn, histBtn);
 
@@ -741,7 +752,9 @@
       starters.map(([title, text]) =>
         h('button', { class: 'starter', type: 'button', onclick: () => prefill(text) }, title))),
     versionLine);
-  const scroller = h('div', { class: 'scroller' }, empty, list);
+  // The task list, pinned under the latest reply.
+  const tasksBox = h('div', { class: 'tasks', role: 'region', 'aria-label': 'Task list', hidden: true });
+  const scroller = h('div', { class: 'scroller' }, empty, list, tasksBox);
 
   // History overlay
   const histList = h('div', { class: 'hist-list', role: 'list' });
@@ -784,6 +797,19 @@
     class: 'pill', type: 'button', 'aria-pressed': 'false',
     title: 'Let the assistant search and read web pages (read-only)',
   }, icon('globe'), h('span', { text: 'Web' }));
+  // Mode: Ask · Edit · Auto · Plan · Debug (engine/modes.ts). A pill like Effort's; ⇧Tab in the message box cycles it.
+  const MODE_IDS = ['ask', 'edit', 'auto', 'plan', 'debug'];
+  const modeLabel = h('span', { text: 'Ask' });
+  const modeRole = h('span', { class: 'pill-role', text: '' });
+  const modePill = h('button', {
+    class: 'pill mode-pill', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+  }, icon('list'), modeLabel, modeRole, icon('chevron', 'chev'));
+  const modeItems = MODE_IDS.map((id) => h('button', {
+    class: 'effort-item', type: 'button', role: 'menuitemradio', 'aria-checked': 'false', 'data-mode': id,
+  }, h('span', { class: 'effort-name', text: id }), h('span', { class: 'effort-help' })));
+  const modePop = h('div', { class: 'meter-pop effort-pop mode-pop', role: 'menu', 'aria-label': 'Mode', hidden: true }, ...modeItems);
+  // Messages typed while it works: they join the run at its next step (× takes one back).
+  const queuedRow = h('div', { class: 'queued-row', role: 'list', 'aria-label': 'Waiting to join the run', hidden: true });
   const sendBtn = h('button', { class: 'send', type: 'button', 'aria-label': 'Send', title: 'Send (Enter)' }, icon('send'));
   const clipBtn = h('button', {
     class: 'icon-btn clip', type: 'button', 'aria-label': 'Attach files', title: 'Attach files (or paste / drop them here)',
@@ -808,10 +834,11 @@
   const composer = h('div', { class: 'composer' },
     attachRow,
     input,
-    h('div', { class: 'composer-row' }, clipBtn, h('span', { class: 'meter-wrap' }, effortPill, effortPop), webPill, h('span', { class: 'grow' }),
+    h('div', { class: 'composer-row' }, clipBtn, h('span', { class: 'meter-wrap' }, effortPill, effortPop), h('span', { class: 'meter-wrap' }, modePill, modePop), webPill, h('span', { class: 'grow' }),
       h('span', { class: 'meter-wrap' }, meterBtn, meterPop), sendBtn));
 
   const HINT = 'Enter to send · Shift+Enter new line · / for commands';
+  const STEER_HINT = 'Enter adds your message at the next step · Stop ends the run';
   const hint = h('div', { class: 'hint', role: 'status', 'aria-live': 'polite', text: HINT });
 
   const slashMenu = h('div', { class: 'slash', id: 'slash-menu', role: 'listbox', 'aria-label': 'Commands and skills', hidden: true });
@@ -839,7 +866,7 @@
   const announcer = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
 
   app.append(header, banner, main, activity, secretSlot, approvalSlot,
-    h('div', { class: 'bottom' }, slashMenu, chip, composer, hint), mcpModal, announcer);
+    h('div', { class: 'bottom' }, slashMenu, chip, queuedRow, composer, hint), mcpModal, announcer);
 
   function announce(text) {
     announcer.textContent = '';
@@ -1207,7 +1234,8 @@
     } else if (kind === 'user') {
       e.files = h('div', { class: 'bubble-files', hidden: true });
       e.body = h('div', { class: 'bubble md' });
-      root.append(e.files, e.body);
+      e.steerTag = h('div', { class: 'steer-tag', text: 'Added while it was working', hidden: true });
+      root.append(e.files, e.body, e.steerTag);
     } else if (m.role === 'assistant') {
       e.who = h('span', { class: 'who' });
       e.model = h('span', { class: 'model' });
@@ -1222,10 +1250,14 @@
       e.regenBtn = h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'regen', 'aria-label': 'Regenerate reply', title: 'Regenerate' }, icon('refresh'));
       e.stats = h('span', { class: 'stats' });
       e.foot = h('div', { class: 'msg-foot' }, e.copyBtn, e.regenBtn, e.stats);
-      e.undo = h('div', { class: 'undo-run', hidden: true });
+      e.undo = h('div', { class: 'undo-run changes', hidden: true });
+      e.planBar = h('div', { class: 'plan-bar', hidden: true },
+        h('span', { class: 'plan-text', text: 'Plan mode · Approve to start the work with this plan as the task list, or reply to change it.' }),
+        h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan' }, icon('check'), 'Approve'));
+      e.planCard = h('div', { class: 'plan-card', hidden: true });
       root.append(
         h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model),
-        e.chips, e.thinking, e.dots, e.body, e.foot, e.undo);
+        e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
       e.out = h('pre', { class: 'tool-out', hidden: true, tabindex: '0' });
@@ -1242,6 +1274,7 @@
   }
 
   function fillUser(e, m) {
+    e.steerTag.hidden = !m.steer;
     const text = m.content || '';
     if (e.text !== text) {
       e.text = text;
@@ -1343,47 +1376,161 @@
     setText(e.stats, statsText);
     e.stats.hidden = !statsText;
 
+    const canApprove = S.workMode === 'plan' && !S.streaming && m.id === info.lastAssistantId && !failed && !!p.body;
+    fillPlanCard(e, m, canApprove);
+    e.planBar.hidden = !canApprove || !!m.plan;
     fillUndo(e, m);
-    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint;
+    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint && !m.plan;
   }
 
   const UNDO_VERB = { restore: 'Put back', remove: 'Remove', recreate: 'Bring back' };
+  const CHANGE_VERB = { restore: 'Edited', remove: 'Created', recreate: 'Deleted' };
 
-  /** "Undo this run" under the last reply of a run that changed files, with a preview of what it will do. */
+  /** A unified diff with added lines green and removed ones red. */
+  function diffPre(text) {
+    const pre = h('pre', { class: 'run-diff', tabindex: '0' });
+    for (const line of String(text || '').split('\n')) {
+      const cls = line.startsWith('@@') ? 'd-hunk' : (line.startsWith('+++') || line.startsWith('---')) ? 'd-file'
+        : line.startsWith('+') ? 'd-add' : line.startsWith('-') ? 'd-del' : '';
+      pre.append(h('span', { class: cls, text: (line || ' ') + '\n' }));
+    }
+    if (!text) pre.append(h('span', { class: 'd-file', text: 'No text changes (a binary file, or it ended up the same).' }));
+    return pre;
+  }
+
+  /** The changes panel under the last reply of a run that changed files: each file with its diff, Open and Diff,
+   *  plus Undo this run and Commit (in a git repo). */
   function fillUndo(e, m) {
     const cp = m.checkpoint;
     const files = cp && Array.isArray(cp.files) ? cp.files : [];
     if (!cp || !files.length) { e.undo.hidden = true; e.undoKey = ''; return; }
     e.undo.hidden = false;
-    const open = openUndo.has(m.id) && !cp.undone;
+    if (cp.committed) commits.delete(m.id);
+    const open = openUndo.has(m.id);
     const note = undoNotes.get(m.id);
-    const key = JSON.stringify([files, !!cp.undone, open, note || null, S.streaming]);
+    const data = changesData.get(m.id);
+    const commit = commits.get(m.id);
+    const diffs = data && data !== 'loading' ? data.files.map((_, i) => openDiffs.has(m.id + '|' + i)) : [];
+    const key = JSON.stringify([files, !!cp.undone, cp.committed || '', open, note || null, S.streaming, !!data, data === 'loading', diffs,
+      commit ? [commit.phase, commit.error || ''] : null]);
     if (e.undoKey === key) return;
     e.undoKey = key;
     const n = files.length;
     const count = `${n} file${n === 1 ? '' : 's'}`;
-    if (cp.undone) {
-      e.undo.replaceChildren(h('span', { class: 'undo-done' }, icon('check'), h('span', { text: `Run undone · ${count} put back` })));
-      return;
-    }
+    const tags = [];
+    if (cp.committed) tags.push(h('span', { class: 'undo-done' }, icon('check'), h('span', { text: `Committed ${cp.committed}` })));
+    if (cp.undone) tags.push(h('span', { class: 'undo-done' }, icon('undo'), h('span', { text: `Run undone · ${count} put back` })));
     const head = h('button', {
       class: 'chip-btn undo-btn' + (open ? ' open' : ''), type: 'button', 'data-act': 'undo-toggle', 'aria-expanded': open ? 'true' : 'false',
-      title: 'Put back every file this run changed',
-    }, icon('undo'), h('span', { text: `Undo this run · ${count}` }), icon('chevron', 'chev' + (open ? ' open' : '')));
-    if (!open) { e.undo.replaceChildren(head); return; }
-    const rows = files.map((f) => h('li', null,
-      h('span', { class: 'undo-verb undo-' + f.action, text: UNDO_VERB[f.action] || 'Put back' }),
-      h('span', { class: 'undo-path', text: f.path, title: f.path })));
-    const kids = [head, h('ul', { class: 'undo-list', 'aria-label': 'Files Undo will change' }, rows),
-      h('p', { class: 'undo-note', text: 'Changes made by commands, or on other computers over SSH, can’t be undone here.' })];
+      title: 'Every file this run changed, with its diff',
+    }, icon('diff'), h('span', { text: `Changes · ${count}` }), icon('chevron', 'chev' + (open ? ' open' : '')));
+    if (!open) { e.undo.replaceChildren(h('div', { class: 'changes-head' }, head, ...tags)); return; }
+    const kids = [h('div', { class: 'changes-head' }, head, ...tags)];
+    const rows = files.map((f, i) => {
+      const full = data && data !== 'loading' ? data.files.find((x) => x.display === f.path) || data.files[i] : null;
+      const stats = full ? h('span', { class: 'chg-stats' }, h('span', { class: 'd-add', text: `+${full.added}` }), h('span', { class: 'd-del', text: ` −${full.removed}` })) : null;
+      const isOpen = openDiffs.has(m.id + '|' + i);
+      const li = h('li', null,
+        h('div', { class: 'chg-row' },
+          h('button', { class: 'chg-file', type: 'button', 'data-act': 'chg-file', 'data-i': String(i), 'aria-expanded': isOpen ? 'true' : 'false', disabled: !full },
+            icon('chevron', 'chev' + (isOpen ? ' open' : '')),
+            h('span', { class: 'undo-verb undo-' + f.action, text: CHANGE_VERB[f.action] || 'Edited' }),
+            h('span', { class: 'undo-path', text: f.path, title: f.path }), stats),
+          full ? h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'chg-diff', 'data-i': String(i), title: 'Open in VS Code’s diff editor', 'aria-label': 'Diff ' + f.path }, icon('diff')) : null,
+          full && f.action !== 'recreate' ? h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'chg-open', 'data-i': String(i), title: 'Open in editor', 'aria-label': 'Open ' + f.path }, icon('file')) : null));
+      if (isOpen && full) li.append(diffPre(full.diff));
+      return li;
+    });
+    kids.push(h('ul', { class: 'undo-list changes-list', 'aria-label': 'Files this run changed' }, rows));
+    if (data === 'loading') kids.push(h('p', { class: 'undo-note', text: 'Loading the diffs…' }));
+    kids.push(h('p', { class: 'undo-note', text: 'Undo puts these files back. Changes made by commands, or on other computers over SSH, can’t be undone here.' }));
     if (note) kids.push(h('p', { class: 'approval-warning undo-warning', role: 'alert' }, icon('warning'), h('span', { text: note.message })));
     const busy = S.streaming;
-    const actions = note && note.canForce
-      ? [h('button', { class: 'btn primary', type: 'button', 'data-act': 'undo-force', disabled: busy }, 'Undo anyway')]
-      : [h('button', { class: 'btn primary', type: 'button', 'data-act': 'undo-go', disabled: busy }, icon('undo'), 'Undo')];
-    actions.push(h('button', { class: 'btn', type: 'button', 'data-act': 'undo-toggle' }, 'Cancel'));
-    kids.push(h('div', { class: 'approval-actions' }, actions));
+    const actions = [];
+    if (!cp.undone) {
+      actions.push(note && note.canForce
+        ? h('button', { class: 'btn', type: 'button', 'data-act': 'undo-force', disabled: busy }, icon('undo'), 'Undo anyway')
+        : h('button', { class: 'btn', type: 'button', 'data-act': 'undo-go', disabled: busy, title: 'Put back every file this run changed' }, icon('undo'), 'Undo this run'));
+    }
+    const canCommit = data && data !== 'loading' && data.repo && !cp.committed && !cp.undone;
+    if (canCommit && !commit) actions.push(h('button', { class: 'btn primary', type: 'button', 'data-act': 'commit-draft', disabled: busy, title: 'Draft a commit message for exactly these files' }, icon('check'), 'Commit…'));
+    if (data && data !== 'loading' && !data.repo && data.noCommit && !cp.committed) kids.push(h('p', { class: 'undo-note', text: 'Commit: ' + data.noCommit }));
+    if (actions.length) kids.push(h('div', { class: 'approval-actions' }, actions));
+    if (commit) {
+      if (commit.phase === 'drafting') kids.push(h('p', { class: 'undo-note' }, spinner(), ' Drafting a commit message…'));
+      else {
+        const box = h('textarea', { class: 'commit-msg', rows: '4', 'aria-label': 'Commit message', disabled: commit.phase === 'committing' });
+        box.value = commit.message || '';
+        box.addEventListener('input', () => { commit.message = box.value; });
+        kids.push(h('div', { class: 'commit-box' },
+          h('label', { class: 'undo-note', text: `Commit message (only this run’s files${data && data.repo ? ' in ' + data.repo.split('/').pop() : ''}; never pushed)` }),
+          box,
+          commit.error ? h('p', { class: 'approval-warning undo-warning', role: 'alert' }, icon('warning'), h('span', { text: commit.error })) : null,
+          h('div', { class: 'approval-actions' },
+            h('button', { class: 'btn', type: 'button', 'data-act': 'commit-cancel' }, 'Cancel'),
+            h('span', { class: 'grow' }),
+            h('button', { class: 'btn primary', type: 'button', 'data-act': 'commit-go', disabled: commit.phase === 'committing' || busy }, icon('check'), commit.phase === 'committing' ? 'Committing…' : 'Commit'))));
+      }
+    }
     e.undo.replaceChildren(...kids);
+  }
+
+  const PLAN_STATUS = { draft: 'Draft', approved: 'Approved', done: 'Done' };
+
+  /** A plan saved as a Markdown file: its name and status, Open (preview), Edit (the file) and, in Plan mode, Approve
+   *  (which reads the file, so your edits are what runs). */
+  function fillPlanCard(e, m, canApprove) {
+    const pl = m.plan;
+    e.planCard.hidden = !pl;
+    if (!pl) { e.planKey = ''; return; }
+    const key = JSON.stringify([pl, canApprove && pl.status === 'draft']);
+    if (e.planKey === key) return;
+    e.planKey = key;
+    e.planCard.replaceChildren(
+      h('span', { class: 'plan-ic' }, icon('doc')),
+      h('span', { class: 'plan-name', text: pl.name, title: pl.file }),
+      h('span', { class: 'plan-status plan-' + pl.status, text: PLAN_STATUS[pl.status] || pl.status }),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn', type: 'button', 'data-act': 'plan-open', title: 'Open the plan (Markdown preview)' }, 'Open'),
+      h('button', { class: 'btn', type: 'button', 'data-act': 'plan-edit', title: 'Edit the plan file — Approve uses what the file says' }, icon('edit'), 'Edit'),
+      canApprove && pl.status === 'draft'
+        ? h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan', title: 'Start the work with this plan (read from the file) as the task list' }, icon('check'), 'Approve')
+        : null);
+  }
+
+  /** The task list, pinned under the latest reply: ticks as it goes. */
+  function renderTasks() {
+    const list = Array.isArray(S.tasks) ? S.tasks : [];
+    tasksBox.hidden = !list.length || !S.messages.length;
+    if (tasksBox.hidden) { tasksBox.replaceChildren(); tasksBox._key = ''; return; }
+    const done = list.filter((t) => t.status === 'done').length;
+    const key = JSON.stringify([list, S.streaming]);
+    if (tasksBox._key === key) return;
+    tasksBox._key = key;
+    const all = done === list.length;
+    tasksBox.classList.toggle('all-done', all);
+    const head = h('div', { class: 'tasks-head' }, icon('list'), h('span', { text: all ? `All ${list.length} tasks done` : 'Tasks' }),
+      h('span', { class: 'grow' }), h('span', { class: 'tasks-count', text: `${done}/${list.length}` }));
+    if (all && !S.streaming) { tasksBox.replaceChildren(head); return; }
+    const rows = list.map((t) => h('li', { class: 'task task-' + t.status },
+      t.status === 'done' ? icon('check', 'task-ic')
+        : t.status === 'in_progress' ? (S.streaming ? spinner() : h('span', { class: 'task-dot now' }))
+        : h('span', { class: 'task-dot' }),
+      h('span', { class: 'task-text', text: t.content })));
+    tasksBox.replaceChildren(head, h('ul', { class: 'tasks-list' }, rows));
+  }
+
+  /** Messages waiting to join the run. */
+  function renderQueued() {
+    const q = Array.isArray(S.queued) ? S.queued : [];
+    queuedRow.hidden = !q.length;
+    queuedRow.replaceChildren(...q.map((m) => h('div', { class: 'queued', role: 'listitem', title: m.text },
+      h('span', { class: 'queued-label', text: 'Next step:' }),
+      h('span', { class: 'queued-text', text: m.text }),
+      h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Take this message back', title: 'Take it back', onclick: () => {
+        post({ type: 'unqueue', id: m.id });
+        if (!S.draft.trim()) prefill(m.text);
+      } }, icon('close')))));
   }
 
   function fillTool(e, m) {
@@ -1395,7 +1542,7 @@
     e.root.classList.toggle('denied', denied);
     e.root.classList.toggle('running', running);
 
-    const key = [t.icon, t.title, t.detail, denied, running, open].join('\u0001');
+    const key = [t.icon, t.title, t.detail, denied, running, open, t.auto || ''].join('\u0001');
     if (e.key !== key) {
       e.key = key;
       const title = denied ? `Denied: ${t.title || t.name}` : (t.title || t.name || 'Tool');
@@ -1403,6 +1550,7 @@
         h('span', { class: 'tool-ic' }, icon(t.icon || t.name)),
         h('span', { class: 'tool-title', text: title }),
         h('span', { class: 'tool-detail', text: t.detail || '', title: t.detail || null }),
+        t.auto ? h('span', { class: 'tool-auto', text: 'Auto approved', title: t.auto }) : null,
         running ? spinner() : icon('chevron', 'chev' + (open ? ' open' : '')));
       e.head.setAttribute('aria-expanded', open ? 'true' : 'false');
       e.head.setAttribute('aria-label', `${title}${t.detail ? ': ' + t.detail : ''}. ${open ? 'Hide' : 'Show'} output`);
@@ -1534,11 +1682,45 @@
       if (openTools.has(id)) openTools.delete(id); else openTools.add(id);
       fill(e, m, liveInfo());
     } else if (act === 'undo-toggle') {
-      if (openUndo.has(id)) { openUndo.delete(id); undoNotes.delete(id); } else openUndo.add(id);
+      if (openUndo.has(id)) { openUndo.delete(id); undoNotes.delete(id); } else {
+        openUndo.add(id);
+        if (!changesData.has(id)) { changesData.set(id, 'loading'); post({ type: 'runChanges', id }); }
+      }
       fill(e, m, liveInfo());
     } else if (act === 'undo-go' || act === 'undo-force') {
       undoNotes.delete(id);
       post({ type: 'undoRun', id, force: act === 'undo-force' });
+    } else if (act === 'chg-file' || act === 'chg-diff' || act === 'chg-open') {
+      const data = changesData.get(id);
+      const i = Number(btn.dataset.i);
+      const f = data && data !== 'loading' ? data.files[i] : null;
+      if (!f) return;
+      if (act === 'chg-diff') post({ type: 'showRunDiff', id, path: f.path });
+      else if (act === 'chg-open') post({ type: 'openFile', path: f.path });
+      else {
+        const k = id + '|' + i;
+        if (openDiffs.has(k)) openDiffs.delete(k); else openDiffs.add(k);
+        fill(e, m, liveInfo());
+      }
+    } else if (act === 'commit-draft') {
+      commits.set(id, { phase: 'drafting', message: '' });
+      post({ type: 'draftCommit', id });
+      fill(e, m, liveInfo());
+    } else if (act === 'commit-cancel') {
+      commits.delete(id);
+      fill(e, m, liveInfo());
+    } else if (act === 'commit-go') {
+      const c = commits.get(id);
+      if (!c || !c.message.trim()) return;
+      c.phase = 'committing'; c.error = '';
+      post({ type: 'commit', id, message: c.message });
+      fill(e, m, liveInfo());
+    } else if (act === 'plan-open' || act === 'plan-edit') {
+      if (m.plan) post({ type: act === 'plan-open' ? 'openPlan' : 'editPlan', file: m.plan.file });
+    } else if (act === 'approve-plan') {
+      renderComposer();
+      post({ type: 'approvePlan', id });
+      stick(refreshMeta);
     } else if (act === 'toggle-summary') {
       if (openSummaries.has(id)) openSummaries.delete(id); else openSummaries.add(id);
       fill(e, m, liveInfo());
@@ -1588,6 +1770,21 @@
     }
     webPill.setAttribute('aria-pressed', S.web ? 'true' : 'false');
     webPill.classList.toggle('on', S.web);
+    const m = modeInfo(S.workMode);
+    setText(modeLabel, m.label);
+    setText(modeRole, m.role);
+    modePill.title = (m.help || 'How much the assistant may do without asking') + ' Click to change, or ⇧Tab in the message box.';
+    modePill.setAttribute('aria-label', `Mode: ${m.label}`);
+    for (const item of modeItems) {
+      const id = item.getAttribute('data-mode');
+      const info = modeInfo(id);
+      item.setAttribute('aria-checked', id === S.workMode ? 'true' : 'false');
+      setText(item.firstChild, info.label);
+      setText(item.lastChild, (info.help || '').replace(/^[A-Za-z]+: /, ''));
+    }
+    modeBadge.hidden = S.workMode === 'ask';
+    setText(modeBadge, m.label);
+    modeBadge.title = m.help || '';
     renderSend();
   }
 
@@ -1607,12 +1804,25 @@
       sendBtn.replaceChildren(icon(want));
     }
     sendBtn.setAttribute('aria-label', S.streaming ? 'Stop' : 'Send');
-    sendBtn.title = S.streaming ? 'Stop' : 'Send (Enter)';
+    sendBtn.title = S.streaming ? 'Stop (Enter adds your message to the run instead)' : 'Send (Enter)';
+    if (!hint.classList.contains('notice')) setText(hint, S.streaming ? STEER_HINT : HINT);
   }
 
   function send() {
     const text = S.draft.trim();
-    if (S.streaming || !canSendNow()) return;
+    if (!canSendNow()) return;
+    if (S.streaming) {
+      // Steer: the message waits and joins the run at the model's next step.
+      if (S.attachments.length) { showNotice('Attach files once the reply has finished.'); return; }
+      if (!text || text.startsWith('/')) { showNotice('Commands wait until the reply has finished.'); return; }
+      post({ type: 'send', text });
+      S.draft = '';
+      input.value = '';
+      saveState();
+      autosize();
+      renderSend();
+      return;
+    }
     if (text === '/compact' && !S.attachments.length) {
       post({ type: 'slash', name: 'compact' });
     } else {
@@ -1894,6 +2104,12 @@
         return;
       }
     }
+    // ⇧Tab cycles the mode (Ask → Edit → Auto → Plan → Debug).
+    if (e.key === 'Tab' && e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      setMode(MODE_IDS[(MODE_IDS.indexOf(S.workMode) + 1) % MODE_IDS.length], true);
+      return;
+    }
     if (e.key !== 'Enter' || e.shiftKey || e.altKey) return;
     e.preventDefault();
     send();
@@ -2066,13 +2282,53 @@
     clearTimeout(hintTimer);
     hintTimer = setTimeout(() => {
       hint.classList.remove('notice');
-      hint.textContent = HINT;
+      hint.textContent = S.streaming ? STEER_HINT : HINT;
     }, 4000);
   }
 
   sendBtn.addEventListener('click', () => {
     if (S.streaming) post({ type: 'stop' });
     else send();
+  });
+  function modeInfo(id) {
+    return (S.modes || []).find((x) => x.id === id) || { id, label: id ? id.charAt(0).toUpperCase() + id.slice(1) : 'Ask', role: '', help: '' };
+  }
+  function setMode(id, announceIt) {
+    if (!MODE_IDS.includes(id)) return;
+    S.workMode = id;
+    post({ type: 'setWorkMode', mode: id });
+    renderComposer();
+    stick(refreshMeta);
+    if (announceIt) showNotice(`Mode: ${modeInfo(id).label} — ${(modeInfo(id).help || '').replace(/^[A-Za-z]+: /, '')}`);
+  }
+  let modeOpen = false;
+  function openMode() {
+    modeOpen = true;
+    modePop.hidden = false;
+    modePill.setAttribute('aria-expanded', 'true');
+    (modeItems.find((i) => i.getAttribute('data-mode') === S.workMode) || modeItems[0]).focus();
+  }
+  function closeMode(refocus) {
+    if (!modeOpen) return;
+    modeOpen = false;
+    modePop.hidden = true;
+    modePill.setAttribute('aria-expanded', 'false');
+    if (refocus) modePill.focus();
+  }
+  modePill.addEventListener('click', () => (modeOpen ? closeMode(true) : openMode()));
+  for (const item of modeItems) {
+    item.addEventListener('click', () => { setMode(item.getAttribute('data-mode'), false); closeMode(false); input.focus(); });
+  }
+  modePop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMode(true); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const i = modeItems.indexOf(document.activeElement);
+    const n = modeItems.length;
+    modeItems[(i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n].focus();
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (modeOpen && !modePop.contains(e.target) && !modePill.contains(e.target)) closeMode(false);
   });
   let effortOpen = false;
   function openEffort() {
@@ -2159,6 +2415,13 @@
     S.vision = state.vision !== false;
     S.contextUsage = state.contextUsage || null;
     if (Array.isArray(state.slashItems)) S.slashItems = state.slashItems;
+    S.tasks = Array.isArray(state.tasks) ? state.tasks : [];
+    S.workMode = MODE_IDS.includes(state.workMode) ? state.workMode : 'ask';
+    S.modes = Array.isArray(state.modes) ? state.modes : [];
+    S.queued = Array.isArray(state.queued) ? state.queued : [];
+    changesData.clear();
+    openDiffs.clear();
+    commits.clear();
     if (state.version) setText(versionLine, `Ingle for VS Code ${state.version} · Powered by Ollama · Free for personal use`);
     saveState();
     // A fresh init means a fresh chat view: nothing is streaming until the engine says so.
@@ -2171,6 +2434,8 @@
     renderHeader();
     renderBanner();
     renderAllMessages();
+    renderTasks();
+    renderQueued();
     renderActivity();
     renderApproval();
     renderChip();
@@ -2196,7 +2461,25 @@
         renderActivity();
         renderSend();
         renderMeter();
-        if (wasStreaming !== S.streaming) stick(refreshMeta);
+        if (wasStreaming !== S.streaming) stick(() => { refreshMeta(); renderTasks(); });
+        break;
+      }
+      case 'tasks': S.tasks = Array.isArray(msg.tasks) ? msg.tasks : []; stick(renderTasks); break;
+      case 'workMode': S.workMode = MODE_IDS.includes(msg.mode) ? msg.mode : 'ask'; renderComposer(); stick(refreshMeta); break;
+      case 'queued': S.queued = Array.isArray(msg.items) ? msg.items : []; renderQueued(); break;
+      case 'runChanges': {
+        changesData.set(msg.id, { files: Array.isArray(msg.files) ? msg.files : [], repo: msg.repo || '', noCommit: msg.noCommit || '' });
+        const m = findMessage(msg.id), e = entries.get(msg.id);
+        if (m && e) stick(() => fill(e, m, liveInfo()));
+        break;
+      }
+      case 'commitDraft': case 'commitFailed': {
+        const c = commits.get(msg.id) || { phase: 'editing', message: '' };
+        if (msg.type === 'commitDraft') { c.phase = 'editing'; c.message = String(msg.message || ''); c.error = ''; }
+        else { c.phase = 'editing'; c.error = String(msg.message || ''); }
+        commits.set(msg.id, c);
+        const m = findMessage(msg.id), e = entries.get(msg.id);
+        if (m && e) stick(() => fill(e, m, liveInfo()));
         break;
       }
       case 'approval': S.approval = msg.approval || null; stick(renderApproval); break;

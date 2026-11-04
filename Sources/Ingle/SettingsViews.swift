@@ -544,6 +544,7 @@ private struct PersonaSection: View {
 struct MacAccessSettings: View {
     @AppStorage(Prefs.K.autoRead) private var autoRead = true
     @State private var folders = Prefs.workspaceFolders
+    @AppStorage(Prefs.K.commitSignOff) private var commitSignOff = false
 
     var body: some View {
         EmberForm {
@@ -572,11 +573,17 @@ struct MacAccessSettings: View {
                 }
             }
             SSHSection()
+            Section("Commit button") {
+                Toggle(isOn: $commitSignOff) {
+                    TitleAndHint(title: "Add a Signed-off-by line", hint: "Commits made with Commit under a run’s changes use git commit -s. Ingle never pushes.")
+                }
+            }
             Section("Always asks first") {
                 Label("Running Terminal commands", systemImage: "terminal")
                 Label("Running commands on your servers (SSH)", systemImage: "server.rack")
                 Label("Creating or changing files", systemImage: "square.and.pencil")
                 Label("Opening apps, files and links", systemImage: "arrow.up.forward.app")
+                Label("Committing a run’s changes", systemImage: "checkmark.seal")
             }
             Section {
                 Text("Local models can make mistakes. Ingle always shows you exactly what it’s about to do — read it before you press Allow.")
