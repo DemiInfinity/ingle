@@ -249,21 +249,3 @@ struct ModeMenu: View {
         .accessibilityLabel("Mode: \(mode.label)")
     }
 }
-
-/// A small badge in the toolbar when the chat's mode isn't Ask.
-struct ModeBadge: View {
-    @Environment(ChatStore.self) private var store
-
-    var body: some View {
-        if let c = store.current, c.workModeValue != .ask {
-            let m: WorkMode = c.workModeValue
-            Label(m.label, systemImage: m.icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Ember.accent)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .background(Capsule().fill(Ember.accent.opacity(0.12)))
-                .help(m.help)
-        }
-    }
-}

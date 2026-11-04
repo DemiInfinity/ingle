@@ -37,6 +37,10 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
 - **Never "I can't read all of that" (the user's principle).** If a codebase, file or log is too big, give the model a
   way in: the project map in `.ingle/map/` (task 40), the repo map, code intelligence, chunked reading. It works at the right level of
   detail instead of giving up.
+- **Where controls go (the user's rule).** The window's top bar holds **only the Chat / Code switch**; never add
+  badges, buttons or indicators there. **Anything that affects the chat goes in the message box**: its pill row
+  (Model, Effort, Mode, Web, Mac, …) or its ⋯ menu, styled like the existing pills. In VS Code, the same: chat controls
+  live in the composer, not the tab's header.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
 ---

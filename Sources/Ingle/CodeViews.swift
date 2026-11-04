@@ -17,8 +17,8 @@ struct ModeSwitch: View {
             .labelsHidden()
             .frame(width: 140)
             .help("Chat for anything; Code to work on a project folder (⌘⇧C)")
-            // The chat's mode when it isn't Ask (Edit, Auto, Plan, Debug), so it's visible at a glance.
-            ModeBadge()
+            // Only the Chat / Code switch lives in the top bar (the user's rule). The work mode shows in the
+            // message box's Mode pill.
         }
     }
 }
