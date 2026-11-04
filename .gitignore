@@ -1,0 +1,17 @@
+# Build output
+.build/
+build/
+*.vsix
+Extensions/vscode/node_modules/
+Extensions/vscode/out/
+
+# Personal — never published
+local.env
+private/
+
+# macOS
+.DS_Store
+
+# Copied in by Extensions/vscode/install.sh
+Extensions/vscode/legal/
+Extensions/vscode/LICENSE.md

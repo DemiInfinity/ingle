@@ -1,0 +1,168 @@
+{
+  "name": "ingle",
+  "displayName": "Ingle",
+  "description": "Chat with your local Ollama models (Ember and Flint) right in VS Code. They can read your project, edit files with your approval, run commands, search the web and remember things — all on your Mac.",
+  "version": "0.2.0",
+  "publisher": "ingle",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:ingle.chat"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ingle.newTab",
+        "title": "New Ingle Chat Tab",
+        "category": "Ingle",
+        "icon": "resources/ingle-ember.svg"
+      },
+      {
+        "command": "ingle.focus",
+        "title": "Open Chat",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.popOut",
+        "title": "Pop Out Chat into a New Window",
+        "category": "Ingle",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "ingle.newChat",
+        "title": "New Chat",
+        "category": "Ingle",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ingle.askSelection",
+        "title": "Ask Ingle About This",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.explainProblem",
+        "title": "Ask Ingle to Explain This Problem",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.fixProblem",
+        "title": "Ask Ingle to Fix This Problem",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.openHome",
+        "title": "Open Ingle Folder (rules, skills, memory)",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.terms",
+        "title": "Terms of Use",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.privacy",
+        "title": "Privacy Policy",
+        "category": "Ingle"
+      },
+      {
+        "command": "ingle.about",
+        "title": "About Ingle (credits and licence)",
+        "category": "Ingle"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ingle.askSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@99"
+        },
+        {
+          "command": "ingle.explainProblem",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ingle.newTab",
+          "group": "navigation@100"
+        },
+        {
+          "command": "ingle.popOut",
+          "group": "navigation@101",
+          "when": "activeWebviewPanelId == 'ingle.chat'"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "ingle.focus",
+        "key": "cmd+alt+l"
+      },
+      {
+        "command": "ingle.askSelection",
+        "key": "cmd+alt+i",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Ingle",
+      "properties": {
+        "ingle.shareWithApp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also tell the Ingle Mac app (if it's open) which project and file you're in."
+        },
+        "ingle.port": {
+          "type": "number",
+          "default": 47123,
+          "description": "Port the Ingle Mac app listens on (on this Mac only)."
+        },
+        "ingle.shareSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the Ingle Mac app see your current selection."
+        },
+        "ingle.shareProblems": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the Ingle Mac app see errors and warnings in the current file."
+        },
+        "ingle.openBeside": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the chat as a tab beside your code (on the right). Turn off to open it as a tab in the current editor group."
+        },
+        "ingle.maxSteps": {
+          "type": "number",
+          "default": 200,
+          "minimum": 0,
+          "description": "Most steps (model turns) for one request before Ingle pauses and asks. Local models cost nothing per step, so this is only a backstop; 0 means no limit. Ingle also stops early if it keeps repeating itself."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "package": "vsce package --allow-missing-repository --skip-license"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER/ingle"
+  }
+}

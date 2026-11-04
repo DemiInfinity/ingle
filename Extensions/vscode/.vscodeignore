@@ -1,0 +1,7 @@
+src/**
+node_modules/**
+tsconfig.json
+install.sh
+*.vsix
+SPEC.md
+NOTES-*.md
