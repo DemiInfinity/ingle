@@ -27,7 +27,7 @@ class ChatTab {
     this.engine.setPoster((msg) => this.post(msg));
     const media = vscode.Uri.joinPath(extensionUri, 'media');
     panel.webview.options = { enableScripts: true, localResourceRoots: [media] };
-    panel.iconPath = vscode.Uri.joinPath(extensionUri, 'resources', 'ingle-ember.svg');
+    panel.iconPath = vscode.Uri.joinPath(extensionUri, 'resources', 'tab-icon.png');
     panel.webview.html = html(panel.webview, media);
 
     panel.webview.onDidReceiveMessage((raw: unknown) => {

@@ -170,5 +170,10 @@
     "type": "git",
     "url": "https://github.com/DemiInfinity/ingle"
   },
-  "preview": true
+  "preview": true,
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1C1618",
+    "theme": "dark"
+  }
 }
