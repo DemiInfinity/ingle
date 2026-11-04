@@ -52,8 +52,12 @@ struct Conversation: Identifiable, Codable, Equatable {
     var macAccess = false
     var useEditor: Bool?
     var webAccess: Bool?
+    /// Effort level (EffortLevel raw value). nil in chats saved before effort levels: they had Think off
+    /// (the Mac app never saved Think on), so they read as Medium.
+    var effort: String?
 
     var webOn: Bool { webAccess ?? Prefs.webOnByDefault }
+    var effortLevel: EffortLevel { effort.flatMap(EffortLevel.init(rawValue:)) ?? .medium }
     var messages: [ChatMessage] = []
     var updated = Date()
 }
@@ -96,7 +100,6 @@ final class ChatStore {
     var conversations: [Conversation] = []
     var selection: Conversation.ID?
     var streamingID: Conversation.ID?
-    var think = false
     var search = ""
     var pending: PendingApproval?
     /// What the assistant is doing right now ("Search the web…"), shown above the message box.
@@ -204,10 +207,14 @@ final class ChatStore {
 
     func newChat(model: String? = nil) {
         if let c = current, c.messages.isEmpty, let i = index(c.id) {
-            if let model { conversations[i].model = model }
+            if let model {
+                conversations[i].model = model
+                conversations[i].effort = EffortLevel.defaultFor(model: model).rawValue
+            }
             return
         }
-        let c = Conversation(model: model ?? Prefs.dailyModel)
+        var c = Conversation(model: model ?? Prefs.dailyModel)
+        c.effort = EffortLevel.defaultFor(model: c.model).rawValue
         conversations.insert(c, at: 0)
         selection = c.id
         save()
@@ -224,7 +231,21 @@ final class ChatStore {
     func setModel(_ model: String) {
         guard let id = selection, let i = index(id) else { return }
         conversations[i].model = model
+        // A chat that hasn't started yet takes the new assistant's default effort.
+        if conversations[i].messages.isEmpty { conversations[i].effort = EffortLevel.defaultFor(model: model).rawValue }
         save()
+    }
+
+    func setEffort(_ level: EffortLevel) {
+        guard let id = selection, let i = index(id) else { return }
+        conversations[i].effort = level.rawValue
+        save()
+    }
+
+    /// ⌘⇧E: Low → Medium → High → Max → Low.
+    func cycleEffort() {
+        guard let c = current else { return }
+        setEffort(c.effortLevel.next)
     }
 
     func setMacAccess(_ on: Bool) {
@@ -352,7 +373,7 @@ final class ChatStore {
 
     private func generate(in id: Conversation.ID) {
         streamingID = id
-        let think = self.think
+        let effort: EffortLevel = index(id).map { conversations[$0].effortLevel } ?? .medium
         task = Task { [self] in
             // Engine asleep or stopped? Start it now rather than making the user press Start.
             if !(await OllamaServer.shared.isUp()) {
@@ -447,6 +468,11 @@ final class ChatStore {
             var scrubber: Secrets.Scrubber?
             var callCounts: [String: Int] = [:]
             var skips = 0
+            // Effort (Effort.swift): High/Max verify after editing, Max plans first and has the changes reviewed.
+            var changedFiles: [String] = []
+            var verifyChecked = false
+            var verifyMissing = false
+            var needPlan: Bool = effort.plan
             for _ in 0..<maxSteps {
                 guard let i = index(id) else { break }
                 let conv = conversations[i]
@@ -469,6 +495,7 @@ final class ChatStore {
                 if !attachedText.isEmpty {
                     system.append("## Loaded for this request\n" + attachedText)
                 }
+                if !effort.promptLine.isEmpty { system.append("## Effort\n" + effort.promptLine) }
                 if !suggestions.isEmpty {
                     system.append("## Possibly relevant (matched automatically — load one with its tool only if it clearly applies to this request; otherwise ignore them)\n" + suggestions.joined(separator: "\n"))
                 }
@@ -507,7 +534,7 @@ final class ChatStore {
                 var pool: [[String: Any]] = tools
                 pool += KnowledgeTools.builderDefinitions
                 pool.append(CommandStore.toolDefinition)
-                tools = ToolSelection.filter(tools, lastUserText: lastText)
+                tools = ToolSelection.filter(tools, lastUserText: lastText, filtering: effort.filtering)
                 if lastText.contains("command") { tools.append(CommandStore.toolDefinition) }
                 // Commands: tools they require are always offered (still approved
                 // per call); tools they ban are taken away.
@@ -545,6 +572,12 @@ final class ChatStore {
                 if !system.isEmpty {
                     history.insert(["role": "system", "content": system.joined(separator: "\n\n")], at: 0)
                 }
+                // Max: a short visible plan first (no tools); the work then starts with it in the history.
+                if needPlan {
+                    needPlan = false
+                    if await writePlan(id, model: model, history: history, effort: effort) { continue }
+                    break
+                }
                 var reply = ChatMessage(role: .assistant, content: "", model: model)
                 let chip = attachedNames + usedNames
                 if !chip.isEmpty { reply.usedContext = chip }
@@ -564,7 +597,7 @@ final class ChatStore {
                     let stream = OllamaClient().chat(
                         model: model, messages: history,
                         tools: tools.isEmpty ? nil : tools,
-                        think: think, numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive)
+                        think: effort.think(for: model), numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive)
                     for try await chunk in stream {
                         guard let j = index(id), let k = conversations[j].messages.indices.last else { break }
                         if !chunk.thinking.isEmpty {
@@ -611,9 +644,15 @@ final class ChatStore {
                         save()
                         continue
                     }
-                    let chips: [String] = tracker.chips
+                    var chips: [String] = tracker.chips
+                    if verifyMissing { chips.append(EffortLevel.verifySkippedChip) }
                     if !chips.isEmpty {
                         conversations[j].messages[k].usedContext = (conversations[j].messages[k].usedContext ?? []) + chips
+                    }
+                    // Max: a read-only helper reviews what changed, and its notes are shown.
+                    if effort.review, !changedFiles.isEmpty, !Task.isCancelled {
+                        await reviewChanges(id, model: model, web: conv.webOn, commands: tracker.commands,
+                                            request: requestText, files: changedFiles)
                     }
                     break
                 }
@@ -623,7 +662,7 @@ final class ChatStore {
                     let signature = call.name + "|" + call.arguments.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }.joined(separator: "&")
                     let repeats = (callCounts[signature] ?? 0) + 1
                     callCounts[signature] = repeats
-                    if repeats >= 3 {
+                    if repeats >= effort.repeatLimit {
                         // Local models sometimes loop on the same call; nudge it instead of running it again.
                         skips += 1
                         guard let jr = index(id) else { break }
@@ -677,6 +716,21 @@ final class ChatStore {
                         output = scrubber?.scrub(output) ?? output
                     }
                     tracker.record(call, succeeded: allowed && ran)
+                    // High/Max: the first file change brings in the project's check command (unless a command's
+                    // then_run already covers it). CommandTracker enforces it like then_run: same nudges, same ⚠.
+                    if allowed && ran, CommandStore.fileChangingTools.contains(call.name) {
+                        let full: String = Prefs.expand(call.arg("path"))
+                        if !full.isEmpty, !changedFiles.contains(full) { changedFiles.append(full) }
+                        if effort.verify, !verifyChecked, !full.isEmpty, !tracker.commands.contains(where: { $0.thenRun != nil }) {
+                            verifyChecked = true
+                            let stop: String? = project.flatMap { full.hasPrefix($0 + "/") ? $0 : nil }
+                            if let check = EffortLevel.detectCheckCommand(from: full, stopAt: stop) {
+                                tracker.add(EffortLevel.verifyCommand(check))
+                            } else {
+                                verifyMissing = true
+                            }
+                        }
+                    }
                     // Show a skill, rule or report on the chip once the assistant has actually opened it.
                     if allowed, ["use_skill", "use_rule", "report_read"].contains(call.name) {
                         let opened = call.arg("name").trimmingCharacters(in: .whitespaces)
@@ -705,7 +759,7 @@ final class ChatStore {
                     conversations[j2].messages.append(toolMessage)
                 }
                 save()
-                if skips >= 4, let js = index(id) {
+                if skips >= effort.stuckLimit, let js = index(id) {
                     var note = ChatMessage(role: .assistant, content: "I seem to be going round in circles, so I’ve stopped. Tell me what to try next, or say “carry on” to let me keep going.", model: model)
                     note.failed = true
                     conversations[js].messages.append(note)
@@ -722,7 +776,7 @@ final class ChatStore {
 
     private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool, commands: [IngleCommand] = [], env: [String: String] = [:]) async -> String {
         if ["open", "applescript", "screenshot"].contains(call.name) && !mac {
-            return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Think and Web) if they want you to control apps or see the screen."
+            return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Effort and Web) if they want you to control apps or see the screen."
         }
         if call.name == "screenshot" {
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("ingle-screen-\(UUID().uuidString).png")
@@ -754,7 +808,7 @@ final class ChatStore {
         case "chat_list", "chat_search", "chat_read":
             return chatTool(call, excluding: id)
         case "delegate":
-            return await runSubAgent(task: call.arg("task"), model: model, web: web, mac: mac, parent: id, commands: commands)
+            return await runSubAgent(task: call.arg("task"), model: model, web: web, parent: id, commands: commands)
         default:
             return await MacTools.run(call, env: env)
         }
@@ -805,7 +859,8 @@ final class ChatStore {
 
     /// A helper with a fresh context and read-only tools. Runs on the same model, one at a time.
     /// The request's active commands apply to it too: never_use tools are hidden and blocked.
-    private func runSubAgent(task: String, model: String, web: Bool, mac: Bool, parent: Conversation.ID, commands: [IngleCommand] = []) async -> String {
+    /// It reads files inside the workspace folders whatever the Mac button says (Terminal reads are always on).
+    func runSubAgent(task: String, model: String, web: Bool, parent: Conversation.ID, commands: [IngleCommand] = []) async -> String {
         let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.isEmpty else { return "The helper needs a task." }
         var system = ["You are a helper sub-agent working for \(ModelNames.display(model)) inside Ingle, on the user's Mac. Do only the task below, using your tools where useful, then reply with a concise result: key findings, facts, and sources (URLs or file paths). No small talk and no questions — make sensible assumptions and say what they were."]
@@ -829,7 +884,6 @@ final class ChatStore {
                   KnowledgeTools.subAgentAllowed.contains(name) else { return false }
             if banned.contains(name.lowercased()) { return false }
             if name.hasPrefix("web_") { return web }
-            if name == "list_files" || name == "read_file" { return mac }
             return true
         }
 
@@ -843,7 +897,7 @@ final class ChatStore {
             var content = ""
             var calls: [ToolCall] = []
             do {
-                let stream = OllamaClient().chat(model: model, messages: messages, tools: tools, think: false,
+                let stream = OllamaClient().chat(model: model, messages: messages, tools: tools, think: .off,
                                                  numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive)
                 for try await chunk in stream {
                     content += chunk.content
@@ -873,7 +927,7 @@ final class ChatStore {
                     result = "Helpers can only read, so that tool isn't available."
                 } else if !Secrets.names(in: c).isEmpty {
                     result = "Helpers can’t use secrets. " + Secrets.refused
-                } else if (c.name == "list_files" || c.name == "read_file") && (!mac || !Prefs.inWorkspace(c.arg("path"))) {
+                } else if (c.name == "list_files" || c.name == "read_file") && !Prefs.inWorkspace(c.arg("path")) {
                     result = "Helpers can only read inside the workspace folders."
                 } else if c.name.hasPrefix("chat_") {
                     result = chatTool(c, excluding: parent)
@@ -1052,7 +1106,7 @@ final class ChatStore {
         var summary = ""
         do {
             let stream = OllamaClient().chat(model: conv.model, messages: [["role": "user", "content": prompt]], tools: nil,
-                                             think: false, numCtx: Prefs.contextLength(for: conv.model), keepAlive: Prefs.keepAlive)
+                                             think: .off, numCtx: Prefs.contextLength(for: conv.model), keepAlive: Prefs.keepAlive)
             for try await chunk in stream { summary += chunk.content }
         } catch {
             return false

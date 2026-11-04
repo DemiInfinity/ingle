@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ChatMessage, ChatSummary } from '../shared/protocol';
+import type { EffortLevel } from './effort';
 import type { RawToolCall } from './ollama';
 
 /** A message as saved: the UI shape plus what's needed to replay it to Ollama. */
@@ -20,7 +21,10 @@ export interface StoredChat {
   messages: StoredMessage[];
   updated: number;
   web: boolean;
-  think: boolean;
+  /** Before effort levels. Only read to map old chats (on → High, off → Medium); see effort.ts chatEffort. */
+  think?: boolean;
+  /** Effort level (effort.ts). Missing in older chats. */
+  effort?: EffortLevel;
   useContext: boolean;
   usage?: { used: number; limit: number };
   /** True once the model has summarised the first message into a short title. */
@@ -63,8 +67,8 @@ export class ChatStore {
     return this.chats.find((c) => c.id === id);
   }
 
-  create(assistantId: string, web: boolean, think: boolean): StoredChat {
-    const chat: StoredChat = { id: uid(), title: NEW_TITLE, assistantId, messages: [], updated: Date.now(), web, think, useContext: true };
+  create(assistantId: string, web: boolean, effort: EffortLevel): StoredChat {
+    const chat: StoredChat = { id: uid(), title: NEW_TITLE, assistantId, messages: [], updated: Date.now(), web, effort, useContext: true };
     this.chats.unshift(chat);
     return chat;
   }

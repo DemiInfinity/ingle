@@ -105,6 +105,11 @@ flowchart TD
 Nudges are stored as user messages marked `nudge: true` (Mac, shown as a small note) or `hidden: true` (VS Code,
 not shown). Regenerate removes them.
 
+**The built-in `verify` command.** At High and Max effort, the first file change adds a command called `verify` whose
+`then_run` is the project's detected check command (`npm test`, `swift build`, `cargo check`…), so it's enforced by
+exactly the steps above. It isn't added when an active command already has a `then_run`. See
+[agent-loop.md](agent-loop.md#7-effort-and-thinking).
+
 ## Creating commands
 
 Ask in a chat: *"write a command to always run the tests after editing"* or *"never let it use write_file in this

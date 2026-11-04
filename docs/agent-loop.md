@@ -71,8 +71,9 @@ Built fresh every step in `generate(in:)`:
    `~/.ingle/INGLE.md`.
 5. `editor.promptSection` and `editor.projectInstructions` — what you're working on, and the project's
    `AGENTS.md` / `CLAUDE.md` / `.cursorrules` (8,000 characters each).
-6. `## Loaded for this request` — matched and forced rules, skills, memories and reports.
-7. `MemoryStore.systemPrompt` (if memory is on), `WebTools.systemPrompt` (if Web is on),
+6. `## Effort` — the effort level's prompt line, if it has one (see [Effort and thinking](#7-effort-and-thinking)).
+7. `## Loaded for this request` — matched and forced rules, skills, memories and reports.
+8. `MemoryStore.systemPrompt` (if memory is on), `WebTools.systemPrompt` (if Web is on),
    `KnowledgeTools.systemPrompt`, `MacTools.systemPrompt` (Terminal rules), and `MacTools.controlPrompt`
    (if the Mac button is on).
 
@@ -89,7 +90,8 @@ Built fresh every step in `generate(in:)`:
 6. `## Loaded for this request` (memories, forced skills) and `## Possibly relevant` (suggested skills, rules, reports).
 7. `guidancePrompt` — how to work (read before editing, prefer small `edit_file` replacements, one tool at a
    time, don't retry denials, web and memory guidance).
-8. `## Summary of earlier messages` — if compacted.
+8. `## Effort` — the effort level's prompt line, if it has one.
+9. `## Summary of earlier messages` — if compacted.
 
 ### Matching rules, skills, memory and reports
 
@@ -154,8 +156,8 @@ needs. This is keyword-based, deliberately simple, and runs every step against t
 | `memory_read`, `memory_rewrite`, `memory_forget` | the message mentions remember, memory, forget, "about me", "my preference", "note that"… (`memory_search` and `memory_save` are always there when memory is on) |
 | `chat_list`, `chat_search`, `chat_read` | chat, conversation, earlier, last time, yesterday, "we talked", "you said", before… |
 | `ingle_help` | ingle, setting, "how do I", "where is", shortcut, "menu bar", feature… |
-| `delegate` | research, compare, "look into", investigate, summarise, "find out", helper, "in parallel"… |
-| `report_read`, `report_search` | there is at least one research report |
+| `delegate` | research, compare, "look into", investigate, summarise, "find out", helper, "in parallel"… (always at High/Max effort, never at Low) |
+| `report_read`, `report_search` | there is at least one research report (at Low effort, also only when the message says report, research or earlier) |
 | `mcp_tools`, `mcp_call` | the message says "mcp" or names a configured server |
 | `skill_create`, `rule_create` | the message mentions "skill" or "rule" |
 | `command_create` | the message mentions "command" |
@@ -167,7 +169,8 @@ needs. This is keyword-based, deliberately simple, and runs every step against t
 memory, `repo_map` needs an open folder, MCP tools need an enabled server…), then regular expressions for
 `skill_create`/`rule_create` (`skill|rule`), `command_create` (`command`), `read_document` (pdf, docx, excel…),
 `view_image` (image, screenshot, png…), `open_url` ("open … url/link/browser" or a URL), the memory editing tools,
-MCP (`wantsMCP`), and `delegate` (research, compare, investigate…).
+MCP (`wantsMCP`), and `delegate` (research, compare, investigate…). The effort level's `strictness` changes this the
+same way as on the Mac (strict also hides `repo_map` unless asked).
 
 **Commands override selection.** Tools a command's `must_use` names are always added (for `mcp:` requirements,
 `mcp_tools` and `mcp_call`; for `then_run`, `run_command`); tools in `never_use` are removed (`mcp:` bans are blocked per call instead). Required tools come from
@@ -181,7 +184,8 @@ Each step streams one model turn. If it contains no tool calls, the request is f
 check below). Otherwise each call is processed in order:
 
 1. **Repeat guard.** A signature of the tool name and its arguments is counted (Mac: name plus arguments sorted
-   by key; VS Code: name plus the JSON of the arguments). The **third identical call** isn't run; the model gets
+   by key; VS Code: name plus the JSON of the arguments). The **third identical call** (fourth at High and Max
+   effort) isn't run; the model gets
    "You've already made this exact call N times… use that result, try a different approach, or tell the user
    what's blocking you", shown as *Skipped a repeated step*.
 2. **Command ban.** A tool (or `mcp:server[/tool]`) in an active command's `never_use` returns "Blocked by the command …" (with what to use
@@ -192,7 +196,7 @@ check below). Otherwise each call is processed in order:
 
 After the calls:
 
-- **Stuck detection.** When **4 or more** calls have been skipped as repeats during this request, the run stops
+- **Stuck detection.** When **4 or more** calls (6 at High and Max effort) have been skipped as repeats during this request, the run stops
   with "I seem to be going round in circles, so I've stopped. Tell me what to try next, or say 'carry on'…".
 - **Backstop.** There is no small step cap — local models cost nothing per step. The Mac app stops after 200
   steps; VS Code uses `ingle.maxSteps` (default 200, `0` = no limit) and says so when it reaches it.
@@ -249,17 +253,60 @@ Helpers run one at a time because only one big model fits in memory, and they ca
 | | Mac `runSubAgent` | VS Code `runSubAgent` |
 |---|---|---|
 | Tools | `KnowledgeTools.subAgentAllowed`: web (if Web on), memory search/read, reports search/read, past chats, `use_skill`, `use_rule`, `ingle_help`, `list_files`/`read_file` | every offered tool with `readOnly: true` (files, search, problems, documents, images, repo map, web, memory search/read, knowledge reads, `mcp_tools`) |
-| Reading files | only inside workspace folders, and only when the chat's Mac button is on | inside the project freely; outside asks you ("Helper: Wants to read …") |
-| Command bans | not applied | applied (`bannedBy`) |
+| Reading files | only inside workspace folders (whatever the Mac button says — Terminal reads are always on) | inside the project freely; outside asks you ("Helper: Wants to read …") |
+| Command bans | applied (`CommandTracker.blockingCommand`) | applied (`bannedBy`) |
 | Activity line | "Helper is thinking…", "Helper: Search the web…" | same |
 
-## 7. Thinking
+## 7. Effort and thinking
 
-The **Think** toggle sends `think: true`. Thinking arrives in a separate `thinking` stream and is shown collapsed
-("Thought for Ns"). Models that inline reasoning as `<think>…</think>` are split the same way (`ThinkSplitter`
-in [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift); `InlineThink` in `chatEngine.ts`). If a model
-rejects `think`, the request is retried once without it (`OllamaError.thinkingUnsupported`, `ThinkUnsupported`).
-Helpers, compaction and tab-title summaries always run with `think: false`.
+The **Effort** pill in the message bar (Mac: `EffortMenu`, ⌘⇧E cycles; VS Code: the effort menu in the webview)
+sets how hard the assistant tries **in this chat**. Each level is a bundle of settings, defined once per app —
+[`Effort.swift`](../Sources/Ingle/Effort.swift) (`EffortLevel`) and
+[`effort.ts`](../Extensions/vscode/src/engine/effort.ts) (`EFFORT`) — kept in step, and checked by
+`test/effort.test.ts`:
+
+| | Low | Medium | High | Max |
+|---|---|---|---|---|
+| Thinking (`think`) | off | on (`"low"` where the model takes levels) | on (`"medium"`) | on (`"high"`) |
+| `## Effort` prompt line | "Answer directly in as few steps as possible." | (none) | "Investigate before changing anything: read the related code, then check your work." | "Plan first, investigate fully, verify with the project's checks, then review your own changes before finishing." |
+| Tool filtering | strict | normal | relaxed | relaxed |
+| Verify after editing | no | no | yes | yes |
+| Plan first | no | no | no | yes |
+| Helper reviews the changes | no | no | no | yes |
+| Repeat / stuck guard | 3 / 4 | 3 / 4 | 4 / 6 | 4 / 6 |
+
+- **Defaults.** Per assistant, in Settings → Models: Ember Medium, Flint High (`Prefs.K.dailyEffort` /
+  `hardEffort`, mirrored to `settings.json` as `assistants[].effort`). A new chat takes its assistant's default;
+  switching assistant before the first message takes the new one's. The level is saved on the chat
+  (`Conversation.effort`, `StoredChat.effort`, both optional). Chats from before effort levels: Think on → High,
+  off → Medium (the Mac app never saved Think, so its old chats read as Medium).
+- **Thinking.** Ollama's `think` takes `true`/`false` and, for some models (gpt-oss), `"low" | "medium" | "high"`.
+  `EffortLevel.think(for:)` / `thinkParam()` send the level only to models that take one, `true` to the rest,
+  `false` at Low. If a model rejects it, the request is retried as plain `true` (for a level), then without `think`
+  at all (`OllamaError.thinkingUnsupported`, `ThinkUnsupported`) — so on a model that can't think, Low and Medium
+  behave the same. Thinking arrives in a separate `thinking` stream and is shown collapsed ("Thought for Ns").
+  Models that inline reasoning as `<think>…</think>` are split the same way (`ThinkSplitter` in
+  [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift); `InlineThink` in `chatEngine.ts`). Helpers,
+  compaction and tab-title summaries always run with `think: false`.
+- **Tool filtering.** Strict (Low): the helper (`delegate`) is never offered, and `report_read`/`report_search`
+  (and in VS Code `repo_map`) need asking for. Relaxed (High/Max): the helper is always offered. Commands still
+  override this. See [Tool selection](#3-tool-selection).
+- **Verify after editing (High, Max).** On the first allowed file change (`write_file`, `edit_file`), Ingle finds
+  the project's check command — unless an active command already has a `then_run`, which then does the job. It walks
+  up from the changed file (stopping at the workspace, never above your home folder) to the nearest folder with
+  `package.json` (the `test` script, unless it's npm's placeholder, else `lint`; `pnpm`/`yarn` if their lock file is
+  there), `Package.swift` (`swift build`), `Cargo.toml` (`cargo check`), `go.mod` (`go test ./...`), a Makefile with
+  a `test:` target (`make test`) or pytest config (`pytest`). It then adds a built-in command called **verify**
+  with that as its `then_run`, so the normal command checks enforce it: it appears in the COMMANDS block, the model
+  is nudged (at most twice) if it tries to finish without running it after its last change, and the reply gets
+  `⚠ didn’t follow verify` if it never does. No check command found: the reply gets the chip
+  `verify skipped: no check command found`. The command itself still asks for approval like any other.
+- **Plan (Max).** Before the first step, the model is asked (with the full system prompt, no tools) for a short
+  numbered plan; it's shown as its own message starting **Plan**, and stays in the history so the work starts from
+  it. If nothing comes back, the work goes ahead without one. (Task 32's task list will replace this.)
+- **Review (Max).** When the request finishes and files changed, Ingle runs `git diff HEAD` on those files itself
+  (read-only; new files are shown in full), and a read-only helper (`runSubAgent`) reviews it against the request.
+  Its notes are shown as a message starting **Review**, with a `helper review` chip.
 
 ## 8. Model tuning
 

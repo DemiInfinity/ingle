@@ -34,11 +34,30 @@ enum ToolSelection {
         return names.contains { t.contains($0) }
     }
 
+    /// Under strict filtering (Low effort): tools that are normally offered whenever they're usable need asking for.
+    static func strictWants(_ name: String, _ t: String) -> Bool {
+        switch name {
+        case "report_read", "report_search": return mentions(t, ["report", "research", "earlier"])
+        default: return true
+        }
+    }
+
     /// Drops optional tools this message doesn't call for. Core tools for the turned-on switches always stay.
-    static func filter(_ tools: [[String: Any]], lastUserText: String) -> [[String: Any]] {
+    /// `filtering` comes from the effort level: strict (Low) never offers the helper and needs asking for reports;
+    /// relaxed (High/Max) always offers the helper. Same as selectTools(strictness:) in toolSelection.ts.
+    static func filter(_ tools: [[String: Any]], lastUserText: String, filtering: EffortLevel.Filtering = .normal) -> [[String: Any]] {
         let t = lastUserText.lowercased()
         return tools.filter { def in
-            switch name(def) {
+            let n: String = name(def)
+            if filtering == .strict, !strictWants(n, t) { return false }
+            if n == "delegate" {
+                switch filtering {
+                case .strict: return false
+                case .relaxed: return true
+                case .normal: return wantsHelper(t)
+                }
+            }
+            switch n {
             case "memory_read", "memory_rewrite", "memory_forget": return wantsMemoryEditing(t)
             case "chat_list", "chat_search", "chat_read": return wantsPastChats(t)
             case "ingle_help": return wantsHelp(t)

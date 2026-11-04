@@ -259,9 +259,11 @@ struct ModelSettings: View {
             }
             GetModelSection()
             PersonaSection(title: "Daily coding", nameKey: Prefs.K.dailyName, personaKey: Prefs.K.dailyPersona,
-                           defaultName: "Ember", defaultPersona: Persona.dailyDefault)
+                           effortKey: Prefs.K.dailyEffort,
+                           defaultName: "Ember", defaultPersona: Persona.dailyDefault, defaultEffort: .medium)
             PersonaSection(title: "Hard jobs", nameKey: Prefs.K.hardName, personaKey: Prefs.K.hardPersona,
-                           defaultName: "Flint", defaultPersona: Persona.hardDefault)
+                           effortKey: Prefs.K.hardEffort,
+                           defaultName: "Flint", defaultPersona: Persona.hardDefault, defaultEffort: .high)
             OtherModelPersonas(exclude: [daily, hard, auto])
             Section {
                 ForEach(mm.available, id: \.name) { model in
@@ -488,20 +490,30 @@ private struct PersonaSection: View {
     let title: String
     let defaultName: String
     let defaultPersona: String
+    let defaultEffort: EffortLevel
     @AppStorage private var name: String
     @AppStorage private var persona: String
+    @AppStorage private var effort: String
 
-    init(title: String, nameKey: String, personaKey: String, defaultName: String, defaultPersona: String) {
+    init(title: String, nameKey: String, personaKey: String, effortKey: String, defaultName: String, defaultPersona: String,
+         defaultEffort: EffortLevel) {
         self.title = title
         self.defaultName = defaultName
         self.defaultPersona = defaultPersona
+        self.defaultEffort = defaultEffort
         _name = AppStorage(wrappedValue: defaultName, nameKey)
         _persona = AppStorage(wrappedValue: defaultPersona, personaKey)
+        _effort = AppStorage(wrappedValue: defaultEffort.rawValue, effortKey)
     }
 
     var body: some View {
         Section {
             TextField("Name", text: $name)
+            Picker("Default effort", selection: $effort) {
+                ForEach(EffortLevel.allCases) { e in Text(e.label).tag(e.rawValue) }
+            }
+            .help("Effort for new chats with this assistant. You can change it per chat with the Effort pill (⌘⇧E). "
+                  + (EffortLevel(rawValue: effort) ?? defaultEffort).help)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Personality")
                 TextEditor(text: $persona)
@@ -514,8 +526,9 @@ private struct PersonaSection: View {
             Button("Reset to default") {
                 name = defaultName
                 persona = defaultPersona
+                effort = defaultEffort.rawValue
             }
-            .disabled(name == defaultName && persona == defaultPersona)
+            .disabled(name == defaultName && persona == defaultPersona && effort == defaultEffort.rawValue)
         } header: {
             Text("\(title) assistant")
         } footer: {

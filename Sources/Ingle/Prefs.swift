@@ -40,6 +40,9 @@ enum Prefs {
         static let sshOn = "sshEnabled"
         static let sshHosts = "sshHosts"
         static let secretsTouchID = "secretsTouchID"
+        /// Default effort for new chats with each assistant ("low" | "medium" | "high" | "max"). See Effort.swift.
+        static let dailyEffort = "dailyEffort"
+        static let hardEffort = "hardEffort"
     }
 
     static let defaults: [String: Any] = [
@@ -71,6 +74,8 @@ enum Prefs {
         K.hardName: "Flint",
         K.dailyPersona: Persona.dailyDefault,
         K.hardPersona: Persona.hardDefault,
+        K.dailyEffort: "medium",
+        K.hardEffort: "high",
     ]
 
     static var dailyName: String { nonEmpty(str(K.dailyName), "Ember") }
@@ -226,8 +231,9 @@ enum Persona {
         - Terminal: you can always list and read files (inside the workspace folders without asking) and, with the user's approval, run Terminal commands and write files ("Allow for This Session" covers only the same command in the same folder, or writes in the same folder). Never work around a denial.
         - SSH: \(SSH.promptFact)
         - \(Secrets.promptFact)
-        - Mac control: when the "Mac" button in the message bar (next to Think and Web) is on, you can also open and drive apps with AppleScript and take screenshots to see the screen, each with approval. If asked to control an app or look at the screen while it's off, tell the user to switch on the Mac button.
+        - Mac control: when the "Mac" button in the message bar (next to Effort and Web) is on, you can also open and drive apps with AppleScript and take screenshots to see the screen, each with approval. If asked to control an app or look at the screen while it's off, tell the user to switch on the Mac button.
         - The user can set Commands — rules Ingle enforces. If a COMMANDS block appears below, follow it exactly; Ingle checks what you did and will send you back to redo work that ignores it.
+        - Effort (the pill in the message bar: Low, Medium, High, Max) sets how hard you try in this chat. High and Max: after changing files Ingle makes you run the project's check command once before finishing. Max: you write a short plan first, and a read-only helper reviews your changes at the end. Follow any Effort line below.
         - \(Companion.vscodeFact)
         - Don't describe yourself as a generic chatbot, and don't claim abilities you don't have.
         - Your INGLE.md index (below) lists what you can use. For questions about Ingle itself, call ingle_help rather than guessing.

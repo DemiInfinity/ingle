@@ -25,7 +25,7 @@ import {
 import { secretApprovalRequest } from '../tools/secretsApproval';
 import {
   activeCommands, bannedBy, blockedMessage, CallRecord, CommandEntry, commandsBlock, commandsNotice, completionCheck,
-  ignoredChip, isNudgeText, listCommands, unavailableReason,
+  FILE_CHANGING_TOOLS, ignoredChip, isNudgeText, listCommands, unavailableReason,
 } from '../tools/commands';
 import { mcp, MCP_TOOL_NAMES, wantsMCP } from '../tools/mcp';
 import { extractDocument, prepareImage } from '../tools/documents';
@@ -37,6 +37,10 @@ import { ChatStore, NEW_TITLE, StoredChat, StoredMessage, uid } from './chatStor
 import { DIFF_SCHEME, DiffProvider } from './diff';
 import { Candidate, Matcher } from './matcher';
 import { selectTools } from './toolSelection';
+import {
+  chatEffort, defaultEffort, detectCheckCommand, EFFORT, EffortLevel, isEffort, PLAN_HEADING, PLAN_REQUEST, REVIEW_HEADING,
+  reviewTask, thinkParam, VERIFY_SKIPPED_CHIP, verifyCommand,
+} from './effort';
 import { prettyModel, roleName } from './names';
 import { OllamaClient, OllamaMessage, RawToolCall } from './ollama';
 import {
@@ -135,6 +139,34 @@ interface UserExtras {
 type Stored = StoredMessage & UserExtras;
 
 // MARK: helpers
+
+/** `git diff` for these files (grouped by repository), capped; '' when they aren't in a repo. Read-only, run by
+ *  Ingle itself for Max effort's review — not a model tool call. */
+async function gitDiff(files: string[]): Promise<string> {
+  const { execFile } = await import('child_process');
+  const run = (cwd: string, args: string[]) => new Promise<string>((resolve) => {
+    execFile('git', args, { cwd, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out)));
+  });
+  const byRepo = new Map<string, string[]>();
+  for (const f of files) {
+    const top = (await run(path.dirname(f), ['rev-parse', '--show-toplevel'])).trim();
+    if (!top) continue;
+    byRepo.set(top, [...(byRepo.get(top) ?? []), f]);
+  }
+  let out = '';
+  for (const [top, list] of byRepo) {
+    out += await run(top, ['diff', 'HEAD', '--', ...list]);
+    // New files aren't in `git diff HEAD` until added; show them as plain text.
+    for (const f of list) {
+      const tracked = (await run(top, ['ls-files', '--', f])).trim();
+      if (!tracked) {
+        try { out += `\n--- new file ${f}\n` + fs.readFileSync(f, 'utf8').slice(0, 4000); } catch { /* gone */ }
+      }
+    }
+    if (out.length > 12000) break;
+  }
+  return out.slice(0, 12000);
+}
 
 function workspaceRoot(): string | undefined {
   return vscode.workspace.workspaceFolders?.find((w) => w.uri.scheme === 'file')?.uri.fsPath;
@@ -382,7 +414,8 @@ export class ChatEngine implements vscode.Disposable {
     return {
       assistants: this.settings.assistants.map((x) => ({ id: x.id, name: x.name, role: roleName(x.id), model: prettyModel(x.model) })),
       currentAssistant: a.id,
-      think: chat.think,
+      effort: this.effortOf(chat),
+      effortHelp: { low: EFFORT.low.help, medium: EFFORT.medium.help, high: EFFORT.high.help, max: EFFORT.max.help },
       web: chat.web,
       useContext: chat.useContext,
       chats: this.store.summaries(),
@@ -414,6 +447,7 @@ export class ChatEngine implements vscode.Disposable {
         case 'deleteChat': return this.deleteChat(msg.id);
         case 'setAssistant': return this.setAssistant(msg.id);
         case 'toggle': return this.toggle(msg.key, msg.value);
+        case 'setEffort': return this.setEffort(msg.effort);
         case 'approve': return this.approve(msg.id, msg.decision);
         case 'showDiff': return await this.showApprovalDiff(msg.id);
         case 'insertCode': return await this.insertCode(msg.code);
@@ -524,8 +558,8 @@ export class ChatEngine implements vscode.Disposable {
 
   private newChatObject(): StoredChat {
     const last = this.context.globalState.get<string>('ingle.assistant') ?? 'daily';
-    const think = this.context.globalState.get<boolean>('ingle.think') ?? false;
-    const chat = this.store.create(assistant(this.settings, last).id, this.settings.web.onByDefault, think);
+    const a = assistant(this.settings, last);
+    const chat = this.store.create(a.id, this.settings.web.onByDefault, defaultEffort(a.id, a.effort));
     this.currentId = chat.id;
     return chat;
   }
@@ -569,17 +603,32 @@ export class ChatEngine implements vscode.Disposable {
   private setAssistant(id: string) {
     this.settings = loadSettings();
     const chat = this.current();
-    chat.assistantId = assistant(this.settings, id).id;
+    const a = assistant(this.settings, id);
+    chat.assistantId = a.id;
+    // A chat that hasn't started yet takes the new assistant's default effort.
+    if (!chat.messages.length) chat.effort = defaultEffort(a.id, a.effort);
     void this.context.globalState.update('ingle.assistant', chat.assistantId);
     if (chat.messages.length) this.store.save();
     this.postInit();
     void this.refreshVision();
   }
 
-  private toggle(key: 'think' | 'web' | 'useContext', value: boolean) {
+  /** This chat's effort level (old chats: Think on → High, off → Medium). */
+  private effortOf(chat: StoredChat): EffortLevel {
+    const a = assistant(this.settings, chat.assistantId);
+    return chatEffort(chat, defaultEffort(a.id, a.effort));
+  }
+
+  private setEffort(effort: EffortLevel) {
+    if (!isEffort(effort)) return;
+    const chat = this.current();
+    chat.effort = effort;
+    if (chat.messages.length) this.store.save();
+  }
+
+  private toggle(key: 'web' | 'useContext', value: boolean) {
     const chat = this.current();
     chat[key] = value;
-    if (key === 'think') void this.context.globalState.update('ingle.think', value);
     if (chat.messages.length) this.store.save();
     if (key === 'useContext') this.post({ type: 'context', context: this.contextInfo() });
   }
@@ -833,7 +882,7 @@ export class ChatEngine implements vscode.Disposable {
     };
   }
 
-  private toolsFor(ctx: ToolContext, lastUser: string, delegate?: ToolDef, active: CommandEntry[] = []): ToolDef[] {
+  private toolsFor(ctx: ToolContext, lastUser: string, delegate?: ToolDef, active: CommandEntry[] = [], strictness: 'strict' | 'normal' | 'relaxed' = 'normal'): ToolDef[] {
     let defs: ToolDef[] = [];
     try {
       defs = allTools().filter((t) => t.name !== 'delegate');
@@ -846,7 +895,7 @@ export class ChatEngine implements vscode.Disposable {
     const sshHosts = available.some((t) => t.name === 'ssh_command') ? enabledSSHHosts(ctx.settings) : [];
     return selectTools({
       available, lastUser, isSubAgent: ctx.isSubAgent, active, delegate,
-      mcpToolNames: MCP_TOOL_NAMES, mcpWanted: !ctx.isSubAgent && wantsMCP(lastUser.toLowerCase()), sshHosts,
+      mcpToolNames: MCP_TOOL_NAMES, mcpWanted: !ctx.isSubAgent && wantsMCP(lastUser.toLowerCase()), sshHosts, strictness,
     });
   }
 
@@ -1188,7 +1237,7 @@ export class ChatEngine implements vscode.Disposable {
     }
   }
 
-  private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = []): string {
+  private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = [], effortLine = ''): string {
     const root = workspaceRoot();
     const parts = [personaPrompt(this.settings, a, chat.web, enabledSSHHosts(this.settings), listSecrets().map((s) => s.name))];
     const commands = commandsBlock(active);
@@ -1203,6 +1252,7 @@ export class ChatEngine implements vscode.Disposable {
     if (matched.text) parts.push('## Loaded for this request\n' + matched.text.trim());
     if (matched.hints.length) parts.push('## Possibly relevant (matched automatically — load one with its tool only if it clearly applies to this request; otherwise ignore them)\n' + matched.hints.join('\n'));
     parts.push(guidancePrompt(this.settings, chat.web, tools.some((t) => t.name === 'delegate')));
+    if (effortLine) parts.push('## Effort\n' + effortLine);
     if (summary) parts.push('## Summary of earlier messages in this chat (they were compacted)\n' + summary);
     return parts.join('\n\n');
   }
@@ -1219,6 +1269,8 @@ export class ChatEngine implements vscode.Disposable {
     const limit = a.contextLength || 32768;
     const client = new OllamaClient(this.settings.serverURL);
     const vision = await this.visionFor(model);
+    const effort = this.effortOf(chat);
+    const spec = EFFORT[effort];
     const editor = chat.useContext ? this.snapshot() : undefined;
     const lastUser = [...chat.messages].reverse().find((m) => m.role === 'user') as Stored | undefined;
     const lastText = lastUser?.content ?? '';
@@ -1266,10 +1318,15 @@ export class ChatEngine implements vscode.Disposable {
     const delegate = this.delegateTool((task) => this.runSubAgent(task, chat, model, limit, vision, signal, active));
 
     const callCounts = new Map<string, number>();
+    // High/Max: files changed this request, and whether the check command was found for them.
+    const changedFiles: string[] = [];
+    let verifyChecked = false;
+    let verifyMissing = false;
+    let needPlan = spec.plan;
     for (let step = 0; step < maxSteps; step++) {
       if (signal.aborted) return;
       const baseCtx = this.makeCtx(chat.id, chat.web, vision, signal, false, '', {}, () => undefined);
-      const tools = this.toolsFor(baseCtx, lastText, delegate, active);
+      const tools = this.toolsFor(baseCtx, lastText, delegate, active, spec.tools);
       if (!checkedAvailability) {
         // A command whose required tool can't be offered at all (e.g. web_search with Web off) gets ⚠ now, no nudges.
         checkedAvailability = true;
@@ -1286,7 +1343,7 @@ export class ChatEngine implements vscode.Disposable {
       let system = '';
       for (let attempt = 0; attempt < 2; attempt++) {
         const c = this.lastCompaction(chat);
-        system = this.buildSystem(chat, a, tools, editor, matched, c >= 0 ? chat.messages[c].content : '', repoMap, active);
+        system = this.buildSystem(chat, a, tools, editor, matched, c >= 0 ? chat.messages[c].content : '', repoMap, active, spec.promptLine);
         history = toOllamaHistory(chat.messages.slice(c + 1) as Stored[], vision);
         const tokens = Math.ceil((system.length + toolChars) / 4) + estimate(history);
         if (tokens <= limit * COMPACT_AT || attempt > 0) break;
@@ -1298,6 +1355,13 @@ export class ChatEngine implements vscode.Disposable {
       const tokens = fixed + estimate(history);
       chat.usage = { used: tokens, limit };
       this.postFor(chat.id, { type: 'contextUsage', used: tokens, limit });
+
+      // Max: a short visible plan first (no tools), then the work starts with the plan in the history.
+      if (needPlan) {
+        needPlan = false;
+        if (!(await this.writePlan(chat, a, client, model, system, history, effort, limit, signal))) return;
+        continue;
+      }
 
       const reply: Stored = { id: uid(), role: 'assistant', content: '', assistantName: a.name, model: pretty };
       if (used.length) reply.usedContext = used;
@@ -1326,7 +1390,7 @@ export class ChatEngine implements vscode.Disposable {
       let stopped = false;
       try {
         const r = await client.chat(
-          { model, messages: [{ role: 'system', content: system }, ...history], tools: toolJSON, think: chat.think, numCtx: limit, keepAlive: this.settings.keepAlive },
+          { model, messages: [{ role: 'system', content: system }, ...history], tools: toolJSON, think: thinkParam(effort, model), numCtx: limit, keepAlive: this.settings.keepAlive },
           signal,
           {
             onContent: (raw) => {
@@ -1372,10 +1436,16 @@ export class ChatEngine implements vscode.Disposable {
           this.store.saveSoon();
           continue;
         }
-        if (ignored.size) {
-          reply.usedContext = [...(reply.usedContext ?? []), ...[...ignored].map(([n, why]) => ignoredChip(n, why))];
+        const chips = [...ignored].map(([n, why]) => ignoredChip(n, why));
+        if (verifyMissing) chips.push(VERIFY_SKIPPED_CHIP);
+        if (chips.length) {
+          reply.usedContext = [...(reply.usedContext ?? []), ...chips];
           this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
           this.store.saveSoon();
+        }
+        // Max: a read-only helper reviews what changed, and its notes are shown.
+        if (spec.review && changedFiles.length && !signal.aborted) {
+          await this.reviewChanges(chat, a, model, limit, vision, signal, active, lastText, changedFiles);
         }
         return;
       }
@@ -1386,7 +1456,7 @@ export class ChatEngine implements vscode.Disposable {
         const sig = (call.function?.name ?? '') + '|' + JSON.stringify(parseArgs(call.function?.arguments));
         const repeats = (callCounts.get(sig) ?? 0) + 1;
         callCounts.set(sig, repeats);
-        const skip = repeats >= 3
+        const skip = repeats >= spec.repeatLimit
           ? `You've already made this exact call ${repeats - 1} times and have its result above. Don't repeat it — use that result, try a different approach, or tell the user what's blocking you.`
           : undefined;
         if (skip) skips++;
@@ -1407,10 +1477,23 @@ export class ChatEngine implements vscode.Disposable {
           }
         }
         if (record) done.push(record);
+        // High/Max: the first file change brings in the project's check command (unless a command's then_run
+        // already covers it). It's enforced like then_run: same nudges, same ⚠ chip.
+        if (record && !record.denied && FILE_CHANGING_TOOLS.includes(record.name)) {
+          const file = str(record.args, 'path');
+          const full = file ? resolveToolPath(file, root) : '';
+          if (full && !changedFiles.includes(full)) changedFiles.push(full);
+          if (spec.verify && !verifyChecked && full && !active.some((c) => c.thenRun.trim())) {
+            verifyChecked = true;
+            const check = detectCheckCommand(full, root && full.startsWith(root + path.sep) ? root : undefined);
+            if (check) active.push(verifyCommand(check));
+            else verifyMissing = true;
+          }
+        }
       }
       this.store.save();
       // Stuck: it keeps repeating the same calls even after being told it has the result.
-      if (skips >= 4 && !signal.aborted) {
+      if (skips >= spec.stuckLimit && !signal.aborted) {
         const note: Stored = { id: uid(), role: 'assistant', content: 'I seem to be going round in circles, so I’ve stopped. Tell me what to try next, or say “carry on” to let me keep going.', assistantName: a.name, model: pretty, failed: true };
         chat.messages.push(note);
         this.postFor(chat.id, { type: 'messageAdd', message: forUI(note) });
@@ -1536,6 +1619,57 @@ export class ChatEngine implements vscode.Disposable {
   // MARK: sub-agents
 
   /** A helper with a fresh context and read-only tools, on the same model, ≤ 10 steps. */
+  /** Max effort's plan step: asks for a short plan (no tools) and shows it as its own message. Returns false if
+   *  stopped. The plan stays in the history, so the work that follows starts from it. */
+  private async writePlan(chat: StoredChat, a: AssistantSettings, client: OllamaClient, model: string, system: string,
+    history: OllamaMessage[], effort: EffortLevel, limit: number, signal: AbortSignal): Promise<boolean> {
+    const plan: Stored = { id: uid(), role: 'assistant', content: '', assistantName: a.name, model: prettyModel(model) };
+    chat.messages.push(plan);
+    this.postFor(chat.id, { type: 'messageAdd', message: forUI(plan) });
+    this.setActivity('Planning…');
+    let text = '';
+    try {
+      const r = await client.chat(
+        { model, messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: PLAN_REQUEST }], think: thinkParam(effort, model), numCtx: limit, keepAlive: this.settings.keepAlive },
+        signal,
+      );
+      text = stripThink(r.content).trim();
+    } catch (e) {
+      if (signal.aborted) {
+        chat.messages = chat.messages.filter((m) => m.id !== plan.id);
+        this.postFor(chat.id, { type: 'init', state: this.state() });
+        this.setActivity(null);
+        return false;
+      }
+      text = '';
+    }
+    this.setActivity(null);
+    if (!text) {
+      // No plan came back: carry on without one rather than stopping the work.
+      chat.messages = chat.messages.filter((m) => m.id !== plan.id);
+      this.postFor(chat.id, { type: 'init', state: this.state() });
+      return true;
+    }
+    plan.content = `${PLAN_HEADING}\n\n${text}`;
+    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(plan) });
+    this.store.saveSoon();
+    return !signal.aborted;
+  }
+
+  /** Max effort's review: a read-only helper looks at the diff (or the files) and its notes are shown. */
+  private async reviewChanges(chat: StoredChat, a: AssistantSettings, model: string, limit: number, vision: boolean,
+    signal: AbortSignal, active: CommandEntry[], request: string, files: string[]): Promise<void> {
+    this.setActivity('Reviewing the changes…');
+    const diff = await gitDiff(files);
+    const notes = await this.runSubAgent(reviewTask(request, files, diff), chat, model, limit, vision, signal, active);
+    this.setActivity(null);
+    if (signal.aborted) return;
+    const note: Stored = { id: uid(), role: 'assistant', content: `${REVIEW_HEADING}\n\n${notes.trim()}`, assistantName: a.name, model: prettyModel(model), usedContext: ['helper review'] };
+    chat.messages.push(note);
+    this.postFor(chat.id, { type: 'messageAdd', message: forUI(note) });
+    this.store.saveSoon();
+  }
+
   private async runSubAgent(task: string, chat: StoredChat, model: string, numCtx: number, vision: boolean, signal: AbortSignal, active: CommandEntry[] = []): Promise<string> {
     task = task.trim();
     if (!task) return 'The helper needs a task.';

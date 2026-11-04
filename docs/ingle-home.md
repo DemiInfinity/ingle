@@ -44,9 +44,9 @@ change settings in the Mac app instead.
 {
   "assistants": [
     { "id": "daily", "name": "Ember", "model": "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS",
-      "persona": "WHO YOU ARE: …", "contextLength": 32768 },
+      "persona": "WHO YOU ARE: …", "contextLength": 32768, "effort": "medium" },
     { "id": "hard", "name": "Flint", "model": "qwen3.8:27b-mlx",
-      "persona": "WHO YOU ARE: …", "contextLength": 32768 }
+      "persona": "WHO YOU ARE: …", "contextLength": 32768, "effort": "high" }
   ],
   "autocompleteModel": "qwen2.5-coder:1.5b-base",
   "enginePath": "/Applications/Ingle.app/Contents/Resources/OllamaRuntime/ollama",
@@ -242,7 +242,7 @@ The same format as Claude Desktop and Cursor:
 | Engine log | `~/Library/Logs/Ingle/ollama.log` | Appended by the bundled engine started by the Mac app (not rotated). |
 | Mac settings | macOS preferences for Ingle's bundle identifier (UserDefaults) | Keys in `Prefs.K`, plus `checkEngineUpdates`, `engineLastCheck`, `engineNotified`, `mcpDisabledServers`, `modelProfiles`. |
 | VS Code chats | VS Code's global storage for the extension: `chats-<sha1 of workspace path, 16 hex>.json` | Per workspace, the 50 most recent non-empty chats. Tied to the extension's publisher name — keep `VSCODE_PUBLISHER` stable. |
-| VS Code small state | VS Code `globalState`: `ingle.assistant`, `ingle.think` | Last assistant and Think choice. |
+| VS Code small state | VS Code `globalState`: `ingle.assistant` | Last assistant. (Effort is saved per chat; the default per assistant comes from `settings.json`.) |
 | Models | `~/.ollama/models` | Ollama's store, shared with any other Ollama. Settings → Models can delete them; menu bar → More → Open Model Folder. |
 | Cached engine for builds | `~/.local/share/ingle-runtime/` | `build.sh` keeps an unslimmed copy so rebuilds work without the Ollama app. Delete it to make the next build download a fresh engine. |
 | `ollama` command | `~/.local/bin/ollama` → the engine inside `/Applications/Ingle.app` | Symlink made by `./build.sh --install`. |

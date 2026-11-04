@@ -56,7 +56,7 @@ Mac control). These are instructions, not enforcement — but any such command w
 
 ## Level 2: Mac control
 
-Switch on **Mac** in the message bar (next to Think and Web) to let the assistant drive apps and see your screen in
+Switch on **Mac** in the message bar (next to Effort and Web) to let the assistant drive apps and see your screen in
 **that chat**. It's off by default for every new chat (`Conversation.macAccess`). With it on, the prompt gains
 `MacTools.controlPrompt` (prefer an app's own AppleScript over clicking; take a screenshot to check; never enter
 passwords, buy anything, send messages or delete things unless clearly asked).

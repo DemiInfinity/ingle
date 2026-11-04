@@ -61,7 +61,7 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
   sidebar (chats grouped Today / Yesterday / Previous 7 days / Older; right-click to delete), a status card, and the
   **This Mac** card (`SystemCard` in [`SystemMonitor.swift`](../Sources/Ingle/SystemMonitor.swift): CPU, memory,
   GPU utilisation from `IOAccelerator`, 80 s GPU sparkline).
-- **Message bar:** paperclip, model pill (`ModelMenu`), **Think**, **Web**, **Mac**, the "N allowed" badge, a
+- **Message bar:** paperclip, model pill (`ModelMenu`), **Effort** (`EffortMenu`, ⌘⇧E cycles), **Web**, **Mac**, the "N allowed" badge, a
   hand icon explaining what asks first, Send/Stop. Above it: the editor chip (`EditorChip`) and the slash menu;
   below it: the context meter (`ContextMeter`) with **Compact**.
 - **Messages** ([`MessageViews.swift`](../Sources/Ingle/MessageViews.swift)): `MessageRow` renders user and
@@ -175,14 +175,15 @@ servers and the engine Ingle started are stopped.
 |---|---|---|
 | [`IngleApp.swift`](../Sources/Ingle/IngleApp.swift) | 60 | `@main IngleApp` (chat `Window`, `Settings`, `MenuBarExtra`), `AppDelegate`, ⌘N and ⇧⌘K |
 | [`ChatStore.swift`](../Sources/Ingle/ChatStore.swift) | 990 | `ChatMessage`, `Conversation`, `Attachment`, `PendingApproval`; **the agent loop** `generate(in:)`; approvals and `sessionAllowed`; `runTool` (Mac-control gate, screenshots, image reads), `chatTool` (past chats), `runSubAgent`, `toolPool`; vision detection; `historyJSON`, `fit`, `compact`, `contextUsage`; slash commands; persistence |
-| [`ChatViews.swift`](../Sources/Ingle/ChatViews.swift) | 660 | `ChatRoot`, `Sidebar`, `StatusCard`, `ChatDetail` (composer, pills, attachments, drag and drop, slash keys), `ContextMeter`, `EditorChip`, `ModelMenu`, `ThinkToggle`, `Banner`, `ApprovalCard`, `EmptyChat` |
+| [`ChatViews.swift`](../Sources/Ingle/ChatViews.swift) | 660 | `ChatRoot`, `Sidebar`, `StatusCard`, `ChatDetail` (composer, pills, attachments, drag and drop, slash keys), `ContextMeter`, `EditorChip`, `ModelMenu`, `EffortMenu`, `Banner`, `ApprovalCard`, `EmptyChat` |
 | [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift) | 450 | `MessageRow`, `ThinkSplitter`, `TypingDots`, `CopyButton`, a small Markdown parser (`Markdown`, `MDBlock`, `MarkdownView`), `CodeBlock` |
 | [`Tools.swift`](../Sources/Ingle/Tools.swift) | 270 | `MacTools`: Terminal and Mac-control definitions, `ingle_help`, `mcp_tools`/`mcp_call`, prompts, `describe`, `needsApproval`, `run`, shell, AppleScript, `open` quoting |
 | [`ToolSelection.swift`](../Sources/Ingle/ToolSelection.swift) | 50 | Per-turn keyword filtering of optional tools |
+| [`Effort.swift`](../Sources/Ingle/Effort.swift) | 300 | `EffortLevel` (the effort table, kept in step with `effort.ts`), check-command detection, the built-in verify command, `OllamaThink`, Max's plan and review (`ChatStore` extension) |
 | [`Commands.swift`](../Sources/Ingle/Commands.swift) | 230 | `IngleCommand`, `CommandStore` (load, prompt block, index, enable, create), `CommandTracker` |
 | [`Prefs.swift`](../Sources/Ingle/Prefs.swift) | 320 | `Prefs` keys and defaults, `Persona` (defaults and `systemPrompt`), `ModelNames`, `ModelProfiles`, `Companion` |
 | [`Manifest.swift`](../Sources/Ingle/Manifest.swift) | 170 | `IngleManifest` (`INGLE.md`), `HelpTopics` |
-| [`Ollama.swift`](../Sources/Ingle/Ollama.swift) | 270 | `OllamaClient` (version, tags, ps, load/unload, delete, capabilities, pull, streaming chat with think retry), `ToolCall`, `ModelTuning` |
+| [`Ollama.swift`](../Sources/Ingle/Ollama.swift) | 270 | `OllamaClient` (version, tags, ps, load/unload, delete, capabilities, pull, streaming chat with think levels and retry), `ToolCall`, `ModelTuning` |
 | [`OllamaServer.swift`](../Sources/Ingle/OllamaServer.swift) | 90 | Start/stop the bundled engine; local vs remote |
 | [`EngineUpdater.swift`](../Sources/Ingle/EngineUpdater.swift) | 370 | Update checks, notifications, download, SHA-256, staging, slimming, swap, roll back, `Downloader` |
 | [`ModelManager.swift`](../Sources/Ingle/ModelManager.swift) | 280 | Model state polling, switching, sleep, autocomplete pausing, downloads, install/delete, battery |

@@ -51,6 +51,7 @@ export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web
     '- Don’t describe yourself as a generic chatbot, and don’t claim abilities you don’t have.',
     '- Your index (below) lists what you can use.',
     '- The user can set Commands — rules Ingle enforces. If a COMMANDS block appears, follow it exactly; Ingle checks and will make you redo work that ignores it.',
+    '- Effort (the pill in the message bar: Low, Medium, High, Max) sets how hard you try in this chat. High and Max: after changing files Ingle makes you run the project’s check command once before finishing. Max: you write a short plan first, and a read-only helper reviews your changes at the end. Follow any Effort line below.',
     `- ${companionFact()}`,
     'Your character (stay in it, naturally — don’t announce it):',
     a.persona?.trim() || 'A friendly, knowledgeable all-rounder who enjoys helping and gets to the point. British English. Clear and natural, like a capable colleague: answer first, then the why. Say plainly when you’re unsure or when something is a bad idea.',

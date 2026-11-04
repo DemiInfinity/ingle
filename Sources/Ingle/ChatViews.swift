@@ -353,7 +353,7 @@ struct ChatDetail: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The row under the message box: attach, model, Think, Web, Mac, approvals badge, send.
+    /// The row under the message box: attach, model, Effort, Web, Mac, approvals badge, send.
     @ViewBuilder
     private func controls(compact: Bool) -> some View {
             HStack(spacing: 8) {
@@ -364,7 +364,7 @@ struct ChatDetail: View {
                 .help("Attach files: code, documents (PDF, Word, Excel…) or images (including HEIC). You can also drop them here.")
 
                 ModelMenu(conversation: conversation, compact: compact)
-                ThinkToggle(compact: compact)
+                EffortMenu(conversation: conversation, compact: compact)
 
                 Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
                     Label("Web", systemImage: "globe")
@@ -556,15 +556,44 @@ struct ModelMenu: View {
     }
 }
 
-struct ThinkToggle: View {
+/// Effort: Low · Medium · High · Max for this chat (Effort.swift). ⌘⇧E cycles it.
+struct EffortMenu: View {
     @Environment(ChatStore.self) private var store
+    let conversation: Conversation
     var compact = false
 
     var body: some View {
-        @Bindable var store = store
-        Toggle(isOn: $store.think) { Label("Think", systemImage: "brain") }
-            .toggleStyle(PillToggleStyle(compact: compact))
-            .help("Let the model think before it answers. Slower, sometimes smarter.")
+        let level: EffortLevel = conversation.effortLevel
+        let strong: Bool = level == .high || level == .max
+        Menu {
+            Picker("Effort", selection: Binding(get: { conversation.effortLevel }, set: { store.setEffort($0) })) {
+                ForEach(EffortLevel.allCases) { e in
+                    Text(e.help).tag(e)
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Text("⌘⇧E cycles the levels")
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "brain")
+                if !compact { Text(level.label).lineLimit(1) }
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+            .font(.system(size: 12.5, weight: .medium))
+            .fixedSize()
+            .padding(.horizontal, compact ? 10 : 14)
+            .frame(height: 30)
+            .foregroundStyle(strong ? Ember.onAccent : Ember.secondary)
+            .background(Capsule().fill(strong ? Ember.accent : Color.white.opacity(0.06)))
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Effort: \(level.help) Click to change; ⌘⇧E cycles.")
+        .accessibilityLabel("Effort: \(level.label)")
     }
 }
 

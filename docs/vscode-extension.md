@@ -86,7 +86,7 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 
 | Type | Payload | Purpose |
 |---|---|---|
-| `init` | `state: UIState` | Everything to draw the tab: assistants, current assistant, Think/Web/context toggles, chat list, messages, editor context, engine state, vision, context usage, slash items, version |
+| `init` | `state: UIState` | Everything to draw the tab: assistants, current assistant, effort level (and its help text), Web/context toggles, chat list, messages, editor context, engine state, vision, context usage, slash items, version |
 | `messageAdd` | `message` | Append a message (user, assistant, tool row) |
 | `messageDelta` | `id`, `content?`, `thinking?` | Stream text into a message |
 | `messageUpdate` | `message` | Replace a whole message (final stats, tool output, chips) |
@@ -116,7 +116,8 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 | `stop` | — | Stop |
 | `newChat` / `openChat` / `deleteChat` | `id` | History |
 | `setAssistant` | `id` | `daily` or `hard` |
-| `toggle` | `key: think \| web \| useContext`, `value` | Message-bar switches |
+| `toggle` | `key: web \| useContext`, `value` | Message-bar switches |
+| `setEffort` | `effort: low \| medium \| high \| max` | Effort menu (saved on the chat) |
 | `approve` | `id`, `decision: allow \| deny \| always` | Approval card |
 | `showDiff` | `id` | **View Diff** on an approval |
 | `insertCode` / `applyCode` | `code`, `language?` | Code block buttons |

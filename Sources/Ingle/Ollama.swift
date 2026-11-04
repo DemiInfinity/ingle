@@ -182,18 +182,24 @@ struct OllamaClient: Sendable {
 
     // MARK: Streaming chat
 
-    func chat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: Bool,
+    /// Streaming /api/chat. If the model rejects `think`: a level is retried as plain `true`, then without `think`
+    /// at all. Same as OllamaClient.chat in ollama.ts.
+    func chat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: OllamaThink,
               numCtx: Int, keepAlive: String) -> AsyncThrowingStream<ChatChunk, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    do {
-                        try await streamChat(model: model, messages: messages, tools: tools, think: think,
-                                             numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
-                    } catch OllamaError.thinkingUnsupported {
-                        // Model doesn't do "think"; retry without asking for it.
-                        try await streamChat(model: model, messages: messages, tools: tools, think: nil,
-                                             numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
+                    var tries: [OllamaThink?] = [think, nil]
+                    if case .level = think { tries = [think, .on, nil] }
+                    for (n, attempt) in tries.enumerated() {
+                        do {
+                            try await streamChat(model: model, messages: messages, tools: tools, think: attempt,
+                                                 numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
+                            break
+                        } catch OllamaError.thinkingUnsupported {
+                            // The model doesn't take this kind of "think"; try the next, simpler one.
+                            if n == tries.count - 1 { throw OllamaError.thinkingUnsupported }
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -204,7 +210,7 @@ struct OllamaClient: Sendable {
         }
     }
 
-    private func streamChat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: Bool?,
+    private func streamChat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: OllamaThink?,
                             numCtx: Int, keepAlive: String,
                             continuation: AsyncThrowingStream<ChatChunk, Error>.Continuation) async throws {
         var body: [String: Any] = [
@@ -212,9 +218,9 @@ struct OllamaClient: Sendable {
             "messages": messages,
             "stream": true,
             "keep_alive": keepAlive,
-            "options": ModelTuning.options(model: model, think: think ?? false, numCtx: numCtx),
+            "options": ModelTuning.options(model: model, think: think?.isOn ?? false, numCtx: numCtx),
         ]
-        if let think { body["think"] = think }
+        if let think { body["think"] = think.json }
         if let tools, !tools.isEmpty { body["tools"] = tools }
 
         var req = URLRequest(url: base.appendingPathComponent("api/chat"))
