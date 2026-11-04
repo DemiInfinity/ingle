@@ -118,10 +118,10 @@ export class OllamaClient {
           questions: {
             looping: {
               type: 'noul',
-              instructions: "Is the model's recent reasoning stuck in a repetitive loop, restating the same idea without meaningful progress toward the user's task? Be conservative: normal checking, correcting mistakes, and considering alternatives are not loops.",
+              instructions: "Is the model's reasoning getting stuck or spiraling instead of answering the user's task? Detect both repeated wording and semantic/structural loops: repeatedly rereading or re-parsing the same history, repeatedly reconsidering what the user meant, restarting the same answer, announcing new plans or attempts, repeating readiness or final-check commentary without producing the answer, or revisiting a point already resolved. Phrases such as ‘wait’, ‘maybe they want’, ‘let's go’, and ‘I'm ready’ are review cues only; they are not proof of a loop. Be conservative: reading relevant context once, correcting a mistake once, and considering alternatives that make progress are not loops.",
               criteria: {
-                true: 'The recent reasoning clearly repeats the same point or cycle without progress.',
-                false: 'The reasoning is progressing, checking work, or the evidence is insufficient to call it a loop.',
+              true: 'The reasoning repeatedly rereads context, restarts the same answer or interpretation, or repeats preparation commentary without producing an answer, even if wording changes.',
+              false: 'The reasoning is progressing, correcting a mistake once, or the evidence is insufficient to call it a loop.',
               },
             },
           },
@@ -261,6 +261,7 @@ export class OllamaClient {
     let finished = false;
     let lastDecisionLength = 0;
     let deciderFailed = false;
+    let selfWarningReviewed = false;
     const handleLine = async (line: string) => {
       let obj: {
         error?: unknown;
@@ -289,12 +290,19 @@ export class OllamaClient {
             finished = true;
             return;
           }
+          const reviewCue = findOverthinkingReviewCue(result.thinking);
+          const reviewWarning = reviewCue !== null && !selfWarningReviewed;
           if (req.thinkingDecider?.enabled && !deciderFailed
-            && result.thinking.length - lastDecisionLength >= 768) {
+            && (result.thinking.length - lastDecisionLength >= 256 || reviewWarning)) {
             lastDecisionLength = result.thinking.length;
+            if (reviewWarning) selfWarningReviewed = true;
             const task = [...req.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
-            const state = `User task:\n${task.slice(-1000)}\n\nRecent reasoning:\n${result.thinking.slice(-2500)}`;
+            const reviewNote = reviewWarning
+              ? `\n\nImmediate review signal: the reasoning contains ${reviewCue}. Treat this only as a prompt to review now; decide from the full reasoning whether it is actually looping and should be stopped.`
+              : '';
+            const state = `User task:\n${task}\n\nFull reasoning so far:\n${result.thinking}${reviewNote}`;
             const score = await this.thinkingLoopConfidence(req.thinkingDecider.model, state, signal);
+            if (signal.aborted) throw signal.reason ?? new Error('Stopped');
             if (score === null) deciderFailed = true;
             else if (score >= 0.88) {
               result.thinkingLoopStopped = true;
@@ -333,6 +341,7 @@ export class OllamaClient {
     try {
       while (!finished) {
         const { done, value } = await reader.read();
+        if (signal.aborted) throw signal.reason ?? new Error('Stopped');
         if (done) break;
         buf += decoder.decode(value as Uint8Array, { stream: true });
         let i: number;
@@ -348,6 +357,21 @@ export class OllamaClient {
     }
     return result;
   }
+}
+
+function findOverthinkingReviewCue(thinking: string): string | null {
+  const normalized = thinking.toLowerCase().replace(/[’‘]/g, "'");
+  const direct = ['stop overthinking', 'i am overthinking', "i'm overthinking", 'done it twice already',
+    'third time', 'one last time', 'fresh start', 'previous attempt', 'previous prompts'];
+  const match = direct.find((phrase) => normalized.includes(phrase));
+  if (match) return `the phrase “${match}”`;
+
+  const repeated = ['wait', 'maybe they want', "let's go", "let's try", "let's execute", 'plan:',
+    'final plan:', 'prompt:', 'i will present', 'my output:', 'this time', "i'm ready", "let's write",
+    'final check:', 'one detail:', 'this is the test', 're-read', 'reread', 'looking at the prompt',
+    'look at the constraints', 'original prompt'];
+  const pivot = repeated.find((phrase) => normalized.split(phrase).length - 1 >= 2);
+  return pivot ? `repeated “${pivot}” pivots` : null;
 }
 
 

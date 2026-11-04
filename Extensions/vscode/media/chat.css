@@ -322,7 +322,7 @@ button:disabled { cursor: default; }
 
 /* Assistant */
 .msg-assistant { display: flex; flex-direction: column; gap: 6px; }
-.msg-head { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.msg-head { display: flex; align-items: center; gap: 7px; min-width: 0; flex-wrap: nowrap; }
 .avatar {
   width: 20px; height: 20px; flex: none;
   display: flex; align-items: center; justify-content: center;
@@ -347,6 +347,7 @@ button:disabled { cursor: default; }
   min-width: 0;
 }
 .chip-btn { background: var(--raised); color: var(--muted); }
+.msg-head .think-btn, .msg-head .decider-chip { flex: none; white-space: nowrap; }
 .chip-btn:hover { color: var(--fg); background: var(--hover); }
 .used-chip { background: var(--ember-soft); color: var(--ember); border: 1px solid transparent; }
 body.vscode-high-contrast .used-chip { border-color: var(--ember-line); }

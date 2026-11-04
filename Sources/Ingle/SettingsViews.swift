@@ -101,6 +101,7 @@ struct GeneralSettings: View {
     @AppStorage(Prefs.K.warnBattery) private var warnBattery = true
     @AppStorage(Prefs.K.showName) private var showName = false
     @AppStorage(Prefs.K.server) private var serverURL = "http://localhost:11434"
+    @AppStorage(Prefs.K.thoughtMonitorAPI) private var thoughtMonitorAPI = false
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
@@ -160,6 +161,16 @@ struct GeneralSettings: View {
                     }
                 }
                 TextField("Server address", text: $serverURL)
+            }
+            Section("Decider testing") {
+                Toggle(isOn: $thoughtMonitorAPI) {
+                    TitleAndHint(title: "Allow local thought monitoring",
+                                 hint: "Enables an authenticated, loopback-only API to read live thoughts and stop a test reply")
+                }
+                Text("API: 127.0.0.1:47123/thought-monitor · token: ~/.ingle/bridge-token. Thought text stays on this Mac unless a client sends it elsewhere.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Ember.secondary)
+                    .textSelection(.enabled)
             }
             EngineUpdateSection()
         }
@@ -254,7 +265,7 @@ struct ModelSettings: View {
     @AppStorage(Prefs.K.auto) private var auto = "qwen2.5-coder:1.5b-base"
     @AppStorage(Prefs.K.ctxDaily) private var ctxDaily = Prefs.contextLength
     @AppStorage(Prefs.K.ctxHard) private var ctxHard = Prefs.contextLength
-    @AppStorage(Prefs.K.thinkingDeciderEnabled) private var thinkingDeciderEnabled = false
+    @AppStorage(Prefs.K.thinkingDeciderEnabled) private var thinkingDeciderEnabled = true
     @AppStorage(Prefs.K.thinkingDeciderModel) private var thinkingDeciderModel = "strands-decider:2b-nvfp4"
     @State private var pendingDelete: String?
 

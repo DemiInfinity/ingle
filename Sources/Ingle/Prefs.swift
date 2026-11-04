@@ -46,6 +46,7 @@ enum Prefs {
         static let hardEffort = "hardEffort"
         static let thinkingDeciderEnabled = "thinkingDeciderEnabled"
         static let thinkingDeciderModel = "thinkingDeciderModel"
+        static let thoughtMonitorAPI = "thoughtMonitorAPI"
         /// Add a Signed-off-by line (git commit -s) when committing a run with the Commit button. Off by default.
         static let commitSignOff = "commitSignOff"
     }
@@ -72,8 +73,9 @@ enum Prefs {
         K.warnBattery: true,
         K.showName: false,
         K.server: "http://localhost:11434",
-        K.thinkingDeciderEnabled: false,
+        K.thinkingDeciderEnabled: true,
         K.thinkingDeciderModel: "strands-decider:2b-nvfp4",
+        K.thoughtMonitorAPI: false,
         K.ctx: 32768,
         K.folders: ["~/Projects"],
         K.autoRead: true,
@@ -102,8 +104,9 @@ enum Prefs {
     static var dailyModel: String { str(K.daily) }
     static var hardModel: String { str(K.hard) }
     static var autoModel: String { str(K.auto) }
-    static var thinkingDeciderEnabled: Bool { d.object(forKey: K.thinkingDeciderEnabled) as? Bool ?? false }
+    static var thinkingDeciderEnabled: Bool { d.object(forKey: K.thinkingDeciderEnabled) as? Bool ?? true }
     static var thinkingDeciderModel: String { nonEmpty(str(K.thinkingDeciderModel), "strands-decider") }
+    static var thoughtMonitorAPI: Bool { d.object(forKey: K.thoughtMonitorAPI) as? Bool ?? false }
     static var serverURL: String { str(K.server) }
     static var warnOnBattery: Bool { d.object(forKey: K.warnBattery) as? Bool ?? true }
     /// "smart": pause while Ember or Flint is awake, ready again when they sleep.
@@ -259,11 +262,13 @@ enum Persona {
         - Ingle saves the files you change, so the user can see them in the changes panel under your reply, undo the whole run (every file you changed in one reply) with Undo this run, or commit exactly those files. Changes made by commands aren't covered.
         - For a job of 3 or more steps, keep a short task list with update_tasks (the user sees it with ticks): mark one item in_progress as you start it and done when finished. Not for quick questions.
         - The user can type while you work: their message appears in the chat marked as sent while you were working. Take it into account from that point.
+        - Read each relevant instruction once. For short follow-ups such as “redo”, “again” and “try again”, inspect only the immediately preceding request and answer once, then act on the meaning the context supports. If the user is asking you to verify a factual claim or supply missing evidence, check reliable web sources when Web is on and cite them. Do not reopen or re-parse the same history after intent is clear; consult older turns only when the user identifies them or they are essential. If meaning is still materially unclear after one check, ask one brief question instead of listing interpretations.
         - SSH: \(SSH.promptFact)
         - \(Secrets.promptFact)
         - \(mac)
         - The user can set Commands — rules Ingle enforces. If a COMMANDS block appears below, follow it exactly; Ingle checks what you did and will send you back to redo work that ignores it.
         - Effort (the pill in the message bar: Low, Medium, High, Max) sets how hard you try in this chat. High and Max: after changing files Ingle makes you run the project's check command once before finishing. Max: your short plan becomes the task list, and a read-only helper reviews your changes at the end. Follow any Effort line below. The Mode pill sets what may happen without asking: Ask (everything asks), Edit (file changes inside the project are approved automatically), Auto (also safe commands inside the project; risky ones still ask), Plan (only read and search, then end with a numbered plan for the user to approve) and Debug (reproduce or locate the failure, state the cause in a line starting \"Cause:\", then fix and rerun to confirm). Plans from Plan mode or Max are saved as Markdown in .ingle/plans and ticked as your task list moves on. Follow any Mode line below.
+        - Reasoning (the brain pill in the message bar) is off by default: you answer directly without thinking. When the user switches it on, Ingle summarises the chat, researches and prepares a context report before you answer, and you think at the Effort level — use it for deep research and hard problems. If a task needs careful thought and Reasoning is off, you may suggest switching it on.
         - \(companion)
         - Don't describe yourself as a generic chatbot, and don't claim abilities you don't have.
         - Your INGLE.md index (below) lists what you can use. For questions about Ingle itself, call ingle_help rather than guessing.

@@ -260,7 +260,7 @@ struct ChatDetail: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
-                    ForEach(conversation.messages) { m in
+                    ForEach(conversation.messages.filter { $0.role != .tool && $0.workflowHidden != true }) { m in
                         MessageRow(message: m,
                                    isLast: m.id == conversation.messages.last?.id,
                                    streaming: streaming,
@@ -508,6 +508,15 @@ struct ChatDetail: View {
                 ModelMenu(conversation: conversation, compact: compact)
                 EffortMenu(conversation: conversation, compact: compact)
                 ModeMenu(conversation: conversation, compact: compact)
+
+                // Reasoning: off answers directly; on runs the thinking flow and lets the model think at the Effort level.
+                Toggle(isOn: Binding(get: { conversation.reasoningOn }, set: { store.setReasoning($0) })) {
+                    Label("Reasoning", systemImage: "brain")
+                }
+                .toggleStyle(PillToggleStyle(compact: true))
+                .help(conversation.reasoningOn
+                      ? "Reasoning on: summarises, researches and thinks before answering (slower, for deep work)"
+                      : "Reasoning off: answers directly without thinking (fast). Turn on for deep research or hard problems")
 
                 Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
                     Label("Web", systemImage: "globe")

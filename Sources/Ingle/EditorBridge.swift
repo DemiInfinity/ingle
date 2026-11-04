@@ -188,6 +188,14 @@ final class EditorBridge {
         switch (request.method, request.path) {
         case ("GET", "/ping"):
             return (200, #"{"ok":true,"app":"Ingle"}"#)
+        case ("GET", "/thought-monitor"):
+            guard Prefs.thoughtMonitorAPI else { return (403, #"{"error":"Thought monitoring is disabled in Settings → General → Decider testing."}"#) }
+            return (200, Self.json(ChatStore.current?.thoughtMonitorSnapshot() ?? ["active": false]))
+        case ("POST", "/thought-monitor/stop"):
+            guard Prefs.thoughtMonitorAPI else { return (403, #"{"error":"Thought monitoring is disabled in Settings → General → Decider testing."}"#) }
+            guard ChatStore.current?.streamingID != nil else { return (409, #"{"error":"No reply is currently streaming."}"#) }
+            ChatStore.current?.stop()
+            return (200, #"{"ok":true,"stopping":true}"#)
         case ("POST", "/context"):
             guard var c = try? decoder.decode(EditorContext.self, from: request.body) else { return (400, #"{"error":"bad json"}"#) }
             c.updated = Date()

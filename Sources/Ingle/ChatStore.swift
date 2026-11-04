@@ -8,6 +8,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var role: Role
     var content: String
     var thinking: String = ""
+    /// The visible phases behind this reply's Thinking disclosure. Optional so older saved chats still decode.
+    var thinkingPhases: [ThinkingPhase]?
     var model: String?
     var toolCalls: [ToolCall] = []
     var toolName: String?
@@ -38,6 +40,10 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var plan: PlanRef?
     /// A message typed while a run was going: it joined the run at the model's next step.
     var steer: Bool?
+    /// Assistant text emitted only to introduce a tool call. Kept for model history, shown inside Thinking stages.
+    var workflowHidden: Bool?
+    /// Single live workflow bubble, removed when the final answer is ready.
+    var workflowProgress: Bool?
 
     var isRealUser: Bool { role == .user && nudge != true }
 
@@ -55,6 +61,13 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         if let toolName { m["tool_name"] = toolName }
         return m
     }
+}
+
+struct ThinkingPhase: Codable, Equatable, Identifiable {
+    var id: String { title }
+    var title: String
+    var content: String
+    var status: String?
 }
 
 /// A run's checkpoint as the chat shows it: the run's id and what Undo would do to each file.
@@ -76,6 +89,10 @@ struct Conversation: Identifiable, Codable, Equatable {
     /// Effort level (EffortLevel raw value). nil in chats saved before effort levels: they had Think off
     /// (the Mac app never saved Think on), so they read as Medium.
     var effort: String?
+    /// Reasoning (the brain pill): off = answer directly, no thinking and no pre-answer steps; on = the thinking flow
+    /// (summarise → research → understand → choose tools) plus the model's own thinking at the Effort level.
+    var reasoning: Bool?
+    var reasoningOn: Bool { reasoning ?? false }
 
     var webOn: Bool { webAccess ?? Prefs.webOnByDefault }
     var effortLevel: EffortLevel { effort.flatMap(EffortLevel.init(rawValue:)) ?? .medium }
@@ -163,6 +180,7 @@ final class ChatStore {
     static weak var current: ChatStore?
 
     private var task: Task<Void, Never>?
+    private var activeOllamaStream: OllamaStreamControl?
     /// The run in progress per chat (one per reply to a message): file-changing tools checkpoint into it.
     private var activeRuns: [Conversation.ID: Checkpoints.Run] = [:]
     private var approval: CheckedContinuation<Bool, Never>?
@@ -201,6 +219,12 @@ final class ChatStore {
         }
         let text = (ask.text?.isEmpty == false) ? ask.text! : (attachment == nil ? "" : "Can you look at this?")
         incoming = IncomingDraft(conversation: id, text: text, attachment: attachment)
+    }
+
+    func setReasoning(_ on: Bool) {
+        guard let id = selection, let i = index(id) else { return }
+        conversations[i].reasoning = on
+        save()
     }
 
     func setWebAccess(_ on: Bool) {
@@ -345,6 +369,14 @@ final class ChatStore {
         // A chat that hasn't started yet takes the new assistant's default effort.
         if conversations[i].messages.isEmpty { conversations[i].effort = EffortLevel.defaultFor(model: model).rawValue }
         save()
+        // Switching here does what the menu bar's switch does: wake the new assistant (asking first for a big model on
+        // battery) so the menu bar shows who's awake, instead of the old model until the next message.
+        if let mm = ModelManager.current, !mm.isLoaded(model) {
+            let big: Bool = model == Prefs.hardModel
+            if !big || mm.confirmHardOnBattery() {
+                Task { await mm.activate(model) }
+            }
+        }
     }
 
     func setEffort(_ level: EffortLevel) {
@@ -524,6 +556,22 @@ final class ChatStore {
     func stop() {
         resolve(false)
         task?.cancel()
+        activeOllamaStream?.cancel()
+    }
+
+    func thoughtMonitorSnapshot() -> [String: Any] {
+        guard let id = streamingID, let i = index(id),
+              let message = conversations[i].messages.last(where: { $0.role == .assistant }) else {
+            return ["active": false]
+        }
+        return [
+            "active": true,
+            "chatId": id.uuidString,
+            "model": message.model ?? "",
+            "thinking": message.thinking,
+            "content": message.content,
+            "deciderIntervened": message.deciderIntervened == true,
+        ]
     }
 
     // MARK: Approvals
@@ -587,8 +635,23 @@ final class ChatStore {
     private func generate(in id: Conversation.ID) {
         streamingID = id
         let effort: EffortLevel = index(id).map { conversations[$0].effortLevel } ?? .medium
+        let reasoning: Bool = index(id).map { conversations[$0].reasoningOn } ?? false
         let run = Checkpoints.Run(chat: id.uuidString, run: UUID().uuidString)
         let firstNew: Int = index(id).map { conversations[$0].messages.count } ?? 0
+        let progressMessageID = UUID()
+        if reasoning, let i = index(id) {
+            let model = conversations[i].model
+            var progress = ChatMessage(role: .assistant, content: "", model: model)
+            progress.id = progressMessageID
+            progress.workflowProgress = true
+            progress.thinkingPhases = [
+                ThinkingPhase(title: "Summarising", content: "Preparing the context summary and checking saved memory…", status: "Starting"),
+                ThinkingPhase(title: "Understanding", content: "Waiting for the summary and research…", status: "Waiting"),
+                ThinkingPhase(title: "Thinking", content: "Waiting for the context report…", status: "Waiting"),
+            ]
+            conversations[i].messages.append(progress)
+            save()
+        }
         activeRuns[id] = run
         // A finished task list goes when the next job starts; an unfinished one stays (e.g. "carry on" after Stop).
         if let i = index(id), conversations[i].tasks != nil, TaskList.allDone(conversations[i].tasks) {
@@ -599,6 +662,7 @@ final class ChatStore {
             // Engine asleep or stopped? Start it now rather than making the user press Start.
             if !(await OllamaServer.shared.isUp()) {
                 activity = "Starting the engine…"
+                updateThinkingStage(id, messageID: progressMessageID, title: "Summarising", status: "Waiting for engine")
                 await OllamaServer.shared.ensureRunning()
                 for _ in 0..<60 {
                     if await OllamaServer.shared.isUp() { break }
@@ -607,8 +671,41 @@ final class ChatStore {
                 await ModelManager.current?.refresh()
                 activity = nil
             }
+            updateThinkingStage(id, messageID: progressMessageID, title: "Summarising", status: "In progress",
+                                content: "Summarising earlier messages and checking saved memory…")
             // What you're working on, and rules/skills that clearly match this message, attached up front.
             let startConv = index(id).map { conversations[$0] }
+            var turnSummary = ""
+            var turnSummaryPhase = ""
+            var turnMemoryNotes = ""
+            var currentRequest = ""
+            var exactTurn = ""
+            var understandingText = ""
+            var turnResearchText = ""
+            var followupInterpretation: String?
+            if reasoning, let initial = startConv,
+               let followupIndex = initial.messages.lastIndex(where: { $0.isRealUser }),
+               followupIndex >= 0 {
+                let prior = initial.messages[..<followupIndex].reversed().filter { $0.isRealUser || $0.role == .assistant }.prefix(2).reversed()
+                exactTurn = prior.map { m in
+                    "\(m.isRealUser ? "User" : "Assistant"): \(ThinkSplitter.split(m.content, extra: "").body)"
+                }.joined(separator: "\n\n")
+                currentRequest = initial.messages[followupIndex].content
+                let memoryNotes = Prefs.memoryEnabled
+                    ? MemoryStore.search(([currentRequest, exactTurn].filter { !$0.isEmpty }).joined(separator: "\n"))
+                    : "Memory is disabled."
+                let hasMemoryMatch = Prefs.memoryEnabled && !memoryNotes.localizedCaseInsensitiveContains("Nothing in memory")
+                turnMemoryNotes = hasMemoryMatch ? memoryNotes : ""
+                turnSummary = await summarizeForTurn(initial, before: followupIndex, request: currentRequest, memory: memoryNotes)
+                var summaryDetails: [String] = []
+                if hasMemoryMatch { summaryDetails.append("Saved memory checked:\n\(memoryNotes)") }
+                summaryDetails.append("Context summary:\n\(turnSummary.isEmpty ? "Current request: \(currentRequest)" : turnSummary)")
+                turnSummaryPhase = summaryDetails.joined(separator: "\n\n")
+                updateThinkingStage(id, messageID: progressMessageID, title: "Summarising", status: "Done", content: turnSummaryPhase)
+                updateThinkingStage(id, messageID: progressMessageID, title: "Understanding", status: "Waiting",
+                                    content: "Waiting for summary and research…")
+                activity = nil
+            }
             // Code mode: the chat's folder is the project; the editor's context isn't used.
             let codeFolder: String? = startConv?.codeFolder
             let editor = (codeFolder == nil && (startConv?.useEditor ?? true)) ? EditorBridge.shared.freshContext : nil
@@ -620,7 +717,9 @@ final class ChatStore {
             var suggestions: [String] = []       // matched, offered, not loaded
             var usedNames: [String] = []         // skills/rules/reports the assistant actually opened
             // Commands that apply to this request — enforced below, not just suggested.
-            let requestText = startConv?.messages.last(where: { $0.isRealUser })?.content ?? ""
+            let originalRequest = startConv?.messages.last(where: { $0.isRealUser })?.content ?? ""
+            if currentRequest.isEmpty { currentRequest = originalRequest }
+            var requestText = originalRequest
             var tracker = CommandTracker(CommandStore.active(for: requestText, project: project))
             for c in tracker.commands {
                 attachedNames.append("⚑ " + c.name)
@@ -630,17 +729,12 @@ final class ChatStore {
                 }
             }
             if let startConv {
-                let lastUser = startConv.messages.last(where: { $0.isRealUser })?.content ?? ""
+                let lastUser = [startConv.messages.last(where: { $0.isRealUser })?.content ?? "", followupInterpretation ?? ""].joined(separator: "\n")
                 let query = lastUser + " " + [editor?.language, editor?.fileName].compactMap { $0 }.joined(separator: " ")
                 let rulePool = RuleStore.all(project: project).filter { !$0.always }
                 let skillPool = SkillStore.all()
-                let memoryPool = Prefs.memoryEnabled ? MemoryStore.all() : []
                 let reportPool = ReportStore.all().prefix(60)
                 var candidates: [SemanticMatcher.Candidate] = []
-                for m in memoryPool {
-                    let facts = m.facts.prefix(6).joined(separator: " ")
-                    candidates.append(SemanticMatcher.Candidate(id: "memory:" + m.name, text: m.name + ": " + m.description + ". " + facts))
-                }
                 for r in reportPool {
                     candidates.append(SemanticMatcher.Candidate(id: "report:" + r.name, text: r.title + ": " + r.summary))
                 }
@@ -656,17 +750,13 @@ final class ChatStore {
                     attachedNames.append(forced.name)
                 }
                 for hit in await SemanticMatcher.shared.matches(query: String(query.prefix(4000)), candidates: candidates) {
-                    // Matches are only suggestions: the assistant loads one if it really applies, and only
-                    // then does it show on the reply's chip. Memories are small facts, so they're included quietly.
+                    // Matches are suggestions; the assistant loads one only if it clearly applies.
                     if hit.hasPrefix("rule:") {
                         let name = String(hit.dropFirst(5))
                         suggestions.append("- rule \(name) — use_rule(\"\(name)\")")
                     } else if hit.hasPrefix("report:") {
                         let name = String(hit.dropFirst(7))
                         suggestions.append("- earlier research \(name) — report_read(\"\(name)\")")
-                    } else if hit.hasPrefix("memory:") {
-                        let name = String(hit.dropFirst(7))
-                        attachedText += "### Memory: \(name)\n\(String(MemoryStore.read(name).prefix(4000)))\n\n"
                     } else if hit.hasPrefix("skill:"), !attachedNames.contains(String(hit.dropFirst(6))) {
                         let name = String(hit.dropFirst(6))
                         suggestions.append("- skill \(name) — use_skill(\"\(name)\")")
@@ -689,11 +779,68 @@ final class ChatStore {
 
             // Code mode: the project at a glance, ranked for this request (at most ~1,500 tokens), once per request.
             var repoMap = ""
-            if let codeFolder, let startConv {
-                activity = "Mapping the project…"
-                repoMap = await RepoMap.promptSection(root: codeFolder, query: requestText,
+            let researchFolder = codeFolder ?? ((startConv?.useEditor ?? true) ? editor?.workspace : nil)
+            let webResearchCues = ["research", "source", "citation", "prove", "verify", "fact-check", "look up", "search the web",
+                                   "current", "latest", "today", "price", "news", "evidence", "deep dive"]
+            let webResearchExpected = (startConv?.webOn ?? false) && webResearchCues.contains(where: { requestText.lowercased().contains($0) })
+            let researchExpected = researchFolder != nil || webResearchExpected
+            if reasoning && researchExpected {
+                updateThinkingStage(id, messageID: progressMessageID, title: "Research", status: "In progress",
+                                    content: "Checking relevant project files and web sources…")
+            }
+            if let researchFolder, let startConv {
+                repoMap = await RepoMap.promptSection(root: researchFolder, query: requestText,
                                                       contextTokens: Prefs.contextLength(for: startConv.model))
-                activity = nil
+            }
+            if reasoning, let startConv {
+                turnResearchText = await researchForTurn(model: startConv.model, query: requestText,
+                    summary: turnSummary, understanding: "", projectContext: repoMap,
+                    webOn: startConv.webOn)
+            }
+            if !turnResearchText.isEmpty {
+                updateThinkingStage(id, messageID: progressMessageID, title: "Research", status: "Done", content: turnResearchText)
+            } else {
+                removeThinkingStage(id, messageID: progressMessageID, title: "Research")
+            }
+            let selectedModel = startConv?.model ?? Prefs.dailyModel
+            let lowModel = Prefs.dailyModel.isEmpty ? selectedModel : Prefs.dailyModel
+            if reasoning {
+            // Understanding runs after research so its report can integrate the past-chat summary,
+            // saved-memory matches, and any relevant project or web findings in one place.
+            let reportPrompt = """
+            Create a concise context report for the selected assistant model. Integrate the user's current intent with the relevant past messages, summary, saved-memory matches, and research findings below. Resolve references such as “redo” or “that”; preserve requested verification, source, and formatting constraints. Use short labelled sections. Include only information relevant to this request. Do not answer the request and do not repeat the full conversation.
+
+            Current user request:
+            \(currentRequest)
+
+            Immediately preceding exchange:
+            \(exactTurn.isEmpty ? "(None.)" : exactTurn)
+
+            Past-chat summary:
+            \(turnSummary.isEmpty ? "(No earlier messages.)" : turnSummary)
+
+            Saved-memory findings:
+            \(turnMemoryNotes.isEmpty ? "(No relevant saved-memory matches.)" : turnMemoryNotes)
+
+            Research findings:
+            \(turnResearchText.isEmpty ? "(No additional research was needed.)" : turnResearchText)
+            """
+            var report = ""
+            updateThinkingStage(id, messageID: progressMessageID, title: "Understanding", status: "In progress",
+                                content: "Interpreting the request and preparing the context report…")
+            do {
+                let stream = OllamaClient().chat(model: lowModel,
+                    messages: [["role": "user", "content": reportPrompt]], tools: nil,
+                    think: .off, numCtx: Prefs.contextLength(for: lowModel), keepAlive: Prefs.keepAlive)
+                for try await chunk in stream { report += chunk.content }
+            } catch { report = "Use the current request with the available summary and research. If a reference remains ambiguous, ask one concise clarification." }
+            understandingText = ThinkSplitter.split(report, extra: "").body.trimmingCharacters(in: .whitespacesAndNewlines)
+            if understandingText.isEmpty { understandingText = "Follow the current request using the available summary and research. If a reference remains ambiguous, ask one concise clarification." }
+            updateThinkingStage(id, messageID: progressMessageID, title: "Understanding", status: "Done", content: understandingText)
+            updateThinkingStage(id, messageID: progressMessageID, title: "Thinking", status: "Waiting",
+                                content: "Waiting for the selected model…")
+            followupInterpretation = "## Context report\n\(understandingText)\nUse this report as the complete interpretation of earlier context; do not reread prior chat messages."
+            requestText = [originalRequest, followupInterpretation].compactMap { $0 }.joined(separator: "\n")
             }
 
             // Local models cost nothing per step: keep going until done, stopped, or clearly stuck (200 is a backstop).
@@ -704,6 +851,12 @@ final class ChatStore {
             var skips = 0
             // Effort (Effort.swift): High/Max verify after editing, Max plans first and has the changes reviewed.
             var changedFiles: [String] = []
+            var turnThinking = ""
+            var turnToolingText = ""
+            var turnActionEntries: [String] = []
+            var actionInProgress = false
+            var selectedToolNames = Set<String>()
+            var toolingDecisionMade = false
             var verifyChecked = false
             var verifyMissing = false
             // Max: plan first (into the task list). Plan mode makes its own plan instead.
@@ -725,11 +878,11 @@ final class ChatStore {
                 let planMode: Bool = conv.workModeValue == .plan
                 let model = conv.model
                 let vision = await supportsVision(model)
-                var history = historyJSON(conv, vision: vision)
+                let turnStart = conv.messages.lastIndex(where: { $0.isRealUser }) ?? conv.messages.count
+                // With reasoning on, the context report stands in for earlier messages; off, the model sees them as before.
+                var history = historyJSON(conv, vision: vision, startingAt: reasoning ? turnStart : nil)
                 var system: [String] = []
-                if let summary = latestSummary(conv) {
-                    system.append("## Summary of the earlier conversation (compacted — older messages aren't shown to you)\n" + summary)
-                }
+                if let followupInterpretation { system.append(followupInterpretation) }
                 var tools: [[String: Any]] = []
                 // Mac control is off in Code mode, whatever the chat's Mac switch says.
                 let mac: Bool = conv.macAccess && codeFolder == nil
@@ -738,7 +891,6 @@ final class ChatStore {
                 // Only the short INGLE.md index goes in; details load on demand through tools.
                 system.append(IngleManifest.refresh(macAccess: mac, project: project, web: conv.webOn, currentChat: id, code: codeFolder != nil))
                 if let codeFolder { system.append(Project.promptSection(codeFolder, git: git)) }
-                if !repoMap.isEmpty { system.append(repoMap) }
                 if let editor {
                     system.append(editor.promptSection)
                     if let projectRules = editor.projectInstructions { system.append(projectRules) }
@@ -757,6 +909,7 @@ final class ChatStore {
                 tools.append(MacTools.helpTool)
                 if Prefs.memoryEnabled {
                     system.append(MemoryStore.systemPrompt)
+                    system.append("Saved memory was already checked during Summarising. Use the relevant facts in the context report; repeat a memory lookup only if the current request needs a different detail.")
                     tools += MemoryStore.definitions
                 }
                 if conv.webOn {
@@ -771,7 +924,7 @@ final class ChatStore {
                 }
                 tools.append(KnowledgeTools.delegateDefinition)
                 // The builder tools are only offered when the user is talking about skills or rules.
-                let lastText = (conv.messages.last(where: { $0.isRealUser })?.content ?? "").lowercased()
+                let lastText = ((conv.messages.last(where: { $0.isRealUser })?.content ?? "") + "\n" + (followupInterpretation ?? "")).lowercased()
                 if lastText.contains("skill") || lastText.contains("rule") { tools += KnowledgeTools.builderDefinitions }
                 if !SkillStore.all().isEmpty { tools.append(SkillStore.toolDefinition) }
                 if !Secrets.all().isEmpty { tools.append(Secrets.listDefinition) }
@@ -790,8 +943,71 @@ final class ChatStore {
                 var pool: [[String: Any]] = tools
                 pool += KnowledgeTools.builderDefinitions
                 pool.append(CommandStore.toolDefinition)
+                if reasoning && !toolingDecisionMade {
+                    toolingDecisionMade = true
+                    updateThinkingStage(id, messageID: progressMessageID, title: "Tooling", status: "In progress",
+                                        content: "Selecting only the tools and skills this job needs…")
+                    let toolChoices = pool.map { def -> String in
+                        let fn = def["function"] as? [String: Any] ?? [:]
+                        let name = fn["name"] as? String ?? ""
+                        let description = fn["description"] as? String ?? ""
+                        return "\(name): \(description.prefix(180))"
+                    }.joined(separator: "\n")
+                    let skillChoices = SkillStore.all().prefix(40).map { "\($0.name): \($0.description)" }.joined(separator: "\n")
+                    let prompt = """
+                    Choose only tools and skills that are genuinely needed for the current job. Use the context report and current request. Choose the smallest useful set. Select exact names only from the lists. Never select a tool that is not listed. Return JSON only: {"tools":[],"skills":[],"reason":"short explanation"}. If no tools or skills are needed, return empty arrays and an empty reason.
+
+                    Context report:
+                    \(understandingText)
+
+                    Current request:
+                    \(originalRequest)
+
+                    Available tools:
+                    \(toolChoices)
+
+                    Available skills:
+                    \(skillChoices.isEmpty ? "(none)" : skillChoices)
+                    """
+                    var choiceText = ""
+                    do {
+                        let stream = OllamaClient().chat(model: lowModel,
+                            messages: [["role": "user", "content": prompt]], tools: nil,
+                            think: .off, numCtx: Prefs.contextLength(for: lowModel), keepAlive: Prefs.keepAlive)
+                        for try await chunk in stream { choiceText += chunk.content }
+                    } catch { choiceText = "" }
+                    if let left = choiceText.firstIndex(of: "{"), let right = choiceText.lastIndex(of: "}"), left <= right,
+                       let data = String(choiceText[left...right]).data(using: .utf8),
+                       let decision = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        let availableNames = Set(pool.map(ToolSelection.name))
+                        selectedToolNames = Set((decision["tools"] as? [String] ?? []).filter { availableNames.contains($0) })
+                        let selectedSkills = (decision["skills"] as? [String] ?? []).compactMap { wanted in
+                            SkillStore.all().first { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }
+                        }
+                        for skill in selectedSkills where !attachedNames.contains(skill.name) {
+                            attachedNames.append(skill.name)
+                            attachedText += "### Skill: \(skill.name) (selected for this request)\n\(String(SkillStore.read(skill.name).prefix(12_000)))\n\n"
+                        }
+                        if !selectedToolNames.isEmpty || !selectedSkills.isEmpty {
+                            let toolLine = selectedToolNames.isEmpty ? "" : "Tools selected: \(selectedToolNames.sorted().joined(separator: ", "))"
+                            let skillLine = selectedSkills.isEmpty ? "" : "Skills selected: \(selectedSkills.map(\.name).joined(separator: ", "))"
+                            let reason = (decision["reason"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                            turnToolingText = ([toolLine, skillLine, reason].filter { !$0.isEmpty }).joined(separator: "\n")
+                            updateThinkingStage(id, messageID: progressMessageID, title: "Tooling", status: "Done", content: turnToolingText)
+                            system.append("## Tool and skill choices\n\(turnToolingText)")
+                            if !attachedText.isEmpty { system.append("## Selected skill details\n\(attachedText)") }
+                        } else {
+                            removeThinkingStage(id, messageID: progressMessageID, title: "Tooling")
+                        }
+                    } else {
+                        removeThinkingStage(id, messageID: progressMessageID, title: "Tooling")
+                    }
+                }
                 tools = ToolSelection.filter(tools, lastUserText: lastText, filtering: effort.filtering)
                 if lastText.contains("command") { tools.append(CommandStore.toolDefinition) }
+                for def in pool where selectedToolNames.contains(ToolSelection.name(def)) && !tools.contains(where: { ToolSelection.name($0) == ToolSelection.name(def) }) {
+                    tools.append(def)
+                }
                 // The task list: offered from Medium up (Low keeps the tool list short), and always while one is going.
                 if effort != .low || planMode || !TaskList.allDone(conv.tasks) { tools.append(TaskList.definition) }
                 // Commands: tools they require are always offered (still approved
@@ -810,38 +1026,54 @@ final class ChatStore {
                 if planMode { tools.removeAll { !TaskList.planModeTools.contains(ToolSelection.name($0)) } }
                 // A command that still can't get its tool (e.g. web_search with Web off) gets ⚠ now, no nudges.
                 tracker.checkAvailability(offered: Set(tools.map(ToolSelection.name)))
-                // Long chat? Summarise the older part first, like Claude's compacting.
-                // The tool list counts too: it's sent with every request.
+                // Only this turn's messages are sent; older turns are represented by the temporary summary.
                 let toolChars: Int = (try? JSONSerialization.data(withJSONObject: tools))?.count ?? 0
                 let ctx: Int = Prefs.contextLength(for: model)
-                let limit: Int = ctx * 3 / 4
                 func fixedTokens() -> Int { (system.joined(separator: "\n\n").count + toolChars) / 4 }
-                // Keep the last two turns word for word; if that's still too big (one long task), keep just the last.
-                for keep in [2, 1] {
-                    let used: Int = estimateTokens(history) + fixedTokens()
-                    guard used > limit else { break }
-                    guard await compact(id, keepTurns: keep, auto: true), let c2 = index(id).map({ conversations[$0] }) else { continue }
-                    history = historyJSON(c2, vision: vision)
-                    if let summary = latestSummary(c2) {
-                        system.removeAll { $0.hasPrefix("## Summary of the earlier conversation") }
-                        system.insert("## Summary of the earlier conversation (compacted — older messages aren't shown to you)\n" + summary, at: 0)
-                    }
-                }
                 // Still too big (huge tool outputs in the current task): shorten old tool results so nothing is cut off silently.
                 history = fit(history, budget: ctx * 9 / 10 - fixedTokens())
                 if !system.isEmpty {
                     history.insert(["role": "system", "content": system.joined(separator: "\n\n")], at: 0)
                 }
-                // Max: a short visible plan first (no tools); the work then starts with it in the history.
+                func phaseRows(thinking: String, pending: Bool = false) -> [ThinkingPhase] {
+                    var rows: [ThinkingPhase] = []
+                    rows.append(ThinkingPhase(title: "Summarising", content: turnSummaryPhase, status: "Done"))
+                    if !turnResearchText.isEmpty { rows.append(ThinkingPhase(title: "Research", content: turnResearchText, status: "Done")) }
+                    rows.append(ThinkingPhase(title: "Understanding", content: understandingText, status: "Done"))
+                    if !turnToolingText.isEmpty { rows.append(ThinkingPhase(title: "Tooling", content: turnToolingText, status: "Done")) }
+                    rows.append(ThinkingPhase(title: "Thinking", content: thinking.isEmpty && !pending ? "No separate thinking trace was provided." : thinking,
+                                              status: pending ? "In progress" : "Done"))
+                    if !turnActionEntries.isEmpty {
+                        rows.append(ThinkingPhase(title: "Actions", content: turnActionEntries.joined(separator: "\n\n---\n\n"),
+                                                  status: actionInProgress ? "In progress" : "Done"))
+                    }
+                    return rows
+                }
+                @MainActor func appendAction(_ title: String, detail: String, result: String, messageID: UUID) {
+                    let entry = "### \(title)\n\n\(detail)\n\n\(result)"
+                    turnActionEntries.append(entry)
+                    actionInProgress = false
+                    updateThinkingStage(id, messageID: messageID, title: "Actions", status: "Done",
+                                        content: turnActionEntries.joined(separator: "\n\n---\n\n"))
+                }
+                // Max: a short plan first, then the work starts with it in history.
                 if needPlan {
                     needPlan = false
+                    if let p = conversations[i].messages.firstIndex(where: { $0.id == progressMessageID }) {
+                        conversations[i].messages.remove(at: p)
+                    }
                     if await writePlan(id, model: model, history: history, effort: effort) { continue }
                     break
                 }
                 var reply = ChatMessage(role: .assistant, content: "", model: model)
+                reply.workflowHidden = true
+                reply.thinkingPhases = phaseRows(thinking: "", pending: true)
+                conversations[i].messages.append(reply)
                 let chip = attachedNames + usedNames
                 if !chip.isEmpty { reply.usedContext = chip }
-                conversations[i].messages.append(reply)
+                if let ri = conversations[i].messages.firstIndex(where: { $0.id == reply.id }) {
+                    conversations[i].messages[ri] = reply
+                }
                 conversations[i].updated = Date()
 
                 let started = Date()
@@ -849,20 +1081,35 @@ final class ChatStore {
                 var thinkEnd: Date?
                 var calls: [ToolCall] = []
                 var stopLoop = false
+                var lastStageThoughtCount = 0
+                updateThinkingStage(id, messageID: progressMessageID, title: "Thinking", status: "In progress",
+                                    content: "Reasoning from the context report…")
 
                 if model == Prefs.dailyModel || model == Prefs.hardModel {
                     await ModelManager.current?.pauseAutocompleteIfSmart()
                 }
                 do {
+                    let control = OllamaStreamControl()
+                    activeOllamaStream = control
+                    defer { if activeOllamaStream === control { activeOllamaStream = nil } }
                     let stream = OllamaClient().chat(
                         model: model, messages: history,
                         tools: tools.isEmpty ? nil : tools,
-                        think: effort.think(for: model), numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive)
+                        think: reasoning ? effort.think(for: model) : .off,
+                        numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive,
+                        control: control)
                     for try await chunk in stream {
+                        try Task.checkCancellation()
                         guard let j = index(id), let k = conversations[j].messages.indices.last else { break }
                         if !chunk.thinking.isEmpty {
                             if thinkStart == nil { thinkStart = Date() }
+                            turnThinking += chunk.thinking
                             conversations[j].messages[k].thinking += chunk.thinking
+                            if turnThinking.count - lastStageThoughtCount >= 256 {
+                                lastStageThoughtCount = turnThinking.count
+                                updateThinkingStage(id, messageID: progressMessageID, title: "Thinking", status: "In progress",
+                                                    content: String(turnThinking.suffix(8000)))
+                            }
                         }
                         if !chunk.content.isEmpty {
                             if thinkStart != nil && thinkEnd == nil { thinkEnd = Date() }
@@ -896,6 +1143,27 @@ final class ChatStore {
 
                 guard !stopLoop, !Task.isCancelled, let j = index(id), let k = conversations[j].messages.indices.last else { break }
                 conversations[j].messages[k].toolCalls = calls
+                if calls.isEmpty {
+                    let split = ThinkSplitter.split(conversations[j].messages[k].content, extra: turnThinking)
+                    conversations[j].messages[k].thinkingPhases = phaseRows(thinking: split.thinking)
+                    conversations[j].messages[k].thinking = ""
+                    updateThinkingStage(id, messageID: progressMessageID, title: "Thinking", status: "Done",
+                                        content: split.thinking.isEmpty ? "The model is preparing its reply." : split.thinking)
+                } else {
+                    let split = ThinkSplitter.split(conversations[j].messages[k].content, extra: turnThinking)
+                    if !split.body.isEmpty {
+                        turnActionEntries.append("### Assistant step\n\n" + split.body)
+                    }
+                    conversations[j].messages[k].workflowHidden = true
+                    conversations[j].messages[k].thinkingPhases = phaseRows(thinking: split.thinking)
+                    conversations[j].messages[k].thinking = ""
+                    updateThinkingStage(id, messageID: progressMessageID, title: "Thinking", status: "Done",
+                                        content: split.thinking.isEmpty ? "The model requested an action." : split.thinking)
+                    if !split.body.isEmpty {
+                        updateThinkingStage(id, messageID: progressMessageID, title: "Actions", status: "Done",
+                                            content: turnActionEntries.joined(separator: "\n\n---\n\n"))
+                    }
+                }
                 if dbg != nil {
                     dbg?.saw(conversations[j].messages[k].content)
                     if let ticked = dbg?.tick(conversations[j].tasks) { setTasks(id, ticked) }
@@ -928,6 +1196,7 @@ final class ChatStore {
                         await reviewChanges(id, model: model, web: conv.webOn, commands: tracker.commands,
                                             request: requestText, files: changedFiles)
                     }
+                    conversations[j].messages[k].workflowHidden = false
                     break
                 }
 
@@ -937,6 +1206,7 @@ final class ChatStore {
                     // get_problems: the check command it will run is filled in here, before the card is shown.
                     let call: ToolCall = CodeTools.prepare(Project.prepare(modelCall, folder: codeFolder),
                                                            folder: codeFolder, commands: tracker.commands)
+                    let stageMessageID = progressMessageID
                     let signature = call.name + "|" + call.arguments.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }.joined(separator: "&")
                     let repeats = (callCounts[signature] ?? 0) + 1
                     callCounts[signature] = repeats
@@ -947,6 +1217,8 @@ final class ChatStore {
                         conversations[jr].messages.append(ChatMessage(
                             role: .tool, content: "You've already made this exact call \(repeats - 1) times and have its result above. Don't repeat it — use that result, try a different approach, or tell the user what's blocking you.",
                             toolName: call.name, toolTitle: "Skipped a repeated step", toolDetail: call.name, toolIcon: "arrow.triangle.2.circlepath"))
+                        appendAction("Skipped a repeated step", detail: call.name,
+                                     result: "The identical action was skipped after \(repeats - 1) earlier attempts.", messageID: stageMessageID)
                         continue
                     }
                     // Plan mode refuses anything that changes things, even a tool the model names without being offered it.
@@ -955,6 +1227,7 @@ final class ChatStore {
                         conversations[jp].messages.append(ChatMessage(
                             role: .tool, content: TaskList.planModeRefusal,
                             toolName: call.name, toolTitle: info0.title, toolDetail: "Plan mode: not run", toolIcon: "hand.raised", denied: true))
+                        appendAction(info0.title, detail: "Plan mode: not run", result: TaskList.planModeRefusal, messageID: stageMessageID)
                         continue
                     }
                     // Debug mode: no edits until the failure is located and its cause stated.
@@ -963,12 +1236,15 @@ final class ChatStore {
                         conversations[jd].messages.append(ChatMessage(
                             role: .tool, content: why,
                             toolName: call.name, toolTitle: info0.title, toolDetail: "Debug mode: not yet", toolIcon: "ladybug", denied: true))
+                        appendAction(info0.title, detail: "Debug mode: not yet", result: why, messageID: stageMessageID)
                         continue
                     }
                     if let ban = tracker.blockingCommand(for: call), let jb = index(id) {
                         conversations[jb].messages.append(ChatMessage(
                             role: .tool, content: CommandTracker.blockedMessage(ban.command, ban.item),
                             toolName: call.name, toolTitle: "Blocked by a command", toolDetail: "\(ban.command.name) · \(ban.item)", toolIcon: "hand.raised", denied: true))
+                        appendAction("Blocked by a command", detail: "\(ban.command.name) · \(ban.item)",
+                                     result: CommandTracker.blockedMessage(ban.command, ban.item), messageID: stageMessageID)
                         continue
                     }
                     // command_create refuses advice-only commands before asking the user to approve anything.
@@ -976,9 +1252,14 @@ final class ChatStore {
                         conversations[jc].messages.append(ChatMessage(
                             role: .tool, content: refusal,
                             toolName: call.name, toolTitle: "Create a command", toolDetail: refusal, toolIcon: "exclamationmark.shield"))
+                        appendAction("Create a command", detail: "Request rejected by command safety rules", result: refusal, messageID: stageMessageID)
                         continue
                     }
                     let info = MacTools.describe(call)
+                    actionInProgress = true
+                    turnActionEntries.append("### \(info.title)\n\n\(info.detail)\n\n**Status:** In progress")
+                    updateThinkingStage(id, messageID: stageMessageID, title: "Actions", status: "In progress",
+                                        content: turnActionEntries.joined(separator: "\n\n---\n\n"))
                     let deniedText = "The user denied this action. Don't retry it; ask them what they'd like instead."
                     var allowed = true
                     var ran = true
@@ -1057,6 +1338,11 @@ final class ChatStore {
                         }
                     }
                     conversations[j2].messages.append(toolMessage)
+                    let resultText = output.isEmpty ? "(No output)" : output
+                    turnActionEntries[turnActionEntries.count - 1] = "### \(info.title)\n\n\(info.detail)\n\n\(resultText)"
+                    actionInProgress = false
+                    updateThinkingStage(id, messageID: stageMessageID, title: "Actions", status: "Done",
+                                        content: turnActionEntries.joined(separator: "\n\n---\n\n"))
                 }
                 save()
                 if skips >= effort.stuckLimit, let js = index(id) {
@@ -1067,9 +1353,26 @@ final class ChatStore {
                 }
             }
             activeRuns[id] = nil
+            if let i = index(id), let progress = conversations[i].messages.firstIndex(where: { $0.id == progressMessageID }) {
+                let progressPhases = conversations[i].messages[progress].thinkingPhases
+                let visibleRunReply = conversations[i].messages.indices.last(where: {
+                    $0 >= firstNew && $0 != progress && conversations[i].messages[$0].role == .assistant &&
+                    conversations[i].messages[$0].workflowHidden != true
+                })
+                if visibleRunReply == nil, let lastInternal = conversations[i].messages.indices.last(where: {
+                    $0 >= firstNew &&
+                    conversations[i].messages[$0].role == .assistant && conversations[i].messages[$0].workflowHidden == true
+                }) {
+                    conversations[i].messages[lastInternal].workflowHidden = false
+                    conversations[i].messages[lastInternal].thinkingPhases = progressPhases
+                }
+                conversations[i].messages.remove(at: progress)
+            }
             endRun(id, run: run, firstNew: firstNew)
             streamingID = nil
             activity = nil
+            // The menu bar shows which assistant is awake: refresh it now the reply's model (and any helper) has run.
+            Task { await ModelManager.current?.refresh() }
             // Messages still waiting (Stop, or the run ended between steps) go back in the message box, not lost.
             if let left = queued[id], !left.isEmpty {
                 queued[id] = nil
@@ -1080,6 +1383,33 @@ final class ChatStore {
     }
 
     // MARK: Checkpoints (undo a whole run)
+
+    private func updateThinkingStage(_ chatID: Conversation.ID, messageID: UUID, title: String,
+                                     status: String, content: String? = nil) {
+        guard let i = index(chatID),
+              let m = conversations[i].messages.firstIndex(where: { $0.id == messageID }),
+              var phases = conversations[i].messages[m].thinkingPhases else { return }
+        if let p = phases.firstIndex(where: { $0.title == title }) {
+            phases[p].status = status
+            if let content { phases[p].content = content }
+        } else {
+            phases.append(ThinkingPhase(title: title, content: content ?? "", status: status))
+            let order = ["Summarising", "Research", "Understanding", "Tooling", "Thinking"]
+            phases.sort { (order.firstIndex(of: $0.title) ?? order.count) < (order.firstIndex(of: $1.title) ?? order.count) }
+        }
+        conversations[i].messages[m].thinkingPhases = phases
+        conversations[i].updated = Date()
+        save()
+    }
+
+    private func removeThinkingStage(_ chatID: Conversation.ID, messageID: UUID, title: String) {
+        guard let i = index(chatID),
+              let m = conversations[i].messages.firstIndex(where: { $0.id == messageID }),
+              var phases = conversations[i].messages[m].thinkingPhases else { return }
+        phases.removeAll { $0.title == title }
+        conversations[i].messages[m].thinkingPhases = phases
+        save()
+    }
 
     /// After a run: records the files' new state and puts "Undo this run" on the run's last reply.
     private func endRun(_ id: Conversation.ID, run: Checkpoints.Run, firstNew: Int) {
@@ -1355,9 +1685,11 @@ final class ChatStore {
     }
 
     /// The history the model sees: everything after the latest summary, with images attached or read as text.
-    private func historyJSON(_ conv: Conversation, vision: Bool) -> [[String: Any]] {
-        let start = (conv.messages.lastIndex { $0.compactedCount != nil }).map { $0 + 1 } ?? 0
-        return conv.messages[start...].map { m -> [String: Any] in
+    private func historyJSON(_ conv: Conversation, vision: Bool, startingAt requestedStart: Int? = nil) -> [[String: Any]] {
+        let compactedStart = (conv.messages.lastIndex { $0.compactedCount != nil }).map { $0 + 1 } ?? 0
+        let start = min(conv.messages.count, max(compactedStart, requestedStart ?? compactedStart))
+        return conv.messages[start...].compactMap { m -> [String: Any]? in
+            if m.role == .assistant, m.content.isEmpty, m.toolCalls.isEmpty, m.thinkingPhases != nil { return nil }
             var json = m.ollamaJSON
             if let files = m.imageFiles, !files.isEmpty {
                 if vision {
@@ -1397,6 +1729,122 @@ final class ChatStore {
 
     private func latestSummary(_ conv: Conversation) -> String? {
         conv.messages.last { $0.compactedCount != nil }?.content
+    }
+
+    /// Uses the lightweight model to collect project/web evidence before the selected model reasons over it.
+    private func researchForTurn(model selectedModel: String, query: String, summary: String, understanding: String,
+                                 projectContext: String, webOn: Bool) async -> String {
+        let model = Prefs.dailyModel.isEmpty ? selectedModel : Prefs.dailyModel
+        var evidence: [String] = []
+        if !projectContext.isEmpty { evidence.append("Relevant project-folder map:\n\(projectContext)") }
+
+        let request = (query + "\n" + understanding).lowercased()
+        let webCue = ["research", "source", "citation", "prove", "verify", "fact-check", "look up", "search the web",
+                      "current", "latest", "today", "price", "news", "evidence", "deep dive"]
+        if webOn && webCue.contains(where: { request.contains($0) }) {
+            let queryPrompt = """
+            Create up to three short, distinct web search queries needed to verify the user's request. Output only one query per line, or NO_WEB_SEARCH if the request does not need web research. Never include a person's name, address, private fact, memory, or project-folder content in a query; generalise the topic.
+
+            Request: \(understanding.isEmpty ? query : understanding)
+            """
+            var queryOutput = ""
+            do {
+                let stream = OllamaClient().chat(model: model, messages: [["role": "user", "content": queryPrompt]], tools: nil,
+                                                 think: .off, numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive)
+                for try await chunk in stream { queryOutput += chunk.content }
+            } catch { queryOutput = "" }
+            let queries = queryOutput.components(separatedBy: .newlines).map { line in
+                line.replacingOccurrences(of: #"^\s*(?:[-*]|\d+[.)])\s*"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }.filter { !$0.isEmpty && !$0.localizedCaseInsensitiveContains("NO_WEB_SEARCH") }.prefix(3)
+            var seenURLs = Set<String>()
+            for searchQuery in queries {
+                let results = await WebTools.search(searchQuery)
+                evidence.append("Web search for \(searchQuery):\n\(results)")
+                let urls = results.components(separatedBy: .newlines).compactMap { line -> String? in
+                    let candidate = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: ".,;"))
+                    guard candidate.hasPrefix("https://") || candidate.hasPrefix("http://"),
+                          URL(string: candidate) != nil else { return nil }
+                    return candidate
+                }
+                    .filter { seenURLs.insert($0).inserted }
+                for url in urls.prefix(2) { evidence.append("Source page:\n\(await WebTools.fetch(url))") }
+            }
+        }
+
+        guard !evidence.isEmpty else { return "" }
+        let prompt = """
+        Prepare concise research notes for the selected assistant model. Extract only evidence relevant to the user's current request from the summary and materials below. Keep file paths and source URLs exactly. Separate evidence from assumptions, and do not invent missing details. Do not answer the user. If none of the materials are relevant, output exactly NO_RELEVANT_RESEARCH.
+
+        Earlier-chat summary:
+        \(summary)
+
+        Request interpretation:
+        \(understanding)
+
+        Evidence collected:
+        \(evidence.joined(separator: "\n\n"))
+        """
+        var notes = ""
+        do {
+            let stream = OllamaClient().chat(model: model, messages: [["role": "user", "content": prompt]], tools: nil,
+                                             think: .off, numCtx: Prefs.contextLength(for: model), keepAlive: Prefs.keepAlive)
+            for try await chunk in stream { notes += chunk.content }
+        } catch { return evidence.joined(separator: "\n\n") }
+        let cleaned = ThinkSplitter.split(notes, extra: "").body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty || cleaned.localizedCaseInsensitiveContains("NO_RELEVANT_RESEARCH") { return "" }
+        return cleaned
+    }
+
+    /// Builds temporary context for the current request. Unlike Compact Chat, this never edits the transcript.
+    private func summarizeForTurn(_ conv: Conversation, before end: Int, request: String, memory: String) async -> String {
+        let start = (conv.messages.lastIndex { $0.compactedCount != nil }).map { $0 + 1 } ?? 0
+        var lines: [String] = []
+        if end > 0, let priorSummary = conv.messages[..<end].last(where: { $0.compactedCount != nil })?.content {
+            lines.append("Earlier summary: \(priorSummary)")
+        }
+        if end > start {
+        for message in conv.messages[start..<end] {
+            if message.compactedCount != nil { continue }
+            switch message.role {
+            case .user:
+                lines.append("User: \(message.content)")
+            case .assistant:
+                let body = ThinkSplitter.split(message.content, extra: "").body
+                if !body.isEmpty { lines.append("Assistant: \(body)") }
+            case .tool:
+                lines.append("Tool \(message.toolName ?? "") (\(message.toolDetail ?? "")): \(String(message.content.prefix(1200)))")
+            }
+        }
+        }
+        if lines.isEmpty { lines.append("No earlier messages are available.") }
+        var transcript = lines.joined(separator: "\n\n")
+        let summaryModel = Prefs.dailyModel.isEmpty ? conv.model : Prefs.dailyModel
+        let maxChars = Prefs.contextLength(for: summaryModel) * 2
+        if transcript.count > maxChars {
+            transcript = String(transcript.prefix(maxChars / 3)) + "\n\n…(middle omitted for summary input)…\n\n" + String(transcript.suffix(maxChars * 2 / 3))
+        }
+        activity = nil
+        let prompt = """
+        Summarise this earlier chat and the relevant saved-memory lookup for one new user request. Keep only durable goals, preferences, decisions, important facts, and unresolved references needed to answer the request. Include relevant memory facts with their source names. Be concise and factual. Do not answer the request or include private chain-of-thought.
+
+        Current request:
+        \(request)
+
+        Relevant saved memory (already checked; “Nothing in memory” means there were no keyword matches):
+        \(memory)
+
+        Earlier chat:
+        \(transcript)
+        """
+        var summary = ""
+        do {
+            let stream = OllamaClient().chat(model: summaryModel, messages: [["role": "user", "content": prompt]], tools: nil,
+                                             think: .off, numCtx: Prefs.contextLength(for: summaryModel), keepAlive: Prefs.keepAlive)
+            for try await chunk in stream { summary += chunk.content }
+        } catch { return "" }
+        return ThinkSplitter.split(summary, extra: "").body.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func estimateTokens(_ history: [[String: Any]]) -> Int {

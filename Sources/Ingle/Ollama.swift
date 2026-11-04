@@ -43,6 +43,33 @@ struct ChatChunk: Sendable {
     var evalDuration: Int64 = 0
 }
 
+/// Lets Stop cancel the network producer directly, even if the consumer still has buffered chunks.
+final class OllamaStreamControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private var producer: Task<Void, Never>?
+    private var cancelled = false
+
+    func attach(_ task: Task<Void, Never>) {
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            task.cancel()
+            return
+        }
+        producer = task
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = producer
+        producer = nil
+        lock.unlock()
+        task?.cancel()
+    }
+}
+
 /// Detects four consecutive copies of the same 24–256 byte phrase in the model's thinking stream.
 /// Keep a short tail so detection stays bounded for long responses.
 private struct ThinkingRepeatGuard {
@@ -132,10 +159,10 @@ struct OllamaClient: Sendable {
             "keep_alive": "30s",
             "questions": ["looping": [
                 "type": "noul",
-                "instructions": "Is the model's recent reasoning stuck in a repetitive loop, restating the same idea without meaningful progress toward the user's task? Be conservative: normal checking, correcting mistakes, and considering alternatives are not loops.",
+                "instructions": "Is the model's reasoning getting stuck or spiraling instead of answering the user's task? Detect repeated wording and semantic or structural loops: repeatedly rereading or re-parsing the same history, repeatedly reconsidering what the user meant, restarting the same answer, announcing new plans or attempts, repeating readiness or final-check commentary without producing the answer, or revisiting a point already resolved. Phrases like ‘wait’, ‘maybe they want’, ‘let's go’, and ‘I'm ready’ are review cues only, not proof of a loop. Be conservative: reading relevant context once, correcting a mistake once, and considering alternatives that make progress are not loops.",
                 "criteria": [
-                    "true": "The recent reasoning clearly repeats the same point or cycle without progress.",
-                    "false": "The reasoning is progressing, checking work, or the evidence is insufficient to call it a loop.",
+                    "true": "The reasoning repeatedly rereads context, restarts the same answer or interpretation, or repeats preparation commentary without producing an answer, even if wording changes.",
+                    "false": "The reasoning is progressing, correcting a mistake once, or the evidence is insufficient to call it a loop.",
                 ],
             ]],
         ])
@@ -252,7 +279,7 @@ struct OllamaClient: Sendable {
     /// Streaming /api/chat. If the model rejects `think`: a level is retried as plain `true`, then without `think`
     /// at all. Same as OllamaClient.chat in ollama.ts.
     func chat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: OllamaThink,
-              numCtx: Int, keepAlive: String) -> AsyncThrowingStream<ChatChunk, Error> {
+              numCtx: Int, keepAlive: String, control: OllamaStreamControl? = nil) -> AsyncThrowingStream<ChatChunk, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -262,6 +289,7 @@ struct OllamaClient: Sendable {
                         do {
                             let result = try await streamChat(model: model, messages: messages, tools: tools, think: attempt,
                                                               numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
+                            try Task.checkCancellation()
                             if result.loopStopped {
                                 continuation.yield(ChatChunk(content: "\n\nI noticed my thinking started repeating, so I stopped it and am answering directly.\n\n", resetToolCalls: true, deciderIntervened: result.deciderIntervened))
                                 var retryMessages = messages
@@ -287,6 +315,7 @@ struct OllamaClient: Sendable {
                     continuation.finish(throwing: error)
                 }
             }
+            control?.attach(task)
             continuation.onTermination = { _ in task.cancel() }
         }
     }
@@ -325,6 +354,7 @@ struct OllamaClient: Sendable {
         var deciderIntervened = false
         var lastDecisionLength = 0
         var deciderFailed = false
+        var selfWarningReviewed = false
         for try await line in bytes.lines {
             try Task.checkCancellation()
             guard let obj = Self.json(line) else { continue }
@@ -348,17 +378,24 @@ struct OllamaClient: Sendable {
             chunk.evalDuration = (obj["eval_duration"] as? NSNumber)?.int64Value ?? 0
             let streamedThinking = chunk.thinking + ThinkSplitter.split(chunk.content, extra: "").thinking
             let repeated = !streamedThinking.isEmpty && repeatGuard.append(streamedThinking)
+            let reviewCue = Self.overthinkingReviewCue(in: thought)
+            let reviewWarning = reviewCue != nil && !selfWarningReviewed
             var semanticLoop = false
             if repeated {
                 loopStopped = true
                 chunk.toolCalls = []
-            } else if Prefs.thinkingDeciderEnabled, !deciderFailed,
-                      thought.utf8.count - lastDecisionLength >= 768 {
+            } else if Prefs.thinkingDeciderEnabled && !deciderFailed
+                        && (thought.utf8.count - lastDecisionLength >= 256 || reviewWarning) {
                 lastDecisionLength = thought.utf8.count
-                let task = (messages.last(where: { ($0["role"] as? String) == "user" })?["content"] as? String ?? "")
-                let state = "User task:\n\(String(task.suffix(1_000)))\n\nRecent reasoning:\n\(String(thought.suffix(2_500)))"
+                if reviewWarning { selfWarningReviewed = true }
+                let task = messages.last(where: { ($0["role"] as? String) == "user" })?["content"] as? String ?? ""
+                let signal = reviewWarning
+                    ? "\n\nImmediate review signal: the reasoning contains \(reviewCue ?? "a restart cue"). Treat this only as a prompt to review now. Look for repeated reconsideration, restarting the same answer, or revisiting resolved points—even if the wording changes. Decide from the full reasoning whether it is actually looping and should be stopped."
+                    : ""
+                let state = "User task:\n\(task)\n\nFull reasoning so far:\n\(thought)\(signal)"
                 do {
                     semanticLoop = try await thinkingLoopConfidence(model: Prefs.thinkingDeciderModel, state: state) >= 0.88
+                    try Task.checkCancellation()
                     if semanticLoop {
                         loopStopped = true
                         deciderIntervened = true
@@ -369,6 +406,7 @@ struct OllamaClient: Sendable {
                     deciderFailed = true
                 }
             }
+            try Task.checkCancellation()
             continuation.yield(chunk)
             if repeated || semanticLoop {
                 break
@@ -376,6 +414,22 @@ struct OllamaClient: Sendable {
             if chunk.done { break }
         }
         return (loopStopped, deciderIntervened, thought)
+    }
+
+    private static func overthinkingReviewCue(in thought: String) -> String? {
+        let text = thought.lowercased().replacingOccurrences(of: "’", with: "'")
+        let direct = ["stop overthinking", "i am overthinking", "i'm overthinking", "done it twice already",
+                      "third time", "one last time", "fresh start", "previous attempt", "previous prompts"]
+        if let cue = direct.first(where: { text.contains($0) }) { return "the phrase ‘\(cue)’" }
+
+        let repeated = ["wait", "maybe they want", "let's go", "let's try", "let's execute", "plan:",
+                        "final plan:", "prompt:", "i will present", "my output:", "this time", "i'm ready",
+                        "re-read", "reread", "looking at the prompt", "look at the constraints", "original prompt",
+                        "let's write", "final check:", "one detail:", "this is the test"]
+        if let cue = repeated.first(where: { text.components(separatedBy: $0).count - 1 >= 2 }) {
+            return "repeated ‘\(cue)’ pivots"
+        }
+        return nil
     }
 
     private static func json(_ line: String) -> [String: Any]? {

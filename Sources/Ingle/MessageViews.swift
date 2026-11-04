@@ -18,7 +18,7 @@ struct MessageRow: View {
     @State private var showThinking = false
     @State private var showOutput = false
 
-    private var live: Bool { isLast && streaming }
+    private var live: Bool { streaming && (isLast || message.workflowProgress == true) }
     private var parts: (thinking: String, body: String) { ThinkSplitter.split(message.content, extra: message.thinking) }
 
     var body: some View {
@@ -38,7 +38,7 @@ struct MessageRow: View {
             compaction
         case .assistant:
             let p = parts
-            let shown: Bool = !p.body.isEmpty || !p.thinking.isEmpty || live || message.toolCalls.isEmpty
+            let shown: Bool = !p.body.isEmpty || !p.thinking.isEmpty || message.thinkingPhases != nil || live || message.toolCalls.isEmpty
             if let cp = message.checkpoint, !cp.files.isEmpty, let chat {
                 VStack(alignment: .leading, spacing: 10) {
                     if shown { assistant(p) }
@@ -48,7 +48,7 @@ struct MessageRow: View {
             } else if let plan = message.plan {
                 // A plan saved as a file: its card (with Approve in Plan mode) under the reply.
                 VStack(alignment: .leading, spacing: 10) {
-                    if !p.body.isEmpty || !p.thinking.isEmpty { assistant(p) }
+                    if !p.body.isEmpty || !p.thinking.isEmpty || message.thinkingPhases != nil { assistant(p) }
                     PlanCard(plan: plan, approve: streaming ? nil : onApprovePlan)
                 }
             } else if shown {
@@ -152,6 +152,24 @@ struct MessageRow: View {
                 Text(ModelNames.display(message.model ?? ""))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Ember.text.opacity(0.85))
+                if !p.thinking.isEmpty || message.thinkingPhases != nil || live {
+                    Button {
+                        withAnimation(.snappy) { showThinking.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(thinkLabel(p))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .rotationEffect(.degrees(showThinking ? 90 : 0))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Ember.secondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
+                }
                 if message.deciderIntervened == true {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.triangle.2.circlepath")
@@ -177,40 +195,37 @@ struct MessageRow: View {
                     .background(Capsule().fill(Ember.accent.opacity(0.1)))
                     .help("What the assistant used for this reply: skills and rules it opened, research it read, and commands in force (⚑)")
                 }
-                if !p.thinking.isEmpty {
-                    Button {
-                        withAnimation(.snappy) { showThinking.toggle() }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(thinkLabel(p))
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
-                                .rotationEffect(.degrees(showThinking ? 90 : 0))
+            }
+            if showThinking && (!p.thinking.isEmpty || message.thinkingPhases != nil) {
+                if let phases = message.thinkingPhases {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(phases) { phase in
+                            let detail: String = switch phase.title {
+                            case "Thinking": p.thinking.isEmpty ? (live ? "Thinking…" : phase.content) : p.thinking
+                            default: phase.content
+                            }
+                            ThinkingPhaseDisclosure(title: phase.title,
+                                content: detail, status: phase.status ?? "Ready")
                         }
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Ember.secondary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background(Capsule().fill(Color.white.opacity(0.06)))
-                }
-            }
-            if showThinking && !p.thinking.isEmpty {
-                Text(p.thinking)
-                    .font(.system(size: 12.5))
-                    .lineSpacing(3)
-                    .foregroundStyle(Ember.secondary)
-                    .textSelection(.enabled)
                     .padding(.leading, 12)
                     .overlay(alignment: .leading) { Rectangle().fill(Ember.hairline).frame(width: 2) }
+                } else {
+                    Text(p.thinking)
+                        .font(.system(size: 12.5))
+                        .lineSpacing(3)
+                        .foregroundStyle(Ember.secondary)
+                        .textSelection(.enabled)
+                        .padding(.leading, 12)
+                        .overlay(alignment: .leading) { Rectangle().fill(Ember.hairline).frame(width: 2) }
+                }
             }
             if p.body.isEmpty && live {
                 TypingDots()
-            } else if !p.body.isEmpty {
+            } else if !p.body.isEmpty && message.workflowHidden != true {
                 MarkdownView(text: p.body, failed: message.failed)
             }
-            if !live && !p.body.isEmpty {
+            if !live && !p.body.isEmpty && message.workflowHidden != true {
                 HStack(spacing: 2) {
                     CopyButton(text: p.body)
                     if isLast {
@@ -297,6 +312,73 @@ struct MessageRow: View {
     }
 }
 
+private struct ThinkingPhaseDisclosure: View {
+    let title: String
+    let content: String
+    let status: String
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            if content.isEmpty {
+                Text("No separate trace for this step.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Ember.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                MarkdownView(text: content).padding(.vertical, 4)
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Ember.text.opacity(0.9))
+                    .frame(width: 118, alignment: .leading)
+                Text(activity)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Ember.tertiary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 8)
+                Group {
+                    if status == "Done" {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Ember.accent)
+                            .accessibilityLabel("Done")
+                    } else if status == "Error" || status == "Failed" {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Ember.danger)
+                            .accessibilityLabel("Error")
+                    } else {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(Ember.accent)
+                            .accessibilityLabel("In progress")
+                    }
+                }
+                .frame(width: 68, alignment: .trailing)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Ember.raised.opacity(0.36)))
+        }
+        .tint(Ember.secondary)
+        .padding(.vertical, 1)
+    }
+
+    private var activity: String {
+        switch title {
+        case "Summarising": "Condensing past messages and checking memory"
+        case "Research": "Checking relevant project files and web sources"
+        case "Understanding": "Interpreting the request and preparing a context report"
+        case "Tooling": "Choosing useful tools and skills"
+        case "Thinking": "Reasoning from the context report"
+        case "Actions": "Using tools and reviewing their results"
+        default: "Working on this stage"
+        }
+    }
+}
+
 /// Some models put their reasoning inline as <think>…</think>; move it out of the reply.
 enum ThinkSplitter {
     static func split(_ content: String, extra: String) -> (thinking: String, body: String) {
@@ -366,6 +448,9 @@ enum MDBlock {
     case paragraph(String)
     case heading(String, Int)
     case bullet(String, String)
+    case quote(String)
+    case rule
+    case table([[String]])
     case code(String, String)
 }
 
@@ -383,7 +468,10 @@ enum Markdown {
             }
         }
 
-        for raw in text.components(separatedBy: "\n") {
+        let lines = text.components(separatedBy: "\n")
+        var i = 0
+        while i < lines.count {
+            let raw = lines[i]
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("```") {
                 if let c = code {
@@ -394,16 +482,49 @@ enum Markdown {
                     language = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                     code = []
                 }
+                i += 1
                 continue
             }
-            if code != nil { code?.append(raw); continue }
-            if line.isEmpty { flush(); continue }
-            if let h = heading(line) { flush(); out.append(.heading(h.1, h.0)); continue }
-            if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("• ") {
-                flush(); out.append(.bullet(String(line.dropFirst(2)), "•")); continue
+            if code != nil { code?.append(raw); i += 1; continue }
+            if line.isEmpty { flush(); i += 1; continue }
+            if let h = heading(line) { flush(); out.append(.heading(h.1, h.0)); i += 1; continue }
+            if isRule(line) { flush(); out.append(.rule); i += 1; continue }
+            if i + 1 < lines.count, line.contains("|"), isTableSeparator(lines[i + 1]) {
+                flush()
+                var rows = [tableCells(line)]
+                i += 2
+                while i < lines.count, lines[i].contains("|") {
+                    rows.append(tableCells(lines[i]))
+                    i += 1
+                }
+                out.append(.table(rows))
+                continue
             }
-            if let n = numbered(line) { flush(); out.append(.bullet(n.1, n.0)); continue }
+            if line.hasPrefix(">") {
+                flush()
+                var quote = [String(line.dropFirst()).trimmingCharacters(in: .whitespaces)]
+                i += 1
+                while i < lines.count {
+                    let next = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard next.hasPrefix(">") else { break }
+                    quote.append(String(next.dropFirst()).trimmingCharacters(in: .whitespaces))
+                    i += 1
+                }
+                out.append(.quote(quote.joined(separator: "\n")))
+                continue
+            }
+            if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("• ") {
+                flush()
+                let body = String(line.dropFirst(2))
+                if body.hasPrefix("[ ] ") || body.hasPrefix("[x] ") || body.hasPrefix("[X] ") {
+                    out.append(.bullet(String(body.dropFirst(4)), body.hasPrefix("[ ]") ? "☐" : "☑"))
+                } else { out.append(.bullet(body, "•")) }
+                i += 1
+                continue
+            }
+            if let n = numbered(line) { flush(); out.append(.bullet(n.1, n.0)); i += 1; continue }
             paragraph.append(raw)
+            i += 1
         }
         if let c = code { out.append(.code(language, c.joined(separator: "\n"))) }
         flush()
@@ -420,6 +541,27 @@ enum Markdown {
         let digits = line.prefix(while: { $0.isNumber })
         guard !digits.isEmpty, line.dropFirst(digits.count).hasPrefix(". ") else { return nil }
         return (digits + ".", String(line.dropFirst(digits.count + 2)))
+    }
+
+    static func isRule(_ line: String) -> Bool {
+        let compact = line.filter { !$0.isWhitespace }
+        guard compact.count >= 3, let first = compact.first, first == "-" || first == "*" || first == "_" else { return false }
+        return compact.allSatisfy { $0 == first }
+    }
+
+    static func isTableSeparator(_ line: String) -> Bool {
+        let cells = tableCells(line)
+        return cells.count > 1 && cells.allSatisfy { cell in
+            let trimmed = cell.trimmingCharacters(in: .whitespaces)
+            return !trimmed.isEmpty && trimmed.allSatisfy { $0 == ":" || $0 == "-" }
+        }
+    }
+
+    static func tableCells(_ line: String) -> [String] {
+        var value = line.trimmingCharacters(in: .whitespaces)
+        if value.hasPrefix("|") { value.removeFirst() }
+        if value.hasSuffix("|") { value.removeLast() }
+        return value.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     static func inline(_ s: String) -> AttributedString {
@@ -464,11 +606,51 @@ struct MarkdownView: View {
                     }
                     .font(.system(size: 14))
                     .foregroundStyle(Ember.text.opacity(0.94))
+                case .quote(let s):
+                    HStack(alignment: .top, spacing: 10) {
+                        RoundedRectangle(cornerRadius: 1).fill(Ember.accent.opacity(0.6)).frame(width: 3)
+                        Text(Markdown.inline(s)).font(.system(size: 13.5)).lineSpacing(4)
+                            .foregroundStyle(Ember.secondary).textSelection(.enabled)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 2)
+                case .rule:
+                    Rectangle().fill(Ember.hairline).frame(height: 1).padding(.vertical, 3)
+                case .table(let rows):
+                    tableView(rows)
                 case .code(let language, let code):
                     CodeBlock(language: language, code: code)
                 }
             }
         }
+    }
+
+    @ViewBuilder private func tableView(_ rows: [[String]]) -> some View {
+        let columns = rows.map(\.count).max() ?? 1
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                    GridRow {
+                        ForEach(0..<columns, id: \.self) { column in
+                            let value = column < row.count ? row[column] : ""
+                            Text(Markdown.inline(value))
+                                .font(.system(size: 12.5, weight: rowIndex == 0 ? .semibold : .regular))
+                                .foregroundStyle(Ember.text.opacity(rowIndex == 0 ? 0.98 : 0.88))
+                                .textSelection(.enabled)
+                                .frame(minWidth: 92, maxWidth: 240, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(rowIndex == 0 ? Ember.raised.opacity(0.8) : Color.clear)
+                                .overlay(alignment: .bottom) { Rectangle().fill(Ember.hairline).frame(height: 1) }
+                                .overlay(alignment: .trailing) { Rectangle().fill(Ember.hairline.opacity(0.6)).frame(width: 1) }
+                        }
+                    }
+                }
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 8).fill(Ember.code.opacity(0.45)))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Ember.hairline))
     }
 }
 

@@ -63,7 +63,7 @@ export const defaultSettings: IngleSettings = {
   keepAlive: '15m',
   serverURL: 'http://localhost:11434',
   enginePath: '/Applications/Ingle.app/Contents/Resources/OllamaRuntime/ollama',
-  thinkingDecider: { enabled: false, model: 'strands-decider' },
+  thinkingDecider: { enabled: true, model: 'strands-decider' },
   web: { onByDefault: true, provider: 'duckduckgo', searxngURL: '', braveKey: '' },
   memory: { enabled: true, askFirst: false },
   workspaceFolders: ['~/Projects'],

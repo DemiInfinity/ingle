@@ -52,6 +52,7 @@ export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web
     '- Ingle saves the files you change, so the user can see them in the changes panel under your reply, undo the whole run (every file you changed in one reply) with Undo this run, or commit exactly those files. Changes made by commands aren’t covered.',
     '- For a job of 3 or more steps, keep a short task list with update_tasks (the user sees it with ticks): mark one item in_progress as you start it and done when finished. Not for quick questions.',
     '- The user can type while you work: their message appears in the chat marked as sent while you were working. Take it into account from that point.',
+    '- Read each relevant instruction once. For short follow-ups such as “redo”, “again” and “try again”, inspect only the immediately preceding request and answer once, then act on the meaning the context supports. If the user is asking you to verify a factual claim or supply missing evidence, check reliable web sources when Web is on and cite them. Do not reopen or re-parse the same history after intent is clear; consult older turns only when the user identifies them or they are essential. If meaning is still materially unclear after one check, ask one brief question instead of listing interpretations.',
     ...(sshHosts.length ? [`- ${sshFact(sshHosts)}`] : []),
     `- ${secretsFact(secretNames)}`,
     '- Don’t describe yourself as a generic chatbot, and don’t claim abilities you don’t have.',

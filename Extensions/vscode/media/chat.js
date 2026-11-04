@@ -1255,7 +1255,7 @@
       e.decider = h('span', { class: 'used-chip decider-chip', title: 'The local decision model detected a possible thinking loop and restarted the reply without thinking.' },
         icon('sync'), h('span', { text: 'Decider intervened' }));
       e.used = h('span', { class: 'used-chip', title: 'Rules, skills and memories Ingle matched to your message and gave the assistant' });
-      e.chips = h('div', { class: 'msg-chips' }, e.thinkBtn, e.decider, e.used);
+      e.chips = h('div', { class: 'msg-chips' }, e.used);
       e.thinking = h('div', { class: 'thinking', hidden: true });
       e.dots = h('div', { class: 'typing', 'aria-label': 'Writing', role: 'img' }, h('span'), h('span'), h('span'));
       e.body = h('div', { class: 'md' });
@@ -1269,7 +1269,7 @@
         h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan' }, icon('check'), 'Approve'));
       e.planCard = h('div', { class: 'plan-card', hidden: true });
       root.append(
-        h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model),
+        h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model, e.thinkBtn, e.decider),
         e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
@@ -1369,7 +1369,7 @@
         e.used.setAttribute('aria-label', `Used context: ${used.join(', ')}`);
       }
     }
-    e.chips.hidden = !hasThinking && !used.length && m.deciderIntervened !== true;
+    e.chips.hidden = !used.length;
 
     // Body
     e.dots.hidden = !(live && !p.body);

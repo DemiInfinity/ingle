@@ -72,10 +72,12 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
   (`EditorChip`) or, in Code mode, the project chip (`ProjectChip`), and the slash menu;
   below it: the context meter (`ContextMeter`) with **Compact**.
 - **Messages** ([`MessageViews.swift`](../Sources/Ingle/MessageViews.swift)): `MessageRow` renders user and
-  assistant bubbles, tool rows (icon, title, detail, collapsible output, denied state), nudge notes, the compaction
+  assistant bubbles, nudge notes, the compaction
   divider ("Earlier messages summarised · N messages", expandable), image thumbnails, the "used context" chips
   (matched rules/skills/memories, ⚑ commands, ⚠ not followed), "Thought for Ns", tokens per second, Copy and
-  Regenerate. `MarkdownView` is a small Markdown renderer; `CodeBlock` uses `CodeHighlight`
+  Regenerate. Tool calls and results are collected in the expandable Actions stage inside Thinking, rather than
+  shown as separate chat rows. `MarkdownView` renders common reply Markdown including tables and block quotes;
+  `CodeBlock` uses `CodeHighlight`
   ([`CodeHighlight.swift`](../Sources/Ingle/CodeHighlight.swift)) for syntax colouring.
 - **Approval card** (`ApprovalCard`): Deny / Allow for This Session / Allow — see
   [terminal-and-mac-control.md](terminal-and-mac-control.md#approvals).
@@ -313,5 +315,5 @@ networking for ATS, Apple Events and folder usage descriptions) and [`../Support
 | **Menu-bar first, Dock only while a window is open** | A conventional always-in-Dock app | Ingle is mostly a background companion (model state, sleep); it shouldn't take a Dock slot all day. |
 | **Two roles (Daily/Hard)** plus optional profiles | Arbitrary numbers of assistants | Only one big model fits in memory at a time on most Macs; two clear roles make switching obvious, and any other model can still be named. |
 | **Polling `/api/ps` every 5 s** | Instant state updates | Ollama has no event stream; 5 s is cheap and good enough for a menu bar. |
-| A **hand-written Markdown renderer and highlighter** | Full CommonMark and grammar-accurate highlighting | No third-party packages; the subset models use (headings, lists, code, emphasis, links) renders well. |
+| A **hand-written Markdown renderer and highlighter** | Full CommonMark and grammar-accurate highlighting | No third-party packages; common reply blocks (headings, lists, tables, quotes, code, emphasis and links) render in chat. |
 | **`/bin/zsh -lc` for MCP servers** | Fast, isolated start-up | GUI apps don't get your Terminal `PATH`; a login shell finds `npx`/`uvx` reliably. |
