@@ -26,7 +26,7 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
   `git status`, files the chat mentions, and their direct neighbours (imports, callers, tests). Look wider only when the
   task needs it, and say so. Never index or read a whole project up front. Small context windows stay focused this way.
 - **Never "I can't read all of that" (the user's principle).** If a codebase, file or log is too big, give the model a
-  way in: the project guide (task 40), the repo map, code intelligence, chunked reading. It works at the right level of
+  way in: the project map in `.ingle/map/` (task 40), the repo map, code intelligence, chunked reading. It works at the right level of
   detail instead of giving up.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
@@ -739,7 +739,7 @@ request is blocked (checked in the web inspector). Mermaid, CSV, SVG and PDF ren
 
 ## Wave 4g — learn the project
 
-### [ ] 40. "Learn this project": a map and a guide the model reads (both apps + CLI; round D)
+### [ ] 40. "Learn this project": the project map in `.ingle/map/` (both apps + CLI; round D)
 **Why.** A small model can't hold a whole codebase in 16–32K tokens, but it doesn't need to. Like a new developer,
 it needs a good **guide at several levels of detail**: what the project is, how it's laid out, what each part does, and
 where things live. Ingle builds that guide, keeps it current, and the model zooms in from it to the actual code. This is
@@ -753,16 +753,32 @@ where things live. Ingle builds that guide, keeps it current, and the model zoom
   3. **File notes** for important or large files: a short summary and its symbols.
   Plus `GLOSSARY.md` (project terms → where they live) and `HOWTO.md` (recipes found in the code, e.g. "add an
   endpoint: route in X, handler in Y, test in Z").
+- **Layout of `.ingle/map/`:**
+  ```
+  .ingle/map/
+  ├── OVERVIEW.md        level 1: the whole project on one page
+  ├── modules/<path>.md  level 2: one guide per meaningful folder
+  ├── files/<path>.md    level 3: notes for big or important files
+  ├── GLOSSARY.md        project terms → where they live
+  ├── HOWTO.md           recipes found in the code
+  └── map.json           the facts (files, symbols with file:line, imports, dependencies, build/test commands,
+                         content hashes for staleness); written by static analysis, read by the tools
+  ```
+- **Map first (the user's decision).** The first time a folder is opened in Code mode (or `ingle` runs in it), Ingle
+  **maps it before anything else**: `map.json` and a facts-only `OVERVIEW.md` skeleton come from static analysis in
+  seconds to a minute, with no model, so the assistant has the map from its very first answer. The written summaries
+  (overview prose, module guides, file notes) then fill in as a background job. Until they're done, the assistant uses
+  the facts and says the map is still being written. Opening the project later only refreshes what changed.
 - **Facts first, prose second.** Structure, symbols, imports and dependencies, build/test commands and git history
   hot spots come from **static analysis** (`ingle-code`, task 33): exact and instant, no model needed. The local model
   only writes the short summaries, working **bottom-up** (files → folders → overview), so each step fits its context.
-- **Stored with the project:** `<project>/.ingle/guide/`, plain Markdown, viewable in the previewer (task 39). You
+- **Stored with the project in `<project>/.ingle/map/` (the user's decision):** plain Markdown, viewable in the previewer (task 39). You
   can edit it, and sections you edit are marked and never overwritten. Whether to commit it is your choice.
 - **Kept current cheaply:** each note records the hashes of the files it covers. After changes (on commit, or when
   `git status` shows edits), only the affected notes, and then their parents, are rewritten, as a background job (task
   36), on mains power, never while you're chatting. Stale notes are labelled "may be out of date" until refreshed.
 - **How the model uses it:** in Code mode, the prompt always has `OVERVIEW.md` plus the guides for the working set's
-  modules. Tools: `project_guide(path?)` (overview, or the guide for a folder or file) and `find_concept("payments")`
+  modules. Tools: `project_map(path?)` (overview, or the guide for a folder or file) and `find_concept("payments")`
   (searches the guide with the existing nomic-embed-text embeddings, and returns the right module guides and
   `file:line`s). The model goes overview → module → code, instead of reading blindly.
 - **Kept honest:** every note cites `file:line`, and a checker flags notes whose cited symbols no longer exist, so
@@ -770,11 +786,11 @@ where things live. Ingle builds that guide, keeps it current, and the model zoom
 - **Starting it:** **Learn this project** on the Code mode folder chip, `/learn`, or `ingle learn` in the CLI. It shows
   progress and an estimate (a first build of a mid-sized repo may take a while on a laptop) and can be paused.
   Offline throughout.
-- **Measured:** the benchmark (final round) gets an ablation `--no-project-guide` and adds "understanding" tasks on a
+- **Measured:** the benchmark (final round) gets an ablation `--no-project-map` and adds "understanding" tasks on a
   larger fixture project, to show what the guide adds.
-**Files.** `Extensions/ingle-code/src/engine/guide/` (structure and fact extraction, staleness hashes, shared by
-both apps and the CLI), new `Sources/Ingle/ProjectGuide.swift` (Mac: start, show progress, prompt inclusion, tools),
-VS Code `src/tools/guide.ts`, CLI `learn` command, prompt facts, `HelpTopics`, `docs/project-guide.md` (new),
+**Files.** `Extensions/ingle-code/src/engine/map/` (structure and fact extraction, staleness hashes, shared by
+both apps and the CLI), new `Sources/Ingle/ProjectMap.swift` (Mac: start, show progress, prompt inclusion, tools),
+VS Code `src/tools/projectMap.ts`, CLI `learn` command, prompt facts, `HelpTopics`, `docs/project-map.md` (new),
 `docs/ingle-home.md`.
 **Done when.** On this repo, Learn this project produces an overview and module guides that are accurate (spot-check 10
 claims against the code) and fit their token budgets. After editing one file, only its notes and parents are refreshed.
