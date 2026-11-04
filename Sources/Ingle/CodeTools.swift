@@ -78,7 +78,8 @@ enum CodeTools {
     // MARK: Running
 
     /// Runs one of the code tools for the Code chat on `folder`. File work happens off the main thread.
-    static func run(_ call: ToolCall, folder: String) async -> String {
+    /// `run` is the run this call belongs to: edit_file snapshots the file for Undo this run first (see Checkpoints).
+    static func run(_ call: ToolCall, folder: String, run: Checkpoints.Run? = nil) async -> String {
         let root: String = Project.standard(folder)
         switch call.name {
         case "get_problems": return await problems(call, root: root)
@@ -88,7 +89,7 @@ enum CodeTools {
                 case "repo_map": return repoMap(call, root: root)
                 case "find_files": return findFiles(call.arg("glob"), root: root)
                 case "search_code": return searchCode(call.arg("query"), glob: call.arg("glob"), root: root)
-                case "edit_file": return editFile(call, root: root)
+                case "edit_file": return editFile(call, root: root, run: run)
                 default: return "Unknown tool \(call.name)."
                 }
             }.value
@@ -237,11 +238,13 @@ enum CodeTools {
 
     struct ProposalError: Error { let message: String; init(_ m: String) { message = m } }
 
-    private static func editFile(_ call: ToolCall, root: String) -> String {
+    private static func editFile(_ call: ToolCall, root: String, run: Checkpoints.Run?) -> String {
         switch propose(call, root: root) {
         case .failure(let e): return e.message
         case .success(let p):
             let shown: String = tidy(p.abs, root: root)
+            // Keep the original for Undo this run before the first change in this run.
+            let note: String = Checkpoints.snapshot(path: p.abs, run: run).map { " " + $0 } ?? ""
             // Written in place (not replaced), so the file keeps its permissions.
             guard let handle = FileHandle(forWritingAtPath: p.abs) else { return "Couldn't edit the file: \(shown) can't be opened for writing." }
             do {
@@ -253,7 +256,7 @@ enum CodeTools {
                 return "Couldn't edit the file: \(error.localizedDescription)"
             }
             let s = LineDiff.stats(p.original, p.proposed)
-            return "Edited \(shown): −\(s.removed) +\(s.added) lines\(p.note)."
+            return "Edited \(shown): −\(s.removed) +\(s.added) lines\(p.note)." + note
         }
     }
 

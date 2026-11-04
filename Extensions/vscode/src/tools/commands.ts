@@ -5,6 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { paths } from '../shared/settings';
+import { FILE_CHANGING_TOOLS } from './checkpoints';
 import { cmp, frontmatter, listDir, readText, slug, stripFrontmatter, writeAtomic } from './frontmatter';
 import { DENIED, str, type ToolArgs, type ToolDef } from './types';
 
@@ -195,9 +196,8 @@ export function requirementMet(r: Requirement, calls: CallRecord[]): boolean {
   }
 }
 
-/** Every tool that changes files: any of these makes a then_run owed. Add new file-changing tools here
- *  (the Mac's list is CommandStore.fileChangingTools). */
-export const FILE_CHANGING_TOOLS = ['edit_file', 'write_file'];
+/** Every tool that changes files: any of these makes a then_run owed. The one list lives in checkpoints.ts. */
+export { FILE_CHANGING_TOOLS };
 
 /** True if a file changed (an allowed edit_file/write_file) after the last run_command containing `thenRun`. */
 export function thenRunOwed(thenRun: string, calls: CallRecord[]): boolean {

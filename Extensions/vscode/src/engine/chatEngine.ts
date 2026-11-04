@@ -30,6 +30,7 @@ import {
 import { mcp, MCP_TOOL_NAMES, wantsMCP } from '../tools/mcp';
 import { extractDocument, prepareImage } from '../tools/documents';
 import { listMemory, listReports, listRules, listSkills, mcpServers } from '../tools/stores';
+import { discardChat, finish as finishRun, restore as restoreRun, summary as runSummary, type RunRef } from '../tools/checkpoints';
 import { isDir, resolvePath as resolveToolPath, tidy } from '../tools/paths';
 import { buildRepoMap } from '../tools/repomap';
 import { DENIED, str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
@@ -365,6 +366,8 @@ export class ChatEngine implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private lastEditor?: vscode.TextEditor;
   private generating?: { chatId: string; abort: AbortController };
+  /** The run in progress (one per reply to a message): file-changing tools checkpoint into it. */
+  private activeRun?: RunRef;
   private activity: string | null = null;
   private pending?: PendingApproval;
   private readonly visionCache: Map<string, boolean>;
@@ -454,6 +457,7 @@ export class ChatEngine implements vscode.Disposable {
         case 'applyCode': return await this.applyCode(msg.code);
         case 'copy': await vscode.env.clipboard.writeText(msg.text); return;
         case 'regenerate': return await this.regenerate();
+        case 'undoRun': return await this.undoRun(msg.id, !!msg.force);
         case 'startEngine': await this.server.start(); return;
         case 'openSettings': return await this.openSettings();
       }
@@ -589,6 +593,7 @@ export class ChatEngine implements vscode.Disposable {
   private deleteChat(id: string) {
     if (this.generating?.chatId === id) this.stop();
     this.store.delete(id);
+    discardChat(id);
     if (id === this.currentId) {
       const next = this.store.summaries()[0];
       if (next) this.currentId = next.id;
@@ -872,6 +877,7 @@ export class ChatEngine implements vscode.Disposable {
       isSubAgent,
       vision,
       signal,
+      run: !isSubAgent && this.activeRun?.chat === chatId ? this.activeRun : undefined,
       setActivity: (t) => this.setActivity(t === null ? null : isSubAgent ? 'Helper: ' + t : t),
       requestApproval: async (req, target) => {
         const scope = approvalScope(toolName, args, req.kind, target, workspaceRoot());
@@ -1201,6 +1207,57 @@ export class ChatEngine implements vscode.Disposable {
     await this.generate(chat.id);
   }
 
+  // MARK: checkpoints (undo a whole run)
+
+  /** After a run: records the files' new state and puts "Undo this run" on the run's last reply. */
+  private endRun(chat: StoredChat, run: RunRef, firstNew: number) {
+    let files: ReturnType<typeof finishRun> = null;
+    try { files = finishRun(run); } catch { files = null; }
+    if (!files) return;
+    let reply: Stored | undefined;
+    for (let i = chat.messages.length - 1; i >= firstNew; i--) {
+      if (chat.messages[i].role === 'assistant' && !chat.messages[i].compaction) { reply = chat.messages[i] as Stored; break; }
+    }
+    if (!reply) {
+      reply = { id: uid(), role: 'assistant', content: '', assistantName: assistant(this.settings, chat.assistantId).name };
+      chat.messages.push(reply);
+      this.postFor(chat.id, { type: 'messageAdd', message: forUI(reply) });
+    }
+    reply.checkpoint = { run: run.run, files: files.map((f) => ({ path: tidy(f.path) || f.path, action: f.action })) };
+    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
+  }
+
+  /** "Undo this run" (force = "Undo anyway"). */
+  private async undoRun(messageId: string, force: boolean) {
+    const chat = this.current();
+    const m = chat.messages.find((x) => x.id === messageId) as Stored | undefined;
+    const cp = m?.checkpoint;
+    if (!m || !cp) return;
+    const refuse = (message: string, canForce = false) => this.post({ type: 'undoRefused', id: messageId, message, canForce });
+    if (this.generating?.chatId === chat.id) return refuse('Wait for the reply to finish (or press Stop), then undo.');
+    const ref: RunRef = { chat: chat.id, run: cp.run };
+    // Unsaved edits in an open editor count as "changed after the run" too.
+    if (!force) {
+      const files = new Set(runSummary(ref).map((f) => f.path));
+      const unsaved = vscode.workspace.textDocuments.filter((d) => d.isDirty && d.uri.scheme === 'file' && files.has(d.uri.fsPath));
+      if (unsaved.length) {
+        return refuse(`${unsaved.length === 1 ? 'This file has' : 'These files have'} unsaved changes in the editor, so undoing would lose them:\n` +
+          unsaved.map((d) => '• ' + (tidy(d.uri.fsPath) || d.uri.fsPath)).join('\n'), true);
+      }
+    }
+    const r = restoreRun(ref, force);
+    if (!r.ok) {
+      if (/already been undone/.test(r.message)) { cp.undone = true; this.postFor(chat.id, { type: 'messageUpdate', message: forUI(m) }); }
+      return refuse(r.changedLater.length ? r.message.replace(/• (.+)/g, (_x, p: string) => '• ' + (tidy(p) || p)) : r.message, r.changedLater.length > 0);
+    }
+    // Open editors without unsaved edits reload from disk by themselves.
+    cp.undone = true;
+    this.store.save();
+    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(m) });
+    this.post({ type: 'notice', text: r.message.split('\n')[0] });
+    if (r.message.includes('\n')) void vscode.window.showWarningMessage('Ingle: ' + r.message);
+  }
+
   private stop() {
     if (this.pending) this.pending.resolve('deny');
     this.generating?.abort.abort();
@@ -1212,6 +1269,9 @@ export class ChatEngine implements vscode.Disposable {
     this.settings = loadSettings();
     const abort = new AbortController();
     this.generating = { chatId, abort };
+    const run: RunRef = { chat: chatId, run: uid() };
+    const firstNew = chat.messages.length;
+    this.activeRun = run;
     this.activity = null;
     this.postStatus();
     try {
@@ -1228,6 +1288,8 @@ export class ChatEngine implements vscode.Disposable {
     } finally {
       if (this.pending?.chatId === chatId) this.pending.resolve('deny');
       this.generating = undefined;
+      this.activeRun = undefined;
+      this.endRun(chat, run, firstNew);
       this.activity = null;
       chat.updated = Date.now();
       this.store.save();

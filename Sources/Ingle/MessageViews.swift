@@ -8,6 +8,8 @@ struct MessageRow: View {
     let isLast: Bool
     let streaming: Bool
     let onRegenerate: () -> Void
+    /// "Undo this run" (force = "Undo anyway"): nil when done, else why not and whether it can be forced.
+    var onUndo: ((Bool) -> (message: String, canForce: Bool)?)? = nil
 
     @State private var showThinking = false
     @State private var showOutput = false
@@ -32,7 +34,13 @@ struct MessageRow: View {
             compaction
         case .assistant:
             let p = parts
-            if !p.body.isEmpty || !p.thinking.isEmpty || live || message.toolCalls.isEmpty {
+            let shown: Bool = !p.body.isEmpty || !p.thinking.isEmpty || live || message.toolCalls.isEmpty
+            if let cp = message.checkpoint, !cp.files.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    if shown { assistant(p) }
+                    UndoRunBar(checkpoint: cp, busy: streaming, onUndo: onUndo)
+                }
+            } else if shown {
                 assistant(p)
             }
         }
@@ -631,5 +639,112 @@ struct SideBySideDiff: View {
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(line == nil ? Color.clear : (changed ? (added ? Color.green.opacity(0.13) : Color.red.opacity(0.13)) : Color.clear))
+    }
+}
+
+// MARK: Undo this run
+
+/// Under the last reply of a run that changed files: "Undo this run", with a preview of what it will put back.
+struct UndoRunBar: View {
+    let checkpoint: RunCheckpoint
+    let busy: Bool
+    let onUndo: ((Bool) -> (message: String, canForce: Bool)?)?
+
+    @State private var open = false
+    @State private var refusal: (message: String, canForce: Bool)?
+
+    private var count: String { "\(checkpoint.files.count) file\(checkpoint.files.count == 1 ? "" : "s")" }
+
+    var body: some View {
+        if checkpoint.undone == true {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold))
+                Text("Run undone · \(count) put back")
+            }
+            .font(.system(size: 11.5))
+            .foregroundStyle(Ember.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    withAnimation(.snappy) { open.toggle(); refusal = nil }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.uturn.backward").font(.system(size: 10, weight: .semibold))
+                        Text("Undo this run · \(count)")
+                        Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
+                            .rotationEffect(.degrees(open ? 90 : 0))
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Ember.secondary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Put back every file this run changed")
+                if open { preview }
+            }
+        }
+    }
+
+    private var preview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(checkpoint.files, id: \.path) { f in
+                    HStack(spacing: 8) {
+                        Text(verb(f.action))
+                            .foregroundStyle(f.action == .remove ? Ember.danger : Ember.secondary)
+                            .frame(width: 78, alignment: .leading)
+                        Text((f.path as NSString).abbreviatingWithTildeInPath)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundStyle(Ember.text)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                            .help(f.path)
+                    }
+                    .font(.system(size: 11.5))
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.04)))
+            Text(Checkpoints.notCovered)
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.secondary)
+            if let refusal {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11))
+                    Text(refusal.message).textSelection(.enabled)
+                }
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Ember.warn)
+            }
+            HStack(spacing: 8) {
+                if let refusal, refusal.canForce {
+                    Button("Undo Anyway") { undo(force: true) }
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Undo") { undo(force: false) }
+                        .buttonStyle(.borderedProminent)
+                }
+                Button("Cancel") { withAnimation(.snappy) { open = false; refusal = nil } }
+            }
+            .controlSize(.regular)
+            .disabled(busy)
+        }
+    }
+
+    private func verb(_ a: Checkpoints.Action) -> String {
+        switch a {
+        case .restore: return "Put back"
+        case .remove: return "Remove"
+        case .recreate: return "Bring back"
+        }
+    }
+
+    private func undo(force: Bool) {
+        refusal = onUndo?(force)
+        if refusal == nil { open = false }
     }
 }
