@@ -3,6 +3,7 @@
 // Local models pick tools far less reliably as the list grows (≈85% right with 5 tools, ≈45% with 20),
 // so optional tools are only offered when the message plausibly needs them.
 import type { CommandEntry } from '../tools/commands';
+import { wantsSSH } from '../tools/sshConfig';
 
 /** Optional tools and the words in the user's message that make them worth offering. */
 export const TOOL_WANTS: Record<string, RegExp> = {
@@ -34,6 +35,9 @@ export interface SelectionInput<T extends SelectableTool> {
   mcpToolNames: string[];
   /** Whether the message asks for MCP ("mcp" or a configured server's name). */
   mcpWanted: boolean;
+  /** SSH hosts the model may use (empty when SSH is off). ssh_command is offered when the message mentions ssh,
+   *  server, remote or one of these names. */
+  sshHosts?: string[];
   delegate?: T;
 }
 
@@ -55,6 +59,7 @@ export function selectTools<T extends SelectableTool>(input: SelectionInput<T>):
   const list = available.filter((tool) => {
     if (forced.has(tool.name)) return true;
     if (mcpToolNames.includes(tool.name)) return mcpWanted;
+    if (tool.name === 'ssh_command') return wantsSSH(t, input.sshHosts ?? []);
     return !TOOL_WANTS[tool.name] || TOOL_WANTS[tool.name].test(t);
   });
   if (delegate && (forced.has('delegate') || DELEGATE_WANTS.test(t))) list.push(delegate);

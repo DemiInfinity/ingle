@@ -52,7 +52,7 @@ export interface EditorContextInfo {
 
 export interface ApprovalRequest {
   id: string;
-  kind: 'command' | 'write' | 'edit' | 'open' | 'mcp' | 'memory' | 'skill' | 'rule' | 'read';
+  kind: 'command' | 'write' | 'edit' | 'open' | 'mcp' | 'memory' | 'skill' | 'rule' | 'read' | 'ssh';
   title: string;        // "Ember wants to run a command"
   detail: string;       // command text, file path, or JSON
   preview?: string;     // e.g. a unified diff for edits, or file content for writes

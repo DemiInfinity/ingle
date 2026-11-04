@@ -28,6 +28,8 @@ export interface IngleSettings {
   mcpDisabled?: string[];
   /** Live MCP status from the Mac app, keyed by server name. */
   mcpStatus?: Record<string, { state: 'running' | 'starting' | 'stopped' | 'failed'; tools?: string[]; error?: string }>;
+  /** SSH access (off by default): on/off and the ~/.ssh/config host aliases switched on in the Mac app. */
+  ssh: { enabled: boolean; hosts: string[] };
 }
 
 export const INGLE_HOME = path.join(os.homedir(), '.ingle');
@@ -62,6 +64,7 @@ export const defaultSettings: IngleSettings = {
   workspaceFolders: ['~/Projects'],
   useClaudeSkills: true,
   smartMatching: true,
+  ssh: { enabled: false, hosts: [] },
 };
 
 export function expandHome(p: string): string {
@@ -78,6 +81,10 @@ export function loadSettings(): IngleSettings {
       assistants: raw.assistants?.length ? raw.assistants : defaultSettings.assistants,
       web: { ...defaultSettings.web, ...(raw.web ?? {}) },
       memory: { ...defaultSettings.memory, ...(raw.memory ?? {}) },
+      ssh: {
+        enabled: raw.ssh?.enabled === true,
+        hosts: Array.isArray(raw.ssh?.hosts) ? raw.ssh!.hosts.filter((h): h is string => typeof h === 'string') : [],
+      },
     };
   } catch {
     return defaultSettings;

@@ -19,16 +19,22 @@ function shell(): string {
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[()][A-Z0-9]/g, '');
 
 export function runShell(command: string, cwd: string, signal: AbortSignal): Promise<string> {
+  const sh = shell();
+  return runProcess(sh, [sh.endsWith('zsh') || sh.endsWith('bash') ? '-lc' : '-c', command], cwd, signal);
+}
+
+/** Runs a program with an argument array (no shell): 2-minute limit, output capped and ANSI-free, stops on Stop.
+ *  Resolves "<status>\n<output>"; never rejects. */
+export function runProcess(file: string, args: string[], cwd: string, signal: AbortSignal): Promise<string> {
   return new Promise((resolve) => {
     let out = '';
     let size = 0;
     const chunks: string[] = [];
     let finished = false;
     let why: 'timeout' | 'stopped' | null = null;
-    const sh = shell();
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(sh, [sh.endsWith('zsh') || sh.endsWith('bash') ? '-lc' : '-c', command], {
+      child = spawn(file, args, {
         cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', CI: process.env.CI ?? '1' },
       });
@@ -40,12 +46,15 @@ export function runShell(command: string, cwd: string, signal: AbortSignal): Pro
       try { if (child.pid) process.kill(-child.pid, 'SIGTERM'); } catch { try { child.kill('SIGTERM'); } catch { /* gone */ } }
       setTimeout(() => { try { if (child.pid) process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 3000).unref();
     };
-    const onData = (d: Buffer) => {
+    const onData = (d: string) => {
       // Keep memory bounded: hold at most ~4× the cap, trimming the middle as we go.
-      chunks.push(d.toString('utf8'));
+      chunks.push(d);
       size += d.length;
       if (size > MAX_OUT * 4) { out = capOutput(chunks.join(''), MAX_OUT * 2); chunks.length = 0; chunks.push(out); size = out.length; }
     };
+    // Decode as UTF-8 per stream, so a character split across two chunks isn't garbled.
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', onData);
     child.stderr?.on('data', onData);
     const timer = setTimeout(() => { why = 'timeout'; kill(); }, TIMEOUT_MS);

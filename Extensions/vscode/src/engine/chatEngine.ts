@@ -15,7 +15,8 @@ import type {
   UIState,
 } from '../shared/protocol';
 import { assistant, AssistantSettings, expandHome, IngleSettings, loadSettings, paths } from '../shared/settings';
-import { allTools } from '../tools';
+import { allTools, enabledSSHHosts } from '../tools';
+import { sshScope } from '../tools/sshConfig';
 import {
   activeCommands, bannedBy, blockedMessage, CallRecord, CommandEntry, commandsBlock, commandsNotice, listCommands,
   requirementMet, requirementWords, thenRunOwed,
@@ -65,7 +66,7 @@ interface PendingApproval {
 export interface ApprovalScope { key: string; label: string }
 
 /** The approval scope for a request. Commands are allowed by exact text and folder, writes and outside reads by
- *  folder (that folder only, not its subfolders), links by exact URL, MCP by server/tool. Any tool not listed only
+ *  folder (that folder only, not its subfolders), links by exact URL, MCP by server/tool, SSH by host + folder + exact command. Any tool not listed only
  *  covers the exact same call again, so a new tool must add a case to get a wider scope.
  *  Keep in step with `MacTools.approvalScope` in Sources/Ingle/Tools.swift. */
 export function approvalScope(toolName: string, args: ToolArgs, kind: ApprovalRequest['kind'], target: string | undefined, root: string | undefined): ApprovalScope {
@@ -91,6 +92,8 @@ export function approvalScope(toolName: string, args: ToolArgs, kind: ApprovalRe
       const url = target ?? str(args, 'url').trim();
       return { key: `open\n${url}`, label: `opening “${clip(url)}”` };
     }
+    case 'ssh_command':
+      return sshScope(str(args, 'host'), str(args, 'command'), str(args, 'cwd'));
     case 'mcp_call': {
       const server = str(args, 'server').trim(), tool = str(args, 'tool').trim();
       return { key: `mcp\n${server.toLowerCase()}/${tool}`, label: `the MCP tool ${server}/${tool}` };
@@ -828,9 +831,10 @@ export class ChatEngine implements vscode.Disposable {
     const available = defs.filter((t) => {
       try { return t.available(ctx); } catch { return false; }
     });
+    const sshHosts = available.some((t) => t.name === 'ssh_command') ? enabledSSHHosts(ctx.settings) : [];
     return selectTools({
       available, lastUser, isSubAgent: ctx.isSubAgent, active, delegate,
-      mcpToolNames: MCP_TOOL_NAMES, mcpWanted: !ctx.isSubAgent && wantsMCP(lastUser.toLowerCase()),
+      mcpToolNames: MCP_TOOL_NAMES, mcpWanted: !ctx.isSubAgent && wantsMCP(lastUser.toLowerCase()), sshHosts,
     });
   }
 
@@ -1107,7 +1111,7 @@ export class ChatEngine implements vscode.Disposable {
 
   private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = []): string {
     const root = workspaceRoot();
-    const parts = [personaPrompt(this.settings, a, chat.web)];
+    const parts = [personaPrompt(this.settings, a, chat.web, enabledSSHHosts(this.settings))];
     const commands = commandsBlock(active);
     if (commands) parts.push(commands);
     parts.push(indexPrompt(this.settings, tools, root, chat.web));

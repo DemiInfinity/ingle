@@ -152,6 +152,19 @@
           "default": 200,
           "minimum": 0,
           "description": "Most steps (model turns) for one request before Ingle pauses and asks. Local models cost nothing per step, so this is only a backstop; 0 means no limit. Ingle also stops early if it keeps repeating itself."
+        },
+        "ingle.ssh.enabled": {
+          "type": ["boolean", "null"],
+          "default": null,
+          "scope": "application",
+          "markdownDescription": "Let assistants run commands on your own servers with `ssh_command`. Each command asks first. Leave unset to follow the Ingle Mac app (off by default)."
+        },
+        "ingle.ssh.hosts": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "default": null,
+          "scope": "application",
+          "markdownDescription": "Host names from `~/.ssh/config` that assistants may use (no wildcards). Leave unset to follow the Ingle Mac app."
         }
       }
     }

@@ -126,7 +126,7 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 | `openSettings` | — | Open `~/.ingle` |
 
 Key shapes: `ChatMessage` (with `tool`, `usedContext`, `stats`, `thoughtSeconds`, `attachments`, `compaction`),
-`ApprovalRequest` (`kind`: command, write, edit, open, mcp, memory, skill, rule, read; `title`, `detail`,
+`ApprovalRequest` (`kind`: command, write, edit, open, mcp, memory, skill, rule, read, ssh; `title`, `detail`,
 `preview`, `canShowDiff`), `UIState`, `MCPServerInfo`.
 
 **The webview** is plain JavaScript with no frameworks or CDNs: a tiny `h()` element builder, a safe Markdown
@@ -150,6 +150,7 @@ throws. The list is in [`src/tools/index.ts`](../Extensions/vscode/src/tools/ind
 | `edit_file`, `write_file` | `files.ts` | no | always, with diff |
 | `read_document`, `view_image` | [`documents.ts`](../Extensions/vscode/src/tools/documents.ts) | yes | outside the project |
 | `run_command`, `open_url` | [`command.ts`](../Extensions/vscode/src/tools/command.ts) | no | always |
+| `ssh_command` | [`ssh.ts`](../Extensions/vscode/src/tools/ssh.ts) | no | always (SSH on only) |
 | `web_search`, `web_fetch` | [`web.ts`](../Extensions/vscode/src/tools/web.ts) | yes | no (Web on only) |
 | `memory_search`, `memory_read`, `memory_save`, `memory_rewrite`, `memory_forget` | [`memory.ts`](../Extensions/vscode/src/tools/memory.ts) | search/read | saves if "ask first" |
 | `use_skill`, `use_rule`, `report_search`, `report_read`, `report_save`, `skill_create`, `rule_create` | [`knowledge.ts`](../Extensions/vscode/src/tools/knowledge.ts) | reads | creates always |
@@ -158,6 +159,33 @@ throws. The list is in [`src/tools/index.ts`](../Extensions/vscode/src/tools/ind
 | `delegate` | `chatEngine.ts` | — | no |
 
 Per-turn selection and the guards are described in [agent-loop.md](agent-loop.md#3-tool-selection).
+
+### SSH access
+
+`ssh_command { host, command, cwd? }` runs a command on one of **your own** servers. It's off by default and follows
+the same design as the Mac app:
+
+- **Hosts come from you, never the model.** A host is usable only if it's a plain `Host` alias in `~/.ssh/config`
+  (wildcard and `!` patterns are skipped, `Match` blocks are ignored, `Include` is followed up to 5 levels) **and**
+  switched on in Ingle. Anything else, including a raw `user@1.2.3.4`, is refused with "That host isn't set up for
+  Ingle…".
+- **Where "switched on" comes from:** the `ssh` block the Mac app writes to `~/.ingle/settings.json`
+  (`{ "enabled": false, "hosts": [] }` by default), overridden by `ingle.ssh.enabled` / `ingle.ssh.hosts` in your
+  **user** settings when you set them. Workspace settings are ignored, so a project can't switch SSH on.
+- **Runs the system client** with an argument array, no local shell: `/usr/bin/ssh -o BatchMode=yes -o
+  ConnectTimeout=10 -o StrictHostKeyChecking=yes -T <alias> -- <command>`, with `cd '<cwd>' &&` added (shell-quoted)
+  when `cwd` is given. Keys or ssh-agent only; Ingle never asks for or types passwords. An unknown or changed host key
+  fails, and the result tells you to connect once in Terminal first.
+- **Same limits as `run_command`** (`runProcess` in `command.ts`): 2-minute timeout, output trimmed, ANSI removed,
+  stops on Stop.
+- **Always asks.** The card's title names the host ("Wants to run a command on homelab"); "Allow for this session"
+  covers the same host, folder and exact command only.
+- **Offered only when relevant:** when SSH is on and the message mentions `ssh`, `server`, `remote` or an enabled
+  host name (`wantsSSH`), or a Command's `must_use: ssh_command` forces it. Helpers never get it. The prompt lists
+  the enabled host names (`sshFact`).
+
+The pure parts (config parsing, host checks, quoting, scope, wanting) are in
+[`sshConfig.ts`](../Extensions/vscode/src/tools/sshConfig.ts) and tested in `test/ssh.test.ts`.
 
 ### Editing files safely
 
@@ -256,8 +284,10 @@ side. **Ask Ingle About This** prefills a new chat with the selection (or the li
 | `ingle.shareProblems` | `true` | Include errors and warnings in what the Mac app sees |
 | `ingle.openBeside` | `true` | Open the first tab beside your code |
 | `ingle.maxSteps` | `200` | Backstop for steps in one request; `0` = no limit |
+| `ingle.ssh.enabled` | unset | Turn SSH access on or off (user settings only); unset follows the Mac app, which defaults to off |
+| `ingle.ssh.hosts` | unset | `~/.ssh/config` host names assistants may use (user settings only); unset follows the Mac app |
 
-Everything else (assistants, models, context lengths, web, memory, workspace folders, engine) comes from
+Everything else (assistants, models, context lengths, web, memory, workspace folders, engine, SSH) comes from
 `~/.ingle/settings.json`, written by the Mac app.
 
 ## Installing: `install.sh`
@@ -390,7 +420,7 @@ tests", "restart the service"). Running them on the Mac would act on the wrong m
 the workspace, while Mac control and MCP stay on the Mac. The approval card and prompt fact name the host, so the
 user always knows which machine a command touches.
 
-**Link to the planned `ssh_command` tool.** With `["ui"]`, Ingle runs on the Mac, so an `ssh_command` tool can use
+**Link to `ssh_command`** (now built, see [SSH access](#ssh-access); today it runs wherever the extension host runs). With `["ui"]`, Ingle runs on the Mac, so an `ssh_command` tool can use
 the user's own `~/.ssh/config`, keys and agent from Node `spawn('ssh', …)`, the same way the Mac app would. In a
 remote window it overlaps with `run_command` on the current host; keep `ssh_command` for *other* servers, and have
 `run_command` cover the open workspace. If the extension stayed `["workspace"]`, `ssh_command` would run from the
@@ -422,7 +452,8 @@ open-source remote extensions); test them separately.
 | [`src/tools/editmatch.ts`](../Extensions/vscode/src/tools/editmatch.ts) | `planEdit`, `nearestLines` |
 | [`src/tools/diff.ts`](../Extensions/vscode/src/tools/diff.ts) | Unified diff and stats for approval previews |
 | [`src/tools/paths.ts`](../Extensions/vscode/src/tools/paths.ts) | Path resolution, project roots, symlink-safe "inside the project" checks, `checkRead`, `DENIED` |
-| [`src/tools/command.ts`](../Extensions/vscode/src/tools/command.ts) | `run_command` (`runShell`), `open_url` |
+| [`src/tools/command.ts`](../Extensions/vscode/src/tools/command.ts) | `run_command` (`runShell`, `runProcess`), `open_url` |
+| [`src/tools/ssh.ts`](../Extensions/vscode/src/tools/ssh.ts), [`sshConfig.ts`](../Extensions/vscode/src/tools/sshConfig.ts) | `ssh_command`, SSH settings; config parsing, host checks, quoting, scope |
 | [`src/tools/documents.ts`](../Extensions/vscode/src/tools/documents.ts) | `extractDocument`, `prepareImage`, OCR, `read_document`, `view_image` |
 | [`src/tools/web.ts`](../Extensions/vscode/src/tools/web.ts) | `web_search`, `web_fetch` with DNS and redirect checks |
 | [`src/tools/html.ts`](../Extensions/vscode/src/tools/html.ts) | HTML to text, private host and address checks |
