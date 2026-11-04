@@ -59,13 +59,14 @@ enum EffortLevel: String, CaseIterable, Identifiable {
     /// Stop after this many skipped calls.
     var stuckLimit: Int { verify ? 6 : 4 }
 
-    /// Tooltip / help text (same as `help` in effort.ts).
+    /// Tooltip / help text (same as `help` in effort.ts). Thinking is the Reasoning switch's job; with Reasoning on,
+    /// higher effort also thinks more deeply.
     var help: String {
         switch self {
-        case .low: return "Low: quick answers, no thinking, fewest tools."
-        case .medium: return "Medium: thinks a little. Good for everyday work."
-        case .high: return "High: thinks more, reads the related code first, and runs the project’s checks after editing."
-        case .max: return "Max: plans first as a task list, thinks hardest, runs the checks, and a helper reviews the changes at the end."
+        case .low: return "Low: quick, fewest steps and tools."
+        case .medium: return "Medium: normal care. Good for everyday work."
+        case .high: return "High: reads the related code first and runs the project’s checks after editing."
+        case .max: return "Max: plans first as a task list, runs the checks, and a helper reviews the changes at the end."
         }
     }
 

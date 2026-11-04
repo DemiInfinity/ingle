@@ -26,6 +26,8 @@ export interface StoredChat {
   think?: boolean;
   /** Effort level (effort.ts). Missing in older chats. */
   effort?: EffortLevel;
+  /** Reasoning (the brain pill): on = think at the Effort level; off/missing = answer directly. */
+  reasoning?: boolean;
   useContext: boolean;
   usage?: { used: number; limit: number };
   /** True once the model has summarised the first message into a short title. */

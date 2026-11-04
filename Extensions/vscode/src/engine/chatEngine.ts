@@ -65,6 +65,7 @@ import {
   indexPrompt,
   personaPrompt,
   projectInstructions,
+  settingsPrompt,
   subAgentPrompt,
 } from './prompt';
 import { EngineServer, OFFLINE_TEXT } from './server';
@@ -382,6 +383,9 @@ export class ChatEngine implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private lastEditor?: vscode.TextEditor;
   private generating?: { chatId: string; abort: AbortController };
+  /** Message-box changes made while this chat's reply is running: applied when the run ends, so a run keeps the
+   *  settings it was sent with and changes take effect on the next message (the user's rule). */
+  private held: Array<(chat: StoredChat) => void> = [];
   /** The run in progress (one per reply to a message): file-changing tools checkpoint into it. */
   private activeRun?: RunRef;
   private activity: string | null = null;
@@ -436,6 +440,7 @@ export class ChatEngine implements vscode.Disposable {
       effort: this.effortOf(chat),
       effortHelp: { low: EFFORT.low.help, medium: EFFORT.medium.help, high: EFFORT.high.help, max: EFFORT.max.help },
       web: chat.web,
+      reasoning: !!chat.reasoning,
       useContext: chat.useContext,
       chats: this.store.summaries(),
       chatId: chat.id,
@@ -635,8 +640,16 @@ export class ChatEngine implements vscode.Disposable {
     }
   }
 
+  /** If this chat's reply is running, keep the change for later and return true. */
+  private holdIfRunning(change: (chat: StoredChat) => void): boolean {
+    if (this.generating?.chatId !== this.currentId) return false;
+    this.held.push(change);
+    return true;
+  }
+
   private setAssistant(id: string) {
     this.settings = loadSettings();
+    if (this.holdIfRunning((c) => { c.assistantId = assistant(this.settings, id).id; })) return;
     const chat = this.current();
     const a = assistant(this.settings, id);
     chat.assistantId = a.id;
@@ -656,12 +669,14 @@ export class ChatEngine implements vscode.Disposable {
 
   private setEffort(effort: EffortLevel) {
     if (!isEffort(effort)) return;
+    if (this.holdIfRunning((c) => { c.effort = effort; })) return;
     const chat = this.current();
     chat.effort = effort;
     if (chat.messages.length) this.store.save();
   }
 
-  private toggle(key: 'web' | 'useContext', value: boolean) {
+  private toggle(key: 'web' | 'useContext' | 'reasoning', value: boolean) {
+    if (this.holdIfRunning((c) => { c[key] = value; })) return;
     const chat = this.current();
     chat[key] = value;
     if (chat.messages.length) this.store.save();
@@ -1362,6 +1377,14 @@ export class ChatEngine implements vscode.Disposable {
 
   private setWorkMode(mode: WorkMode) {
     if (!isWorkMode(mode)) return;
+    if (this.holdIfRunning((c) => {
+      const was = modeOf(c);
+      if (mode === 'plan' && was !== 'plan') c.modeBefore = was;
+      c.workMode = mode === 'ask' ? undefined : mode;
+    })) {
+      this.post({ type: 'workMode', mode });
+      return;
+    }
     const chat = this.current();
     const was = modeOf(chat);
     if (mode === 'plan' && was !== 'plan') chat.modeBefore = was;
@@ -1536,6 +1559,13 @@ export class ChatEngine implements vscode.Disposable {
       if (this.pending?.chatId === chatId) this.pending.resolve('deny');
       this.generating = undefined;
       this.activeRun = undefined;
+      // Message-box changes made during the run apply now, for the next message.
+      const held = this.held.splice(0);
+      if (held.length) {
+        for (const change of held) change(chat);
+        if (chat.messages.length) this.store.save();
+        if (this.currentId === chatId) this.postInit();
+      }
       this.endRun(chat, run, firstNew);
       this.activity = null;
       // Messages still waiting (Stop, or the run ended between steps) go back in the message box, not lost.
@@ -1555,6 +1585,9 @@ export class ChatEngine implements vscode.Disposable {
   private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = [], effortLine = ''): string {
     const root = workspaceRoot();
     const parts = [personaPrompt(this.settings, a, chat.web, enabledSSHHosts(this.settings), listSecrets().map((s) => s.name))];
+    // Every switch's current state and meaning, so the assistant knows what it can do right now.
+    parts.push(settingsPrompt({ model: a.model, role: roleName(a.id), effort: this.effortOf(chat), mode: modeOf(chat), reasoning: !!chat.reasoning,
+      web: chat.web, sshHosts: enabledSSHHosts(this.settings), editor: editor ? chat.useContext !== false : undefined }));
     const commands = commandsBlock(active);
     if (commands) parts.push(commands);
     parts.push(indexPrompt(this.settings, tools, root, chat.web));
@@ -1733,7 +1766,7 @@ export class ChatEngine implements vscode.Disposable {
       let stopped = false;
       try {
         const r = await client.chat(
-          { model, messages: [{ role: 'system', content: system }, ...history], tools: toolJSON, think: thinkParam(effort, model), numCtx: limit, keepAlive: this.settings.keepAlive, thinkingDecider: this.settings.thinkingDecider },
+          { model, messages: [{ role: 'system', content: system }, ...history], tools: toolJSON, think: chat.reasoning ? thinkParam(effort, model) : false, numCtx: limit, keepAlive: this.settings.keepAlive, thinkingDecider: this.settings.thinkingDecider },
           signal,
           {
             onContent: (raw) => {
@@ -2014,7 +2047,7 @@ export class ChatEngine implements vscode.Disposable {
     let text = '';
     try {
       const r = await client.chat(
-        { model, messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: PLAN_REQUEST }], think: thinkParam(effort, model), numCtx: limit, keepAlive: this.settings.keepAlive },
+        { model, messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: PLAN_REQUEST }], think: chat.reasoning ? thinkParam(effort, model) : false, numCtx: limit, keepAlive: this.settings.keepAlive },
         signal,
       );
       text = stripThink(r.content).trim();

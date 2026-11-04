@@ -181,6 +181,9 @@ final class ChatStore {
 
     private var task: Task<Void, Never>?
     private var activeOllamaStream: OllamaStreamControl?
+    /// The message box's switches as they were when the user pressed Enter, per running chat. A run uses these from
+    /// start to finish; changing a switch mid-run applies to the next message (the user's rule).
+    private var sentSettings: [Conversation.ID: Conversation] = [:]
     /// The run in progress per chat (one per reply to a message): file-changing tools checkpoint into it.
     private var activeRuns: [Conversation.ID: Checkpoints.Run] = [:]
     private var approval: CheckedContinuation<Bool, Never>?
@@ -371,7 +374,8 @@ final class ChatStore {
         save()
         // Switching here does what the menu bar's switch does: wake the new assistant (asking first for a big model on
         // battery) so the menu bar shows who's awake, instead of the old model until the next message.
-        if let mm = ModelManager.current, !mm.isLoaded(model) {
+        // Mid-run, the running reply keeps its model (and memory); the new one wakes with the next message.
+        if streamingID != id, let mm = ModelManager.current, !mm.isLoaded(model) {
             let big: Bool = model == Prefs.hardModel
             if !big || mm.confirmHardOnBattery() {
                 Task { await mm.activate(model) }
@@ -585,13 +589,27 @@ final class ChatStore {
         pending = nil
     }
 
+    /// The chat with the message box's switches as they were when this run's message was sent (model, effort, mode,
+    /// reasoning, web, Mac). Everything else (messages, tasks, files) is current.
+    private func withSentSettings(_ c: Conversation, _ id: Conversation.ID) -> Conversation {
+        guard let sent = sentSettings[id] else { return c }
+        var copy: Conversation = c
+        copy.model = sent.model
+        copy.effort = sent.effort
+        copy.workMode = sent.workMode
+        copy.reasoning = sent.reasoning
+        copy.webAccess = sent.webAccess
+        copy.macAccess = sent.macAccess
+        return copy
+    }
+
     func requestApproval(_ id: Conversation.ID, _ call: ToolCall, _ info: MacTools.Info, secretUse: Secrets.Use? = nil) async -> Bool {
         let scope: MacTools.ApprovalScope = MacTools.approvalScope(call)
         // Secrets are approved one use at a time: never from a session allowance.
         if secretUse == nil, !scope.key.isEmpty, sessionAllowed[scope.key] != nil { return true }
         // Edit / Auto mode: some calls inside the project go ahead without asking (the tool row says so).
         if secretUse == nil, let i = index(id) {
-            let conv: Conversation = conversations[i]
+            let conv: Conversation = withSentSettings(conversations[i], id)
             let root: String? = conv.codeFolder ?? ((conv.useEditor ?? true) ? EditorBridge.shared.freshContext?.workspace : nil)
             if let note = conv.workModeValue.autoApproval(call, root: root) {
                 autoApproved[id] = note
@@ -636,6 +654,7 @@ final class ChatStore {
         streamingID = id
         let effort: EffortLevel = index(id).map { conversations[$0].effortLevel } ?? .medium
         let reasoning: Bool = index(id).map { conversations[$0].reasoningOn } ?? false
+        if let i = index(id) { sentSettings[id] = conversations[i] }
         let run = Checkpoints.Run(chat: id.uuidString, run: UUID().uuidString)
         let firstNew: Int = index(id).map { conversations[$0].messages.count } ?? 0
         let progressMessageID = UUID()
@@ -674,7 +693,7 @@ final class ChatStore {
             updateThinkingStage(id, messageID: progressMessageID, title: "Summarising", status: "In progress",
                                 content: "Summarising earlier messages and checking saved memory…")
             // What you're working on, and rules/skills that clearly match this message, attached up front.
-            let startConv = index(id).map { conversations[$0] }
+            let startConv = index(id).map { withSentSettings(conversations[$0], id) }
             var turnSummary = ""
             var turnSummaryPhase = ""
             var turnMemoryNotes = ""
@@ -874,7 +893,7 @@ final class ChatStore {
                     save()
                 }
                 guard let i = index(id) else { break }
-                let conv = conversations[i]
+                let conv = withSentSettings(conversations[i], id)
                 let planMode: Bool = conv.workModeValue == .plan
                 let model = conv.model
                 let vision = await supportsVision(model)
@@ -887,6 +906,10 @@ final class ChatStore {
                 // Mac control is off in Code mode, whatever the chat's Mac switch says.
                 let mac: Bool = conv.macAccess && codeFolder == nil
                 if let persona = Persona.systemPrompt(for: model, web: conv.webOn, codeFolder: codeFolder) { system.append(persona) }
+                // Every switch's current state and meaning, so the assistant knows what it can do right now.
+                let editorShared: Bool? = (codeFolder == nil && EditorBridge.shared.freshContext != nil) ? (conv.useEditor ?? true) : nil
+                system.append(ChatSettingsPrompt.block(model: model, effort: effort, mode: conv.workModeValue, reasoning: reasoning,
+                                                       web: conv.webOn, mac: mac, codeFolder: codeFolder, editor: editorShared))
                 if let block = CommandStore.promptBlock(tracker.commands) { system.append(block) }
                 // Only the short INGLE.md index goes in; details load on demand through tools.
                 system.append(IngleManifest.refresh(macAccess: mac, project: project, web: conv.webOn, currentChat: id, code: codeFolder != nil))
@@ -1369,6 +1392,7 @@ final class ChatStore {
                 conversations[i].messages.remove(at: progress)
             }
             endRun(id, run: run, firstNew: firstNew)
+            sentSettings[id] = nil
             streamingID = nil
             activity = nil
             // The menu bar shows which assistant is awake: refresh it now the reply's model (and any helper) has run.

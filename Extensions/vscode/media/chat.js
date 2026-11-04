@@ -19,6 +19,7 @@
     effort: 'medium',
     effortHelp: {},
     web: false,
+    reasoning: false,
     useContext: true,
     chats: [],
     chatId: '',
@@ -124,6 +125,7 @@
   // ---------------------------------------------------------------------------------------------
 
   const ICONS = {
+    gauge: '<path d="M2.4 11.2a5.6 5.6 0 1 1 11.2 0"/><path d="M8 11.2l2.7-3.3"/>',
     terminal: '<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="2"/><path d="M4.6 6.2l2 1.8-2 1.8M8.4 10.2h3"/>',
     file: '<path d="M4 1.9h4.9l3.1 3.1v9.1H4z"/><path d="M8.9 1.9V5H12"/>',
     folder: '<path d="M1.9 4.1a1 1 0 0 1 1-1h3.1l1.5 1.6h5.6a1 1 0 0 1 1 1v6.3a1 1 0 0 1-1 1H2.9a1 1 0 0 1-1-1z"/>',
@@ -799,11 +801,16 @@
   const effortLabel = h('span', { text: 'Medium' });
   const effortPill = h('button', {
     class: 'pill effort-pill', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
-  }, icon('think'), effortLabel, icon('chevron', 'chev'));
+  }, icon('gauge'), effortLabel, icon('chevron', 'chev'));
   const effortItems = EFFORTS.map(([id, label]) => h('button', {
     class: 'effort-item', type: 'button', role: 'menuitemradio', 'aria-checked': 'false', 'data-effort': id,
   }, h('span', { class: 'effort-name', text: label }), h('span', { class: 'effort-help' })));
   const effortPop = h('div', { class: 'meter-pop effort-pop', role: 'menu', 'aria-label': 'Effort', hidden: true }, ...effortItems);
+  // Reasoning (the brain pill): off answers directly; on thinks first, as deeply as the Effort level allows.
+  const reasoningPill = h('button', {
+    class: 'pill icon-only', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Reasoning',
+    title: 'Reasoning off: answers directly without thinking (fast). Turn on for deep research or hard problems',
+  }, icon('think'));
   const webPill = h('button', {
     class: 'pill', type: 'button', 'aria-pressed': 'false',
     title: 'Let the assistant search and read web pages (read-only)',
@@ -845,7 +852,7 @@
   const composer = h('div', { class: 'composer' },
     attachRow,
     input,
-    h('div', { class: 'composer-row' }, clipBtn, h('span', { class: 'meter-wrap' }, effortPill, effortPop), h('span', { class: 'meter-wrap' }, modePill, modePop), webPill, h('span', { class: 'grow' }),
+    h('div', { class: 'composer-row' }, clipBtn, h('span', { class: 'meter-wrap' }, effortPill, effortPop), h('span', { class: 'meter-wrap' }, modePill, modePop), reasoningPill, webPill, h('span', { class: 'grow' }),
       h('span', { class: 'meter-wrap' }, meterBtn, meterPop), sendBtn));
 
   const HINT = 'Enter to send · Shift+Enter new line · / for commands';
@@ -1783,6 +1790,11 @@
       item.setAttribute('aria-checked', id === S.effort ? 'true' : 'false');
       setText(item.lastChild, (S.effortHelp[id] || '').replace(/^[A-Za-z]+: /, ''));
     }
+    reasoningPill.setAttribute('aria-pressed', S.reasoning ? 'true' : 'false');
+    reasoningPill.classList.toggle('on', !!S.reasoning);
+    reasoningPill.title = S.reasoning
+      ? 'Reasoning on: thinks before answering, as deeply as the Effort level allows (slower, for deep work)'
+      : 'Reasoning off: answers directly without thinking (fast). Turn on for deep research or hard problems';
     webPill.setAttribute('aria-pressed', S.web ? 'true' : 'false');
     webPill.classList.toggle('on', S.web);
     const m = modeInfo(S.workMode);
@@ -2377,6 +2389,11 @@
   document.addEventListener('mousedown', (e) => {
     if (effortOpen && !effortPop.contains(e.target) && !effortPill.contains(e.target)) closeEffort(false);
   });
+  reasoningPill.addEventListener('click', () => {
+    S.reasoning = !S.reasoning;
+    post({ type: 'toggle', key: 'reasoning', value: S.reasoning });
+    renderComposer();
+  });
   webPill.addEventListener('click', () => {
     S.web = !S.web;
     post({ type: 'toggle', key: 'web', value: S.web });
@@ -2418,6 +2435,7 @@
     S.effort = ['low', 'medium', 'high', 'max'].includes(state.effort) ? state.effort : 'medium';
     S.effortHelp = state.effortHelp || {};
     S.web = !!state.web;
+    S.reasoning = !!state.reasoning;
     S.useContext = state.useContext !== false;
     S.chats = Array.isArray(state.chats) ? state.chats : [];
     S.chatId = state.chatId || '';

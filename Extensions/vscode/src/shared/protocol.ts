@@ -117,6 +117,8 @@ export interface UIState {
   /** Tooltip text per level, from the effort table. */
   effortHelp: Record<'low' | 'medium' | 'high' | 'max', string>;
   web: boolean;
+  /** Reasoning pill: think before answering (at the Effort level). */
+  reasoning?: boolean;
   useContext: boolean;
   chats: ChatSummary[];
   chatId: string;
@@ -188,7 +190,7 @@ export type FromWebview =
   | { type: 'openChat'; id: string }
   | { type: 'deleteChat'; id: string }
   | { type: 'setAssistant'; id: string }
-  | { type: 'toggle'; key: 'web' | 'useContext'; value: boolean }
+  | { type: 'toggle'; key: 'web' | 'useContext' | 'reasoning'; value: boolean }
   | { type: 'setEffort'; effort: 'low' | 'medium' | 'high' | 'max' }
   | { type: 'approve'; id: string; decision: 'allow' | 'deny' | 'always' }
   | { type: 'showDiff'; id: string }

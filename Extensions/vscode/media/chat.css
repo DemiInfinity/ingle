@@ -1191,3 +1191,6 @@ body.vscode-light .dot-connected { background: #1a7f37; }
   border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.12)); box-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
 .catch-up[hidden] { display: none; }
+
+/* An icon-only pill (Reasoning). */
+.pill.icon-only { padding: 0 7px; }

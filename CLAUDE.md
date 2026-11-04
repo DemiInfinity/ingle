@@ -104,6 +104,10 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
   `modes.ts`; Edit/Auto auto-approve inside the project, Auto's risky-command list in one function per app, tested);
   plans saved as `.ingle/plans/*.md` (Approve reads the file, steps ticked in it); changes panel + Commit (exactly the run's files, approval, never
   pushes, sign-off off by default); typing during a run queues the message for the model's next step. Per chat state.
+- **Message-box settings:** Model, Effort, Mode, Reasoning (🧠, off = no thinking and no thinking flow), Web, Mac.
+  Snapshotted when Enter is pressed: a running reply keeps them (Mac `sentSettings`/`withSentSettings`, VS Code
+  `held` changes applied at run end). Every request carries a "This chat's settings" block (`ChatSettings.swift` /
+  `settingsPrompt` in `prompt.ts`) stating each switch and its meaning — keep both in step.
 - **Terminal vs Mac control:** Terminal tools always on; the Mac button only gates `open`/`applescript`/`screenshot`.
 - **Code mode (Mac app):** a chat on a project folder. Reads inside it are free, outside ask; writes/commands ask. Coding
   persona = the extension's `personaPrompt` + `guidancePrompt` meaning (keep in step). Mac control off.

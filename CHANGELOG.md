@@ -33,8 +33,15 @@ releases. Every change people can notice gets a line here. Ask the assistant "wh
 - **Catch up:** the chat follows new text while you're at the bottom; scroll up to read and a **Catch up** button
   brings you back.
 - **What's new:** this list, in Settings → About and through the assistant.
+- **The assistant knows its settings:** every message tells it which assistant, Effort, Mode, Reasoning, Web, Mac
+  control, SSH and editor sharing are on, and what each means, so it won't claim to browse with Web off and can suggest
+  a better setting.
+- **Reasoning in VS Code too:** the brain pill works the same in both apps.
 
 ### Changed
+- **Settings apply when you press Enter:** changing Model, Effort, Mode, Reasoning, Web or Mac while a reply is
+  running no longer changes that reply; it applies to your next message.
+- **Effort describes care, not thinking:** thinking is now only the Reasoning switch's job.
 - **Licence:** now open source under the AGPL-3.0, with one extra term: keep the credit "Based on Ingle by DemiInfinity"
   visible. Removing it, or keeping changes private, needs a commercial licence.
 - **Safer approvals:** "Allow for This Session" now covers only the same action (the same command in the same folder,

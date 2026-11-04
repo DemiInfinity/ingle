@@ -8,6 +8,8 @@ import type { ToolDef } from '../tools/types';
 import { commandsIndexText } from '../tools/commands';
 import { listRules, memoryIndexText, mcpServers, reportIndexText, listSkills } from '../tools/stores';
 import { prettyModel } from './names';
+import { EFFORT, type EffortLevel } from './effort';
+import { MODES, type WorkMode } from './modes';
 
 const NOTES_MARKER = '<!-- Your notes:';
 
@@ -59,6 +61,7 @@ export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web
     '- Your index (below) lists what you can use.',
     "- When the user asks what's new or what's changed in Ingle, call ingle_changes and summarise it in plain words.",
     '- The user can set Commands — rules Ingle enforces. If a COMMANDS block appears, follow it exactly; Ingle checks and will make you redo work that ignores it.',
+    '- Reasoning (the brain pill in the message bar) is off by default: you answer directly without thinking. When the user switches it on, you think before answering, as deeply as the Effort level allows — for deep research and hard problems. If a task needs careful thought and Reasoning is off, you may suggest switching it on.',
     '- Effort (the pill in the message bar: Low, Medium, High, Max) sets how hard you try in this chat. High and Max: after changing files Ingle makes you run the project’s check command once before finishing. Max: your short plan becomes the task list, and a read-only helper reviews your changes at the end. Follow any Effort line below. The Mode pill sets what may happen without asking: Ask (everything asks), Edit (file changes inside the project are approved automatically), Auto (also safe commands inside the project; risky ones still ask), Plan (only read and search, then end with a numbered plan for the user to approve) and Debug (reproduce or locate the failure, state the cause in a line starting "Cause:", then fix and rerun to confirm). Plans from Plan mode or Max are saved as Markdown in .ingle/plans and ticked as your task list moves on. Follow any Mode line below.',
     `- ${companionFact()}`,
     'Your character (stay in it, naturally — don’t announce it):',
@@ -225,4 +228,42 @@ function companionFact(): string {
     return 'There is also the Ingle Mac app (a menu-bar app with a chat window, model switching and sleep, web research and Mac access) that shares memory, rules, skills and commands with you, and runs and updates the AI engine. It isn’t installed. If it would genuinely help (they want to switch or sleep models, chat outside VS Code, or the engine keeps stopping), suggest it — once per chat at most.';
   }
   return 'Ingle also has a Mac app; on this computer only Ingle for VS Code is available.';
+}
+
+/** What each effort level asks of the assistant (thinking is the Reasoning pill's job). Same as effortMeaning in
+ *  ChatSettings.swift. */
+const EFFORT_MEANING: Record<EffortLevel, string> = {
+  low: 'keep it quick: fewest steps and tools.',
+  medium: 'normal care for everyday work.',
+  high: "read the related code first, and run the project's checks after editing, before finishing.",
+  max: 'plan first as a task list, investigate fully, run the checks, and your changes are reviewed at the end.',
+};
+
+/** "This chat's settings": every switch's current state and what it means right now, sent with every request.
+ *  Same meaning as ChatSettingsPrompt.block in Sources/Ingle/ChatSettings.swift — keep them in step. */
+export function settingsPrompt(s: {
+  model: string; role: string; effort: EffortLevel; mode: WorkMode; reasoning: boolean; web: boolean;
+  sshHosts: string[]; editor?: boolean;
+}): string {
+  const mode = MODES[s.mode];
+  const lines = [
+    "## This chat's settings",
+    "The user sets these in the message box; you can't change them. If a different setting would clearly help, say which in one short line.",
+    `- Assistant: ${prettyModel(s.model)} (${s.role}).`,
+    `- Effort: ${EFFORT[s.effort].label} — ${EFFORT_MEANING[s.effort]}`,
+    `- Mode: ${mode.label} — ${mode.help.replace(/^[^:]*:\s*/, '')}`,
+    s.reasoning
+      ? '- Reasoning: On — think before answering, as deeply as the Effort level allows.'
+      : '- Reasoning: Off — answer directly, without thinking first. For deep research or a hard problem, suggest switching on Reasoning (the brain icon).',
+    s.web
+      ? '- Web: On — you can search and read web pages (read-only).'
+      : '- Web: Off — no web access. If current information is needed, suggest switching on Web.',
+    s.sshHosts.length ? `- SSH: On — hosts: ${s.sshHosts.join(', ')}.` : '- SSH: Off.',
+  ];
+  if (s.editor !== undefined) {
+    lines.push(s.editor
+      ? "- Editor context: On — you see the user's open file and selection."
+      : '- Editor context: Off — the user chose not to share their editor.');
+  }
+  return lines.join('\n');
 }

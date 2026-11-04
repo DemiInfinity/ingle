@@ -36,25 +36,25 @@ export const EFFORT: Record<EffortLevel, EffortSpec> = {
     label: 'Low', think: false,
     promptLine: 'Answer directly in as few steps as possible.',
     tools: 'strict', verify: false, plan: false, review: false, repeatLimit: 3, stuckLimit: 4,
-    help: 'Low: quick answers, no thinking, fewest tools.',
+    help: 'Low: quick, fewest steps and tools.',
   },
   medium: {
     label: 'Medium', think: 'low',
     promptLine: '',
     tools: 'normal', verify: false, plan: false, review: false, repeatLimit: 3, stuckLimit: 4,
-    help: 'Medium: thinks a little. Good for everyday work.',
+    help: 'Medium: normal care. Good for everyday work.',
   },
   high: {
     label: 'High', think: 'medium',
     promptLine: 'Investigate before changing anything: read the related code, then check your work. For a job of 3 or more steps, keep a task list with update_tasks.',
     tools: 'relaxed', verify: true, plan: false, review: false, repeatLimit: 4, stuckLimit: 6,
-    help: 'High: thinks more, reads the related code first, and runs the project’s checks after editing.',
+    help: 'High: reads the related code first and runs the project’s checks after editing.',
   },
   max: {
     label: 'Max', think: 'high',
     promptLine: 'Plan first, investigate fully, verify with the project\'s checks, then review your own changes before finishing. Work through your task list and keep it current with update_tasks.',
     tools: 'relaxed', verify: true, plan: true, review: true, repeatLimit: 4, stuckLimit: 6,
-    help: 'Max: plans first as a task list, thinks hardest, runs the checks, and a helper reviews the changes at the end.',
+    help: 'Max: plans first as a task list, runs the checks, and a helper reviews the changes at the end.',
   },
 };
 
