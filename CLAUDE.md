@@ -25,10 +25,12 @@ index, `settings.json` written by the Mac app). Status: **early preview**. Licen
 INGLE_MLX=v3 ./build.sh       # keep only mlx_metal_v3 (smaller; macOS 14+). Options: both (default) | v3 | v4 | none
 cd Extensions/vscode && node node_modules/typescript/bin/tsc -p . --noEmit   # type-check the extension
 node --check Extensions/vscode/media/chat.js                                 # syntax-check the webview
+cd Extensions/vscode && npm test              # extension unit tests (node:test, offline; output in out-test/)
 cd Extensions/vscode && ./install.sh          # compile, package ingle.vsix, install into VS Code
 ```
 
-There is no test suite. You can't compile Swift on Linux — be careful (see Swift pitfalls below).
+Only the extension has tests (`Extensions/vscode/test/`, pure logic: commands, frontmatter, edit matching, matcher,
+tool selection); the Mac app has none. You can't compile Swift on Linux — be careful (see Swift pitfalls below).
 Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCODE_PUBLISHER`, `PRIVATE_WORDS`).
 `scripts/export-release.sh` makes a clean publishable copy and scans it for private words.
 
@@ -66,6 +68,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `extension.ts` | Activation: commands (`ingle.newTab`, `focus`, `popOut`, `newChat`, `askSelection`, `explain/fixProblem`, `forgetApprovals`, `terms`, `privacy`, `about`), bridge to the Mac app |
 | `ui/chatView.ts` | `ChatPanels` (all tabs, serializer restore, `lastActive`) and `ChatTab` (one webview panel + one `ChatEngine`); tab title = chat title |
 | `engine/chatEngine.ts` | `EngineShared` (one ChatStore, EngineServer, Matcher, DiffProvider, `sessionAllowed`, MCP) + per-tab `ChatEngine` (agent loop `runLoop`, `toolsFor`, approvals, commands enforcement, compaction, sub-agents, attachments, slash, `/mcp`) |
+| `engine/toolSelection.ts` | Per-turn tool filtering (`selectTools`, pure — called by `toolsFor`) |
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
 | `tools/*.ts` | `ToolDef`s: files (read/list/find/search/problems/edit with diff/write), command, documents/images (macOS tools), web, memory, knowledge, `commands.ts`, `mcp.ts`, `repomap.ts`, `stores.ts` (reads `~/.ingle`) |

@@ -158,7 +158,9 @@
   },
   "scripts": {
     "compile": "tsc -p ./",
-    "package": "vsce package --allow-missing-repository --skip-license"
+    "package": "vsce package --allow-missing-repository --skip-license",
+    "pretest": "rm -rf out-test && tsc -p tsconfig.test.json",
+    "test": "node --test out-test/test/*.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

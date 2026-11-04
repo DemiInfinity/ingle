@@ -4,6 +4,7 @@ build/
 *.vsix
 Extensions/vscode/node_modules/
 Extensions/vscode/out/
+Extensions/vscode/out-test/
 
 # Personal — never published
 local.env

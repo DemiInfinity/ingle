@@ -11,8 +11,8 @@ Ingle is a local-first AI assistant for Apple Silicon Macs, in two parts that sh
 Both talk to the same local Ollama engine and share one folder, `~/.ingle`, so assistants, memory, rules, skills,
 commands and MCP servers follow you between the Mac app and your editor.
 
-> **Status: early preview.** Ingle builds from source, is ad-hoc signed (no Developer ID yet) and has no automated
-> test suite. Read [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md) for an honest account of where it
+> **Status: early preview.** Ingle builds from source, is ad-hoc signed (no Developer ID yet) and has only a first
+> set of unit tests (VS Code extension). Read [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md) for an honest account of where it
 > falls short and what has been done about it.
 
 ## Where to start

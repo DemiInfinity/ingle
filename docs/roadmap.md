@@ -78,6 +78,8 @@ into one spec with tests both apps run against.
 
 ### Tests
 A first automated test suite: command parsing and enforcement, tool selection, compaction, frontmatter, matching.
+Started: the VS Code extension has `npm test` (node:test) for commands, tool selection, frontmatter, edit matching and
+matching. Still to do: compaction, and tests for the Mac app.
 
 ---
 
