@@ -576,10 +576,15 @@ struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: pending.info.icon)
-                Text("Ingle wants to \(pending.info.title.lowercased())")
+                Text("Ingle wants to \(sentenceCase(pending.info.title))")
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(Ember.text)
+            if pending.call.name == "ssh_command" {
+                (Text("on ") + Text(pending.call.arg("host")).bold().foregroundColor(Ember.accent) + Text(" over SSH"))
+                    .font(.system(size: 15))
+                    .foregroundStyle(Ember.text)
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(pending.info.detail)
                     .font(.system(size: 12.5, design: .monospaced))
@@ -618,6 +623,12 @@ struct ApprovalCard: View {
         .padding(.top, 8)
         .frame(maxWidth: .infinity)
     }
+}
+
+/// "Use Figma (MCP)" → "use Figma (MCP)": only the first letter is lowered, so names keep their case.
+private func sentenceCase(_ title: String) -> String {
+    guard let first = title.first else { return title }
+    return first.lowercased() + title.dropFirst()
 }
 
 struct EmptyChat: View {

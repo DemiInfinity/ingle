@@ -15,7 +15,12 @@ enum MacTools {
                       "parameters": ["type": "object", "properties": props, "required": required]]]
     }
 
-    static let definitions: [[String: Any]] = [
+    /// Terminal tools, plus ssh_command while SSH is on (Settings → Mac Access → SSH).
+    static var definitions: [[String: Any]] {
+        SSH.isOn ? terminalDefinitions + [SSH.definition] : terminalDefinitions
+    }
+
+    static let terminalDefinitions: [[String: Any]] = [
         tool("list_files", "List the files and folders inside a folder on the user's Mac.",
              ["path": prop("Folder path, e.g. ~/Projects")], required: ["path"]),
         tool("read_file", "Read a file on the user's Mac: text and code, documents (PDF, Word, RTF, Excel, Pages) as text, and images (PNG, JPEG, HEIC…) so you can look at them.",
@@ -133,6 +138,10 @@ enum MacTools {
         case "run_command":
             let cwd = call.arg("cwd")
             return Info(title: "Run a command", detail: cwd.isEmpty ? call.arg("command") : "cd \(cwd) && \(call.arg("command"))", icon: "terminal")
+        case "ssh_command":
+            let host: String = call.arg("host").trimmingCharacters(in: .whitespaces)
+            let remote: String = SSH.remoteCommand(call.arg("command"), cwd: call.arg("cwd"))
+            return Info(title: "Run a command on \(host.isEmpty ? "a server" : host)", detail: "\(host): \(remote)", icon: "server.rack")
         case "open": return Info(title: "Open", detail: call.arg("target"), icon: "arrow.up.forward.app")
         case "applescript": return Info(title: "Control the Mac (AppleScript)", detail: call.arg("script"), icon: "applescript")
         case "screenshot": return Info(title: "Look at the screen", detail: "Takes a screenshot", icon: "camera.viewfinder")
@@ -159,6 +168,12 @@ enum MacTools {
             let folder: String = cwd.isEmpty ? "" : standardPath(cwd)
             let place: String = folder.isEmpty ? "" : " in " + (folder as NSString).lastPathComponent
             return ApprovalScope(key: "run_command\n\(folder)\n\(command)", label: "“\(clip(command))”\(place)")
+        case "ssh_command":
+            let host: String = call.arg("host").trimmingCharacters(in: .whitespaces).lowercased()
+            let command: String = call.arg("command").trimmingCharacters(in: .whitespacesAndNewlines)
+            let cwd: String = call.arg("cwd").trimmingCharacters(in: .whitespacesAndNewlines)
+            let place: String = cwd.isEmpty ? "" : " in \(cwd)"
+            return ApprovalScope(key: "ssh\n\(host)\n\(cwd)\n\(command)", label: "“\(clip(command))” on \(call.arg("host"))\(place)")
         case "write_file":
             let folder: String = (standardPath(call.arg("path")) as NSString).deletingLastPathComponent
             return ApprovalScope(key: "write\n\(folder)", label: "writing files in \(tidyPath(folder))")
@@ -212,6 +227,9 @@ enum MacTools {
             return false
         case "memory_save", "memory_rewrite", "memory_forget":
             return Prefs.memoryAskFirst
+        case "ssh_command":
+            // Refused hosts run nothing, so there's nothing to approve; every real call asks.
+            return SSH.isOn && SSH.allowedHost(call.arg("host")) != nil
         default:
             return true
         }
@@ -250,6 +268,7 @@ enum MacTools {
         case "read_file": return readFile(call.arg("path"))
         case "write_file": return writeFile(call.arg("path"), call.arg("content"))
         case "run_command": return await shell(call.arg("command"), cwd: call.arg("cwd"))
+        case "ssh_command": return await SSH.run(host: call.arg("host"), command: call.arg("command"), cwd: call.arg("cwd"))
         case "open": return await shell("open \(quoteForOpen(call.arg("target")))", cwd: "")
         case "applescript": return await appleScript(call.arg("script"))
         default: return "Unknown tool \(call.name)."
@@ -308,29 +327,8 @@ enum MacTools {
         return await shell("/usr/bin/osascript '\(file.path)'", cwd: "")
     }
 
+    /// zsh login shell, with the limits in `CommandRunner` (timeout, output cap, ANSI removal, Stop).
     private static func shell(_ command: String, cwd: String) async -> String {
-        await Task.detached(priority: .userInitiated) { () -> String in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = ["-lc", command]
-            if !cwd.isEmpty { process.currentDirectoryURL = URL(fileURLWithPath: Prefs.expand(cwd)) }
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            do { try process.run() } catch { return "Couldn't start the command: \(error.localizedDescription)" }
-            let handle = pipe.fileHandleForReading
-            let reader = Task.detached { handle.readDataToEndOfFile() }
-            let deadline = Date().addingTimeInterval(120)
-            while process.isRunning && Date() < deadline {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            var timedOut = false
-            if process.isRunning { process.terminate(); timedOut = true }
-            process.waitUntilExit()
-            var output = String(decoding: await reader.value, as: UTF8.self)
-            if output.count > 20_000 { output = String(output.prefix(20_000)) + "\n…(output truncated)" }
-            let status = timedOut ? "stopped after 2 minutes" : "exit code \(process.terminationStatus)"
-            return "\(status)\n\(output.isEmpty ? "(no output)" : output)"
-        }.value
+        await CommandRunner.run("/bin/zsh", ["-lc", command], cwd: cwd).text
     }
 }

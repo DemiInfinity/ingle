@@ -533,7 +533,7 @@ struct MacAccessSettings: View {
     var body: some View {
         EmberForm {
             Section {
-                Text("The assistant can always read files in these folders and use Terminal, asking before every command or file change (“Allow for This Session” covers only the same command or folder). Switch on Mac in a chat to also let it control apps and see your screen.")
+                Text("The assistant can always read files in these folders and use Terminal, asking before every command or file change (“Allow for This Session” covers only the same command or folder). Switch on Mac in a chat to also let it control apps and see your screen. Turn on SSH to let it run commands on servers you choose.")
                     .font(.system(size: 12))
                     .foregroundStyle(Ember.secondary)
             }
@@ -556,8 +556,10 @@ struct MacAccessSettings: View {
                     TitleAndHint(title: "Read files here without asking", hint: "Listing and reading only. Outside these folders it always asks.")
                 }
             }
+            SSHSection()
             Section("Always asks first") {
                 Label("Running Terminal commands", systemImage: "terminal")
+                Label("Running commands on your servers (SSH)", systemImage: "server.rack")
                 Label("Creating or changing files", systemImage: "square.and.pencil")
                 Label("Opening apps, files and links", systemImage: "arrow.up.forward.app")
             }
@@ -582,6 +584,52 @@ struct MacAccessSettings: View {
             if !folders.contains(path) { folders.append(path) }
         }
         Prefs.workspaceFolders = folders
+    }
+}
+
+/// SSH: a switch, then each plain Host from ~/.ssh/config with a tick box. Only ticked hosts can be used.
+private struct SSHSection: View {
+    @AppStorage(Prefs.K.sshOn) private var enabled = false
+    @State private var hosts: [String] = SSH.configHosts()
+    @State private var ticked: Set<String> = Set(Prefs.sshHosts.map { $0.lowercased() })
+
+    var body: some View {
+        Section("SSH") {
+            Toggle(isOn: $enabled) {
+                TitleAndHint(title: "Run commands on my servers",
+                             hint: "Uses your ~/.ssh/config and SSH keys or ssh-agent. Ingle never asks for or stores passwords.")
+            }
+            if enabled {
+                if hosts.isEmpty {
+                    Text("No hosts found in ~/.ssh/config. Add a Host entry, connect once in Terminal, then press Reload.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Ember.secondary)
+                } else {
+                    ForEach(hosts, id: \.self) { host in
+                        Toggle(host, isOn: Binding(
+                            get: { ticked.contains(host.lowercased()) },
+                            set: { on in set(host, on) }))
+                            .toggleStyle(.checkbox)
+                    }
+                }
+                HStack {
+                    Text("Connect to a new host once in Terminal first, so its key is trusted.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Ember.secondary)
+                    Spacer()
+                    Button("Reload") { hosts = SSH.configHosts() }
+                }
+            }
+        }
+    }
+
+    private func set(_ host: String, _ on: Bool) {
+        if on { ticked.insert(host.lowercased()) } else { ticked.remove(host.lowercased()) }
+        // Keep the names as written in ~/.ssh/config; drop ones that are no longer there.
+        var names: [String] = hosts.filter { ticked.contains($0.lowercased()) }
+        let gone: [String] = Prefs.sshHosts.filter { old in !hosts.contains { $0.lowercased() == old.lowercased() } }
+        names += gone.filter { ticked.contains($0.lowercased()) }
+        Prefs.sshHosts = names
     }
 }
 

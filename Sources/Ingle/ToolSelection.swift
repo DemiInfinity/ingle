@@ -43,6 +43,7 @@ enum ToolSelection {
             case "report_read": return !ReportStore.all().isEmpty
             case "report_search": return !ReportStore.all().isEmpty
             case "mcp_tools", "mcp_call": return wantsMCP(t)
+            case "ssh_command": return SSH.mentioned(in: t)
             default: return true
             }
         }

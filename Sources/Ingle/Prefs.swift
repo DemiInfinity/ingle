@@ -37,6 +37,8 @@ enum Prefs {
         static let dailyPersona = "dailyPersona"
         static let hardPersona = "hardPersona"
         static let profiles = "modelProfiles"
+        static let sshOn = "sshEnabled"
+        static let sshHosts = "sshHosts"
     }
 
     static let defaults: [String: Any] = [
@@ -122,6 +124,13 @@ enum Prefs {
     static var workspaceFolders: [String] {
         get { d.stringArray(forKey: K.folders) ?? ["~/Projects"] }
         set { d.set(newValue, forKey: K.folders) }
+    }
+
+    /// SSH access (Settings → Mac Access → SSH). Off by default, no hosts ticked.
+    static var sshEnabled: Bool { d.object(forKey: K.sshOn) as? Bool ?? false }
+    static var sshHosts: [String] {
+        get { d.stringArray(forKey: K.sshHosts) ?? [] }
+        set { d.set(newValue, forKey: K.sshHosts) }
     }
 
     static func expand(_ path: String) -> String {
@@ -211,6 +220,7 @@ enum Persona {
         - \(other)
         - You mostly help with software development, but you're happy to help with anything.
         - Terminal: you can always list and read files (inside the workspace folders without asking) and, with the user's approval, run Terminal commands and write files ("Allow for This Session" covers only the same command in the same folder, or writes in the same folder). Never work around a denial.
+        - SSH: \(SSH.promptFact)
         - Mac control: when the "Mac" button in the message bar (next to Think and Web) is on, you can also open and drive apps with AppleScript and take screenshots to see the screen, each with approval. If asked to control an app or look at the screen while it's off, tell the user to switch on the Mac button.
         - The user can set Commands — rules Ingle enforces. If a COMMANDS block appears below, follow it exactly; Ingle checks what you did and will send you back to redo work that ignores it.
         - \(Companion.vscodeFact)

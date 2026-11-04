@@ -16,6 +16,7 @@ where the limits are. The user-facing summary is [../PRIVACY.md](../PRIVACY.md);
 | You **update the engine** | Downloads of the release and its checksum file | GitHub | `EngineUpdater.update` |
 | **Building** Ingle (`build.sh`) | Downloads of Ollama's release (if not cached) and its licence | GitHub | [`../build.sh`](../build.sh) |
 | You **approve** a command, MCP call or link | Whatever that command, server or website does | Wherever it talks to | approval card |
+| You **approve** an SSH command (SSH on, host ticked) | That command, over your own SSH setup (keys or ssh-agent; never a password) | Only that host from `~/.ssh/config` | `SSH.run`, approval card |
 | The **server address** points at another computer | Your prompts, including file contents the model reads | That computer | `Prefs.serverURL` |
 
 Nothing else: no crash reports, usage statistics, identifiers or "phone home". **Contributors:** don't add a new
@@ -29,7 +30,7 @@ talk to the network on their own.
 Every action that changes something, runs code, controls an app, uses an MCP tool or reads outside your workspace
 folders goes through an approval card showing the exact detail. Session allowances ("Allow for This Session") are
 narrow — the exact command in the same folder, writes in the same folder, the same app, link or script, the same MCP
-`server/tool` — and the card says what they cover. They are kept in memory only and cleared on quit or with one click. Full rules:
+`server/tool`, the same command on the same SSH host — and the card says what they cover. They are kept in memory only and cleared on quit or with one click. Full rules:
 [terminal-and-mac-control.md](terminal-and-mac-control.md#approvals).
 
 **Approving is the trust boundary.** Ingle shows you exactly what will happen; it can't judge whether a command is
@@ -127,9 +128,10 @@ Developer ID signing and notarisation are the first step of the release plan
 
 | Threat | What helps | What doesn't (yet) |
 |---|---|---|
-| A confused or misled model runs a harmful command or edits the wrong file | Approval cards with exact detail; diffs in VS Code; Undo for VS Code edits; Mac control off by default; prompts forbid `sudo`, deletes and system changes unless asked | Session allowances remove the check for that tool; no sandbox; no per-command allow-list; no checkpoints/rewind on the Mac ([roadmap.md](roadmap.md#checkpoints-and-rewind)) |
+| A confused or misled model runs a harmful command or edits the wrong file | Approval cards with exact detail; diffs in VS Code; Undo for VS Code edits; Mac control off by default; prompts forbid `sudo`, deletes and system changes unless asked | A session allowance skips the card for that exact scope; no sandbox; no per-command allow-list; no checkpoints/rewind on the Mac ([roadmap.md](roadmap.md#checkpoints-and-rewind)) |
 | Prompt injection from web pages, files, MCP results or project files | Read-only web; untrusted-data warnings in prompts; approvals on every action | Models can still be persuaded to *ask* for harmful actions; project instruction files are trusted |
 | Exfiltration of your data through the web | No cookies or logins; prompt forbids putting personal data in URLs; local network blocked | A model could still put text into a search query or URL; web reads don't need approval when Web is on — switch Web off for sensitive work |
+| A model running commands on your servers | SSH off by default; only hosts you tick from `~/.ssh/config`; raw addresses refused; `BatchMode` (no passwords) and strict host keys; every command asks and the card names the host | Anything an approved command does on that server; agent forwarding or other options set in your own `~/.ssh/config` still apply |
 | Reaching devices on your network | Private-host blocking (VS Code also checks DNS and every redirect) | Mac app: DNS-based and redirect-based bypasses |
 | Other local apps abusing Ingle | Loopback-only bridge with a `0600` token; engine bound to 127.0.0.1 | Anything running as you can read `~/.ingle` and talk to Ollama on port 11434 |
 | A malicious or vulnerable engine | Updates from Ollama's GitHub with checksum, staging and roll back | No independent signature; no CI smoke tests; unverified install when no checksum file |
