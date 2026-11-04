@@ -21,6 +21,10 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
 - **Tear down when you finish.** Quit any copy of Ingle you opened (your worktree's `build/Ingle.app`), stop any
   engine or background process you started, and delete test data (Keychain items, temp files). Leave the user's own
   copy (the main checkout's `build/` or `/Applications`) alone. List what you cleaned up.
+- **Start from the working set (the user's principle).** Anything that gathers context (repo map, code intelligence,
+  coverage, compaction, suggestions) starts from what the user is working on: open/selected files, files changed in
+  `git status`, files the chat mentions, and their direct neighbours (imports, callers, tests). Look wider only when the
+  task needs it, and say so. Never index or read a whole project up front. Small context windows stay focused this way.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
 ---
