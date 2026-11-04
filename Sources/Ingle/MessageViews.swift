@@ -454,3 +454,182 @@ struct CodeBlock: View {
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.07)))
     }
 }
+
+// MARK: Diffs in the approval card (edit_file, write_file over an existing file)
+
+/// The change an edit_file or write_file call would make, shown in its approval card as a unified diff,
+/// with Side by Side opening the whole file in a sheet. Worked out when the card appears (nothing is written).
+struct ApprovalDiff: View {
+    let pendingID: UUID
+    let call: ToolCall
+    let folder: String?
+    @State private var preview: CodeTools.Preview?
+    @State private var unified = ""
+    @State private var stats: (added: Int, removed: Int) = (0, 0)
+    @State private var showSideBySide = false
+
+    var body: some View {
+        Group {
+            if let preview, !unified.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("−\(stats.removed) +\(stats.added) lines")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Ember.secondary)
+                        Spacer()
+                        Button("Side by Side") { showSideBySide = true }
+                            .controlSize(.small)
+                    }
+                    ScrollView([.vertical, .horizontal]) {
+                        DiffText(unified: unified)
+                            .padding(10)
+                    }
+                    // Short diffs sit top-left instead of centred; long ones scroll.
+                    .defaultScrollAnchor(.topLeading)
+                    .frame(minHeight: min(CGFloat(unified.components(separatedBy: "\n").count) * 16 + 20, 140), maxHeight: 260)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Ember.code))
+                }
+                .sheet(isPresented: $showSideBySide) {
+                    SideBySideDiff(preview: preview) { showSideBySide = false }
+                }
+            } else {
+                // A real (empty) view: `.task` never runs on a Group with nothing in it.
+                Color.clear.frame(height: 0)
+            }
+        }
+        .task(id: pendingID) {
+            let found: CodeTools.Preview? = CodeTools.preview(call, folder: folder)
+            preview = found
+            if let found {
+                unified = LineDiff.unified(found.original, found.proposed, name: found.name)
+                stats = LineDiff.stats(found.original, found.proposed)
+            }
+        }
+    }
+}
+
+/// A unified diff with removed lines red and added lines green.
+struct DiffText: View {
+    let unified: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(unified.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
+                Text(line.isEmpty ? " " : line)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(color(line))
+                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(background(line))
+            }
+        }
+        .textSelection(.enabled)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func color(_ line: String) -> Color {
+        if line.hasPrefix("@@") { return Ember.accent }
+        if line.hasPrefix("+++") || line.hasPrefix("---") { return Ember.secondary }
+        if line.hasPrefix("+") { return Color(hex: 0x9BE29B) }
+        if line.hasPrefix("-") { return Ember.danger }
+        return Ember.text.opacity(0.8)
+    }
+
+    private func background(_ line: String) -> Color {
+        if line.hasPrefix("+++") || line.hasPrefix("---") { return .clear }
+        if line.hasPrefix("+") { return Color.green.opacity(0.12) }
+        if line.hasPrefix("-") { return Color.red.opacity(0.12) }
+        return .clear
+    }
+}
+
+/// The whole file before and after, side by side, with changed lines highlighted.
+struct SideBySideDiff: View {
+    let preview: CodeTools.Preview
+    let done: () -> Void
+
+    private struct Row: Identifiable {
+        let id: Int
+        let left: (Int, String)?
+        let right: (Int, String)?
+        let changed: Bool
+    }
+
+    private var rows: [Row] {
+        let ops: [LineDiff.Op] = LineDiff.ops(LineDiff.splitLines(preview.original), LineDiff.splitLines(preview.proposed))
+        var out: [Row] = []
+        var i = 0
+        while i < ops.count {
+            if ops[i].t == " " {
+                out.append(Row(id: out.count, left: (ops[i].a, ops[i].s), right: (ops[i].b, ops[i].s), changed: false))
+                i += 1
+                continue
+            }
+            // A run of removals and additions: pair them up line by line.
+            var removed: [LineDiff.Op] = []
+            var added: [LineDiff.Op] = []
+            while i < ops.count && ops[i].t != " " {
+                if ops[i].t == "-" { removed.append(ops[i]) } else { added.append(ops[i]) }
+                i += 1
+            }
+            for k in 0..<max(removed.count, added.count) {
+                let l: (Int, String)? = k < removed.count ? (removed[k].a, removed[k].s) : nil
+                let r: (Int, String)? = k < added.count ? (added[k].b, added[k].s) : nil
+                out.append(Row(id: out.count, left: l, right: r, changed: true))
+            }
+        }
+        return out
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(preview.name).font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Spacer()
+                Button("Done", action: done).keyboardShortcut(.defaultAction)
+            }
+            .padding(12)
+            Divider()
+            HStack(spacing: 0) {
+                Text("Before").frame(maxWidth: .infinity, alignment: .leading)
+                Text("After").frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Ember.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(rows) { row in
+                        HStack(spacing: 0) {
+                            cell(row.left, changed: row.changed, added: false)
+                            Rectangle().fill(Ember.hairline).frame(width: 1)
+                            cell(row.right, changed: row.changed, added: true)
+                        }
+                    }
+                }
+                .textSelection(.enabled)
+            }
+            .background(Ember.code)
+        }
+        .frame(minWidth: 900, minHeight: 560)
+        .background(Ember.surface)
+    }
+
+    private func cell(_ line: (Int, String)?, changed: Bool, added: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(line.map { String($0.0) } ?? "")
+                .foregroundStyle(Ember.tertiary)
+                .frame(width: 44, alignment: .trailing)
+            Text(line?.1 ?? "")
+                .foregroundStyle(Ember.text.opacity(0.9))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 12, design: .monospaced))
+        .padding(.vertical, 1)
+        .padding(.trailing, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(line == nil ? Color.clear : (changed ? (added ? Color.green.opacity(0.13) : Color.red.opacity(0.13)) : Color.clear))
+    }
+}

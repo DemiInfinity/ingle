@@ -104,8 +104,32 @@ A chat can belong to a project folder, the way Claude Code works, while normal c
   `.cursorrules` (`Project.instructions`, shared with the editor bridge). The project's `.ingle/rules` and
   `.ingle/commands` apply. The editor chip isn't used in Code mode.
 - **Off in Code mode:** Mac control (the pill is hidden and its tools aren't offered). Web stays opt-in per chat.
-- Coding tools (`search_code`, `edit_file`, repo map) and the task list / plan mode / changes panel come in tasks 31
-  and 32.
+- **Coding tools** ([`CodeTools.swift`](../Sources/Ingle/CodeTools.swift), only in Code mode, same names, arguments
+  and output as the VS Code extension's `tools/files.ts` and `tools/repomap.ts`):
+  - `repo_map(focus, folder)` and the **repo map in the prompt**: [`RepoMap.swift`](../Sources/Ingle/RepoMap.swift)
+    ports `repomap.ts` — per-language symbol patterns, files ranked by uncommitted changes and the request's words
+    (the Mac has no editor, so no active file or open tabs), a folder overview, budget `min(6000, 0.4 × context)`
+    characters (~1,500 tokens). Built once per request, off the main thread, under `## Repo map`.
+  - `find_files(glob)`: VS Code-style globs (`**`, `*`, `?`, `{a,b}`, `[abc]`; a bare pattern means `**/pattern`)
+    over `git ls-files --cached --others --exclude-standard` in a repo (so `.gitignore` applies), else a folder walk;
+    `node_modules`, `.git`, `dist`, `build`, `out`, `.next`, `Pods`, `DerivedData` are always skipped. Sorted, 200 max.
+  - `search_code(query, glob)`: `git grep -n -I -i -F --untracked` in a repo, `grep -rnIiF` otherwise; plain text,
+    not case-sensitive, `path:line: text`, 100 matches max.
+  - `edit_file(path, old_text, new_text)`: exact-match replace with the tolerant fallbacks of `editmatch.ts`
+    ([`EditMatch.swift`](../Sources/Ingle/EditMatch.swift), UTF-16 like JavaScript;
+    `scripts/editmatch-parity.sh` runs both on `scripts/parity/editmatch-cases.json`). The **approval card shows
+    the diff** (`ApprovalDiff` in `MessageViews.swift`, also for `write_file` over an existing file) and
+    **Side by Side** opens the whole file before/after in a sheet. Written in place, so permissions are kept.
+    Approval scope as `write_file` (that folder).
+  - `get_problems(path)`: runs the project's check command — a command's `then_run` if one applies, else the one
+    `EffortLevel.detectCheckCommand` finds from the path (package.json test/lint, `swift build`, `cargo check`,
+    `go test`, `make test`, `pytest`) — and returns the `file:line:col: error|warning: message` rows it can read
+    (Swift/clang, TypeScript, ESLint, Go, Rust), errors first, 50 max, or the end of the output if it failed
+    without any. Unlike VS Code's (which reads the editor's diagnostics), it runs project code, so it **asks like
+    `run_command`** and shares its session scope. `CodeTools.prepare` fills in the command before the card is shown;
+    it is never taken from the model. Running it counts as running a `then_run`.
+  - Read-only ones (`repo_map`, `find_files`, `search_code`) need no approval and are given to helpers too.
+- The task list / plan mode / changes panel come in task 32.
 
 ### Slash commands
 
@@ -207,7 +231,7 @@ servers and the engine Ingle started are stopped.
 | [`IngleApp.swift`](../Sources/Ingle/IngleApp.swift) | 60 | `@main IngleApp` (chat `Window`, `Settings`, `MenuBarExtra`), `AppDelegate`, ⌘N and ⇧⌘K |
 | [`ChatStore.swift`](../Sources/Ingle/ChatStore.swift) | 990 | `ChatMessage`, `Conversation`, `Attachment`, `PendingApproval`; **the agent loop** `generate(in:)`; approvals and `sessionAllowed`; `runTool` (Mac-control gate, screenshots, image reads), `chatTool` (past chats), `runSubAgent`, `toolPool`; vision detection; `historyJSON`, `fit`, `compact`, `contextUsage`; slash commands; persistence |
 | [`ChatViews.swift`](../Sources/Ingle/ChatViews.swift) | 660 | `ChatRoot`, `Sidebar`, `StatusCard`, `ChatDetail` (composer, pills, attachments, drag and drop, slash keys), `ContextMeter`, `EditorChip`, `ModelMenu`, `EffortMenu`, `Banner`, `ApprovalCard`, `EmptyChat` |
-| [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift) | 450 | `MessageRow`, `ThinkSplitter`, `TypingDots`, `CopyButton`, a small Markdown parser (`Markdown`, `MDBlock`, `MarkdownView`), `CodeBlock` |
+| [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift) | 450 | `MessageRow`, `ThinkSplitter`, `TypingDots`, `CopyButton`, a small Markdown parser (`Markdown`, `MDBlock`, `MarkdownView`), `CodeBlock`, the approval card's diff (`ApprovalDiff`, `DiffText`, `SideBySideDiff`) |
 | [`Tools.swift`](../Sources/Ingle/Tools.swift) | 270 | `MacTools`: Terminal and Mac-control definitions, `ingle_help`, `mcp_tools`/`mcp_call`, prompts, `describe`, `needsApproval`, `run`, shell, AppleScript, `open` quoting |
 | [`ToolSelection.swift`](../Sources/Ingle/ToolSelection.swift) | 50 | Per-turn keyword filtering of optional tools |
 | [`Effort.swift`](../Sources/Ingle/Effort.swift) | 300 | `EffortLevel` (the effort table, kept in step with `effort.ts`), check-command detection, the built-in verify command, `OllamaThink`, Max's plan and review (`ChatStore` extension) |
@@ -216,6 +240,9 @@ servers and the engine Ingle started are stopped.
 | [`Manifest.swift`](../Sources/Ingle/Manifest.swift) | 170 | `IngleManifest` (`INGLE.md`), `HelpTopics` |
 | [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
 | [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 150 | Code mode views: `ModeSwitch`, `ProjectPicker`, `ProjectChip` |
+| [`CodeTools.swift`](../Sources/Ingle/CodeTools.swift) | 450 | Code mode tools: `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map`; `Diagnostics` (error parsing), `CodeFiles` (project file list), `Glob` |
+| [`RepoMap.swift`](../Sources/Ingle/RepoMap.swift) | 230 | Repo map: symbol extraction, ranking, budgeted outline (port of `repomap.ts`) |
+| [`EditMatch.swift`](../Sources/Ingle/EditMatch.swift) | 290 | `EditMatch` (edit_file matching, port of `editmatch.ts`), `LineDiff` (unified diff and stats, port of `diff.ts`) |
 | [`Ollama.swift`](../Sources/Ingle/Ollama.swift) | 270 | `OllamaClient` (version, tags, ps, load/unload, delete, capabilities, pull, streaming chat with think levels and retry), `ToolCall`, `ModelTuning` |
 | [`OllamaServer.swift`](../Sources/Ingle/OllamaServer.swift) | 90 | Start/stop the bundled engine; local vs remote |
 | [`EngineUpdater.swift`](../Sources/Ingle/EngineUpdater.swift) | 370 | Update checks, notifications, download, SHA-256, staging, slimming, swap, roll back, `Downloader` |

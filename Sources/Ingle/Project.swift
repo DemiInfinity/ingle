@@ -38,7 +38,7 @@ enum Project {
         guard let folder else { return call }
         var c = call
         switch call.name {
-        case "list_files", "read_file", "write_file":
+        case "list_files", "read_file", "write_file", "edit_file":
             c.arguments["path"] = resolve(call.arg("path"), in: folder)
         case "run_command":
             c.arguments["cwd"] = resolve(call.arg("cwd"), in: folder)

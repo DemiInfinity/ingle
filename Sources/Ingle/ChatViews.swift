@@ -727,6 +727,10 @@ struct ApprovalCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(Ember.code))
+            if pending.call.name == "edit_file" || pending.call.name == "write_file" {
+                ApprovalDiff(pendingID: pending.id, call: pending.call,
+                             folder: store.conversations.first(where: { $0.id == pending.conversation })?.codeFolder)
+            }
             if pending.call.name == "write_file" {
                 Text("\(pending.call.arg("content").count) characters will be written. Expand the step afterwards to see the result.")
                     .font(.system(size: 11))
