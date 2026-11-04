@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { snapshot } from './checkpoints';
 import { diffStats, unifiedDiff } from './diff';
 import { DOCUMENT_EXTS, IMAGE_EXTS, extOf } from './documents';
 import { planEdit } from './editmatch';
@@ -20,6 +21,12 @@ async function currentText(abs: string): Promise<string | null> {
   const doc = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && d.uri.fsPath === abs);
   if (doc) return doc.getText();
   try { return await fs.promises.readFile(abs, 'utf8'); } catch { return null; }
+}
+
+/** The unsaved text of an open, edited document (what the tool saw as the original), else undefined. */
+function unsavedText(abs: string): string | undefined {
+  const doc = vscode.workspace.textDocuments.find((d) => d.uri.scheme === 'file' && d.uri.fsPath === abs);
+  return doc?.isDirty ? doc.getText() : undefined;
 }
 
 function isBinary(buf: Buffer): boolean {
@@ -322,10 +329,11 @@ const editFile: ToolDef = {
       }, p.abs);
       if (answer !== 'allow') return DENIED;
       ctx.setActivity('Editing a file…');
+      const cpErr = snapshot(p.abs, ctx.run, unsavedText(p.abs));
       const err = await applyText(p.abs, p.proposed, p.original);
       if (err) return err;
       const s = diffStats(p.original, p.proposed);
-      return `Edited ${rel}: −${s.removed} +${s.added} lines${p.note ?? ''}.`;
+      return `Edited ${rel}: −${s.removed} +${s.added} lines${p.note ?? ''}.` + (cpErr ? '\n' + cpErr : '');
     } catch (e) {
       return `Couldn't edit the file: ${(e as Error).message}`;
     } finally {
@@ -354,16 +362,18 @@ const writeFile: ToolDef = {
       }, p.abs);
       if (answer !== 'allow') return DENIED;
       ctx.setActivity('Writing a file…');
+      const cpErr = snapshot(p.abs, ctx.run, unsavedText(p.abs));
+      const cpNote = cpErr ? '\n' + cpErr : '';
       const bytes = Buffer.byteLength(p.proposed, 'utf8');
       if (p.exists) {
         const err = await applyText(p.abs, p.proposed, p.original);
         if (err) return err;
         const s = diffStats(p.original, p.proposed);
-        return `Overwrote ${rel} (${bytes} bytes, −${s.removed} +${s.added} lines).`;
+        return `Overwrote ${rel} (${bytes} bytes, −${s.removed} +${s.added} lines).` + cpNote;
       }
       await fs.promises.mkdir(path.dirname(p.abs), { recursive: true });
       await fs.promises.writeFile(p.abs, p.proposed, 'utf8');
-      return `Created ${rel} (${bytes} bytes).`;
+      return `Created ${rel} (${bytes} bytes).` + cpNote;
     } catch (e) {
       return `Couldn't write the file: ${(e as Error).message}`;
     } finally {

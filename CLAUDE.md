@@ -45,6 +45,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `ToolSelection.swift` | Per-turn tool filtering by keywords (fewer tools → better accuracy for small models) |
 | `Project.swift` / `CodeViews.swift` | **Code mode**: `Conversation.codeFolder` is the one switch; project folder, path resolving (`prepare`), git info, rules files, prompt section, recent projects; `ModeSwitch` (Chat / Code, ⇧⌘C), `ProjectPicker`, `ProjectChip` |
 | `Effort.swift` | **Effort levels** table (`EffortLevel`, in step with `effort.ts`), check-command detection, built-in `verify` command, `OllamaThink`, Max's plan + review |
+| `Checkpoints.swift` | **Undo this run**: `snapshot(path:run:)` (called by every file-changing tool; the one list is `fileChangingTools`), `finish`, `changes`, `restore(force:)`, pruning — same format as `checkpoints.ts` |
 | `Commands.swift` | **Commands** (obedience layer): `CommandStore` (files in `~/.ingle/commands`), `CommandTracker` (requirements, blocking, nudges) |
 | `Prefs.swift` | UserDefaults keys/defaults, `Persona` (default characters + `systemPrompt(for:web:)` with the built-in facts every model gets), `ModelNames`, `ModelProfiles` (names/personas for any model), `Companion` (does the other app exist?) |
 | `Manifest.swift` | `IngleManifest.refresh` builds the `INGLE.md` index; `HelpTopics` = in-app help the model reads via `ingle_help` — **keep it accurate** |
@@ -75,6 +76,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `engine/effort.ts` | Effort levels table (in step with `Effort.swift`), think mapping, check-command detection, verify command (pure, tested) |
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
+| `tools/checkpoints.ts` | **Undo this run** (pure, tested): `snapshot()` from every file-changing tool (`FILE_CHANGING_TOOLS` lives here), `finish`, `changes`, `restore`, `prune` |
 | `tools/secretsCore.ts`, `secrets.ts` | Secrets store (pure logic, tested) and `secret_list` + getting values from the Mac app / `security` |
 | `tools/*.ts` | `ToolDef`s: files (read/list/find/search/problems/edit with diff/write), command, documents/images (macOS tools), web, memory, knowledge, `commands.ts`, `mcp.ts`, `repomap.ts`, `stores.ts` (reads `~/.ingle`) |
 | `shared/protocol.ts` | **Webview ↔ extension message contract** — both sides must match |
@@ -87,6 +89,9 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
   Session / Allow. Session allowances are in memory only (until the app quits).
 - **Secrets:** values only in the Keychain; the model sees `{{secret:name}}`. Calls using one always ask (no session
   allowance, Touch ID if on), values are put in after approval, and tool output is scrubbed back to placeholders.
+- **Checkpoints:** each run (one reply) copies a file's original to `~/.ingle/checkpoints/<chat>/<run>/` before its
+  first change; **Undo this run** under the reply restores them all, refusing ("Undo anyway") if a file changed after
+  the run. Not `run_command`/MCP/SSH changes. Pruned after 14 days or above 500 MB.
 - **Terminal vs Mac control:** Terminal tools always on; the Mac button only gates `open`/`applescript`/`screenshot`.
 - **Code mode (Mac app):** a chat on a project folder. Reads inside it are free, outside ask; writes/commands ask. Coding
   persona = the extension's `personaPrompt` + `guidancePrompt` meaning (keep in step). Mac control off.

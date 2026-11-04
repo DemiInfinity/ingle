@@ -253,7 +253,8 @@ enum MacTools {
     }
 
     @MainActor
-    static func run(_ call: ToolCall, env: [String: String] = [:]) async -> String {
+    /// `run` is the run this call belongs to: every file-changing tool passes it to `Checkpoints.snapshot(path:run:)`.
+    static func run(_ call: ToolCall, env: [String: String] = [:], run: Checkpoints.Run? = nil) async -> String {
         if call.name.hasPrefix("mcp_") { return await MCPManager.shared.call(call) }
         switch call.name {
         case "use_skill": return SkillStore.read(call.arg("name"))
@@ -283,7 +284,7 @@ enum MacTools {
             return await MCPManager.shared.call(server: call.arg("server"), tool: call.arg("tool"), arguments: mcpArguments(call))
         case "list_files": return listFiles(call.arg("path"))
         case "read_file": return readFile(call.arg("path"))
-        case "write_file": return writeFile(call.arg("path"), call.arg("content"))
+        case "write_file": return writeFile(call.arg("path"), call.arg("content"), run: run)
         case "run_command": return await shell(call.arg("command"), cwd: call.arg("cwd"), env: env)
         case "secret_list": return Secrets.listText()
         case "ssh_command": return await SSH.run(host: call.arg("host"), command: call.arg("command"), cwd: call.arg("cwd"))
@@ -319,12 +320,13 @@ enum MacTools {
         return DocumentReader.text(at: url) ?? "Couldn't read \(p) as text or as a document."
     }
 
-    private static func writeFile(_ path: String, _ content: String) -> String {
+    private static func writeFile(_ path: String, _ content: String, run: Checkpoints.Run?) -> String {
         let url = URL(fileURLWithPath: Prefs.expand(path))
         do {
+            let note: String = Checkpoints.snapshot(path: url.path, run: run).map { "\n" + $0 } ?? ""
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try content.write(to: url, atomically: true, encoding: .utf8)
-            return "Wrote \(content.utf8.count) bytes to \(url.path)."
+            return "Wrote \(content.utf8.count) bytes to \(url.path)." + note
         } catch {
             return "Couldn't write \(url.path): \(error.localizedDescription)"
         }

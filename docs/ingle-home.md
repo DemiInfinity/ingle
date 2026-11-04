@@ -14,7 +14,8 @@ Everything a user might want to read or edit by hand lives in **`~/.ingle`**, in
 ├── skills/<name>/       one folder per skill, each with a SKILL.md (+ any extra files)
 ├── commands/            one .md per command (enforced)
 ├── memory/              one .md per subject + INDEX.md
-└── research/            one .md per report + INDEX.md
+├── research/            one .md per report + INDEX.md
+└── checkpoints/         originals of files changed by each run, for Undo this run (both apps; pruned)
 
 <your project>/.ingle/
 ├── rules/               project rules, shown as project/<name>
@@ -231,6 +232,35 @@ The same format as Claude Desktop and Cursor:
   `~/Library/Application Support/Claude/claude_desktop_config.json` without overwriting), **Reload**, per-server
   switches (stored in the Mac app's preferences and mirrored to `settings.json` as `mcpDisabled`).
 - How servers are started and used: [mac-app.md](mac-app.md#mcp-servers), [vscode-extension.md](vscode-extension.md#mcp).
+
+## `checkpoints/`
+
+What **Undo this run** puts back. Written by `Checkpoints` in both apps
+([`../Sources/Ingle/Checkpoints.swift`](../Sources/Ingle/Checkpoints.swift),
+[`../Extensions/vscode/src/tools/checkpoints.ts`](../Extensions/vscode/src/tools/checkpoints.ts) — same format).
+
+```text
+checkpoints/<chat id>/<run id>/
+├── manifest.json        { version: 1, chat, run, created, finished?, undone?, files: [...] } (times in ms)
+└── files/
+    ├── 0.before         the original of the first file the run changed (absent if it didn't exist)
+    └── 0.after          the same file when the run ended (absent if the run deleted it)
+```
+
+- A **run** is one reply to a message: everything the assistant did between your message and its final answer.
+- Before a file-changing tool (`write_file`, `edit_file` — the one list is `Checkpoints.fileChangingTools` /
+  `FILE_CHANGING_TOOLS`) first changes a file in a run, the file is copied as `N.before`. Later changes to the same
+  file in that run copy nothing. A file that didn't exist is recorded as `before: { exists: false }`, with the highest
+  folder the run had to create (removed again on undo if it's empty).
+- When the run ends, each file's state is saved as `N.after` (with a SHA-256). Files that ended as they started are
+  dropped; a run that changed nothing in the end leaves no folder.
+- **Undo** puts originals back, removes files the run created and brings back files it deleted. It refuses if a file
+  no longer matches `N.after` (changed after the run; in VS Code, also unsaved edits in an open editor), listing them,
+  and offers **Undo anyway**. A run can be undone once (`undone` is set).
+- Not covered: changes made by `run_command` (codegen, `git`, formatters…), by MCP tools, and remote changes over SSH.
+- **Pruning:** at Mac app launch and at most hourly after a run, checkpoints older than **14 days** are deleted, then
+  the oldest while all of them take more than **500 MB**. A run still in progress is never pruned for size. Deleting
+  a chat deletes its checkpoints.
 
 ## Other data locations
 

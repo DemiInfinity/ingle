@@ -28,6 +28,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var compactedCount: Int?
     /// A reminder Ingle sent the model because a command wasn't obeyed (shown as a small note, not a bubble).
     var nudge: Bool?
+    /// Set on the last reply of a run that changed files: what "Undo this run" would do (see Checkpoints).
+    var checkpoint: RunCheckpoint?
 
     var isRealUser: Bool { role == .user && nudge != true }
 
@@ -43,6 +45,13 @@ struct ChatMessage: Identifiable, Codable, Equatable {
         if let toolName { m["tool_name"] = toolName }
         return m
     }
+}
+
+/// A run's checkpoint as the chat shows it: the run's id and what Undo would do to each file.
+struct RunCheckpoint: Codable, Equatable {
+    var run: String
+    var files: [Checkpoints.FileSummary]
+    var undone: Bool?
 }
 
 struct Conversation: Identifiable, Codable, Equatable {
@@ -128,6 +137,8 @@ final class ChatStore {
     static weak var current: ChatStore?
 
     private var task: Task<Void, Never>?
+    /// The run in progress per chat (one per reply to a message): file-changing tools checkpoint into it.
+    private var activeRuns: [Conversation.ID: Checkpoints.Run] = [:]
     private var approval: CheckedContinuation<Bool, Never>?
     /// Approval scopes the user allowed for this session ("Allow for This Session"), until Ingle quits:
     /// scope key → label. See `MacTools.approvalScope`.
@@ -148,6 +159,8 @@ final class ChatStore {
         conversations.removeAll { $0.messages.isEmpty }
         newChat()
         ChatStore.current = self
+        // Old checkpoints (over 14 days, or the oldest above 500 MB) go at launch.
+        Task.detached(priority: .background) { Checkpoints.prune() }
     }
 
     // MARK: From the editor
@@ -292,6 +305,7 @@ final class ChatStore {
     func delete(_ id: Conversation.ID) {
         if streamingID == id { stop() }
         conversations.removeAll { $0.id == id }
+        Checkpoints.discardChat(id.uuidString)
         if selection == id { selection = conversations.first?.id }
         if conversations.isEmpty { newChat() }
         save()
@@ -448,6 +462,9 @@ final class ChatStore {
     private func generate(in id: Conversation.ID) {
         streamingID = id
         let effort: EffortLevel = index(id).map { conversations[$0].effortLevel } ?? .medium
+        let run = Checkpoints.Run(chat: id.uuidString, run: UUID().uuidString)
+        let firstNew: Int = index(id).map { conversations[$0].messages.count } ?? 0
+        activeRuns[id] = run
         task = Task { [self] in
             // Engine asleep or stopped? Start it now rather than making the user press Start.
             if !(await OllamaServer.shared.isUp()) {
@@ -849,9 +866,50 @@ final class ChatStore {
                     break
                 }
             }
+            activeRuns[id] = nil
+            endRun(id, run: run, firstNew: firstNew)
             streamingID = nil
             activity = nil
             save()
+        }
+    }
+
+    // MARK: Checkpoints (undo a whole run)
+
+    /// After a run: records the files' new state and puts "Undo this run" on the run's last reply.
+    private func endRun(_ id: Conversation.ID, run: Checkpoints.Run, firstNew: Int) {
+        guard let files = Checkpoints.finish(run), let i = index(id) else { return }
+        let msgs = conversations[i].messages
+        let start: Int = min(firstNew, msgs.count)
+        if let k = msgs.indices.last(where: { $0 >= start && msgs[$0].role == .assistant && msgs[$0].compactedCount == nil }) {
+            conversations[i].messages[k].checkpoint = RunCheckpoint(run: run.run, files: files)
+        } else {
+            var note = ChatMessage(role: .assistant, content: "", model: conversations[i].model)
+            note.checkpoint = RunCheckpoint(run: run.run, files: files)
+            conversations[i].messages.append(note)
+        }
+    }
+
+    /// "Undo this run" under a reply (force = "Undo anyway"). Returns nil when done, or why it didn't happen and
+    /// whether "Undo anyway" may override it.
+    func undoRun(_ messageID: ChatMessage.ID, force: Bool) -> (message: String, canForce: Bool)? {
+        guard let i = conversations.firstIndex(where: { $0.messages.contains { $0.id == messageID } }),
+              let k = conversations[i].messages.firstIndex(where: { $0.id == messageID }),
+              let cp = conversations[i].messages[k].checkpoint else { return nil }
+        if streamingID == conversations[i].id { return ("Wait for the reply to finish (or press Stop), then undo.", false) }
+        let run = Checkpoints.Run(chat: conversations[i].id.uuidString, run: cp.run)
+        switch Checkpoints.restore(run, force: force) {
+        case .refused(let later, let message):
+            if later.isEmpty && message.contains("already been undone") {
+                conversations[i].messages[k].checkpoint?.undone = true
+                save()
+            }
+            return (message, !later.isEmpty)
+        case .done(_, let message):
+            conversations[i].messages[k].checkpoint?.undone = true
+            save()
+            notice = message.components(separatedBy: "\n").first
+            return message.contains("\n") ? (message, false) : nil
         }
     }
 
@@ -900,7 +958,7 @@ final class ChatStore {
             guard let folder = index(id).flatMap({ conversations[$0].codeFolder }) else { return await MacTools.run(call, env: env) }
             return RuleStore.read(call.arg("name"), project: folder)
         default:
-            return await MacTools.run(call, env: env)
+            return await MacTools.run(call, env: env, run: activeRuns[id])
         }
     }
 

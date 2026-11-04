@@ -202,6 +202,16 @@ After the calls:
   steps; VS Code uses `ingle.maxSteps` (default 200, `0` = no limit) and says so when it reaches it.
 - **Stop** cancels the stream, denies any open approval card and ends the loop.
 
+**Checkpoints (undo a whole run).** One run = one `generate` (Mac `ChatStore.generate`, VS Code `ChatEngine.generate`),
+with its own id. Every file-changing tool calls `Checkpoints.snapshot(path:run:)` / `snapshot()` after approval and
+just before it writes, so the first change to each file copies its original to `~/.ingle/checkpoints/<chat>/<run>/`
+(see [ingle-home.md](ingle-home.md#checkpoints)). Helpers are read-only, so they never snapshot. When the run ends
+(finished, stopped or failed), `finish(run)` records each file's new state, and if anything changed the run's last
+reply gets `checkpoint` (run id + what Undo would do per file). The chat shows **Undo this run · N files** under it;
+clicking opens a preview (Put back / Remove / Bring back per file, and "changes made by commands … can't be undone
+here") with **Undo**. If a file changed after the run, it says which and offers **Undo anyway**. For the changes
+panel (task 32) the API is `changes(run)` → `[path, before?, after?]` and `restore(run, force:)`.
+
 **Completion check (commands).** When a turn has no tool calls, every active command's requirements are checked
 against the calls made during this request. If something is missing, Ingle adds one hidden "nudge" message listing
 everything owed — "Ingle: before you finish, you still need to: - the command "X": … Do that now, then finish your

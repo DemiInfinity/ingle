@@ -29,6 +29,15 @@ export interface ChatMessage {
   /** A compaction marker: content is the summary of everything before it. The UI shows a divider
    *  "Earlier messages summarised" that expands to show the summary. */
   compaction?: { summarisedCount: number; auto: boolean };
+  /** Set on the last reply of a run that changed files: what "Undo this run" would do (paths shown tidied). */
+  checkpoint?: RunCheckpoint;
+}
+
+/** A run's checkpoint as the webview sees it (see tools/checkpoints.ts). */
+export interface RunCheckpoint {
+  run: string;
+  files: { path: string; action: 'restore' | 'remove' | 'recreate' }[];
+  undone?: boolean;
 }
 
 /** A file the user attached in the composer (paste, drag-drop or the paperclip). */
@@ -121,7 +130,9 @@ export type ToWebview =
   /** The message looks like it has a secret in it: ask Save as secret / Send anyway / Cancel. Nothing is stored or
    *  sent until the user answers. `preview` is a masked hint ("ghp_…"), never the value. */
   | { type: 'secretPrompt'; requestId: string; found: { kind: string; suggested: string; preview: string }[] }
-  | { type: 'secretPromptClear' };
+  | { type: 'secretPromptClear' }
+  /** Answer to undoRun when it didn't happen: files changed after the run (offer "Undo anyway"), or another reason. */
+  | { type: 'undoRefused'; id: string; message: string; canForce: boolean };
 
 // Webview → extension
 export type FromWebview =
@@ -148,5 +159,6 @@ export type FromWebview =
   | { type: 'applyCode'; code: string; language?: string } // replace selection, or show a diff for the active file
   | { type: 'copy'; text: string }
   | { type: 'regenerate' }
+  | { type: 'undoRun'; id: string; force?: boolean }      // "Undo this run" under reply `id` (force: "Undo anyway")
   | { type: 'startEngine' }
   | { type: 'openSettings' };

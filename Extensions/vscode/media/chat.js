@@ -46,6 +46,9 @@
   const openTools = new Set();
   const openThinking = new Set();
   const openSummaries = new Set();
+  /** "Undo this run": replies whose preview is open, and refusals waiting for "Undo anyway" (id → { message, canForce }). */
+  const openUndo = new Set();
+  const undoNotes = new Map();
   /** Message ids waiting for a throttled re-render while streaming. */
   const dirty = new Set();
   let flushTimer = 0;
@@ -140,6 +143,7 @@
     think: '<path d="M5.9 11.1c0-1.3-1.9-2.2-1.9-4.6a4 4 0 0 1 8 0c0 2.4-1.9 3.3-1.9 4.6z"/><path d="M6.3 13.5h3.4"/>',
     bolt: '<path d="M9 1.8L3.6 9h4l-1 5.2L12.4 7h-4z"/>',
     gear: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6L5 5M11 11l1.4 1.4M3.6 12.4L5 11M11 5l1.4-1.4"/>',
+    undo: '<path d="M5.2 3.4L2.4 6.2 5.2 9"/><path d="M2.6 6.2h6.6a3.9 3.9 0 0 1 0 7.8H6.4"/>',
     diff: '<rect x="1.9" y="2.5" width="5.2" height="11" rx="1"/><rect x="8.9" y="2.5" width="5.2" height="11" rx="1"/><path d="M3.4 6h2.2M10.4 10h2.2M11.5 8.9v2.2"/>',
     insert: '<path d="M8 2.4v7.2M5 6.7l3 3 3-3M3 13.4h10"/>',
     apply: '<path d="M2.8 5.4h9l-2.3-2.3M13.2 10.6h-9l2.3 2.3"/>',
@@ -1218,9 +1222,10 @@
       e.regenBtn = h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'regen', 'aria-label': 'Regenerate reply', title: 'Regenerate' }, icon('refresh'));
       e.stats = h('span', { class: 'stats' });
       e.foot = h('div', { class: 'msg-foot' }, e.copyBtn, e.regenBtn, e.stats);
+      e.undo = h('div', { class: 'undo-run', hidden: true });
       root.append(
         h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model),
-        e.chips, e.thinking, e.dots, e.body, e.foot);
+        e.chips, e.thinking, e.dots, e.body, e.foot, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
       e.out = h('pre', { class: 'tool-out', hidden: true, tabindex: '0' });
@@ -1338,7 +1343,47 @@
     setText(e.stats, statsText);
     e.stats.hidden = !statsText;
 
-    e.root.hidden = !body && !hasThinking && !live;
+    fillUndo(e, m);
+    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint;
+  }
+
+  const UNDO_VERB = { restore: 'Put back', remove: 'Remove', recreate: 'Bring back' };
+
+  /** "Undo this run" under the last reply of a run that changed files, with a preview of what it will do. */
+  function fillUndo(e, m) {
+    const cp = m.checkpoint;
+    const files = cp && Array.isArray(cp.files) ? cp.files : [];
+    if (!cp || !files.length) { e.undo.hidden = true; e.undoKey = ''; return; }
+    e.undo.hidden = false;
+    const open = openUndo.has(m.id) && !cp.undone;
+    const note = undoNotes.get(m.id);
+    const key = JSON.stringify([files, !!cp.undone, open, note || null, S.streaming]);
+    if (e.undoKey === key) return;
+    e.undoKey = key;
+    const n = files.length;
+    const count = `${n} file${n === 1 ? '' : 's'}`;
+    if (cp.undone) {
+      e.undo.replaceChildren(h('span', { class: 'undo-done' }, icon('check'), h('span', { text: `Run undone · ${count} put back` })));
+      return;
+    }
+    const head = h('button', {
+      class: 'chip-btn undo-btn' + (open ? ' open' : ''), type: 'button', 'data-act': 'undo-toggle', 'aria-expanded': open ? 'true' : 'false',
+      title: 'Put back every file this run changed',
+    }, icon('undo'), h('span', { text: `Undo this run · ${count}` }), icon('chevron', 'chev' + (open ? ' open' : '')));
+    if (!open) { e.undo.replaceChildren(head); return; }
+    const rows = files.map((f) => h('li', null,
+      h('span', { class: 'undo-verb undo-' + f.action, text: UNDO_VERB[f.action] || 'Put back' }),
+      h('span', { class: 'undo-path', text: f.path, title: f.path })));
+    const kids = [head, h('ul', { class: 'undo-list', 'aria-label': 'Files Undo will change' }, rows),
+      h('p', { class: 'undo-note', text: 'Changes made by commands, or on other computers over SSH, can’t be undone here.' })];
+    if (note) kids.push(h('p', { class: 'approval-warning undo-warning', role: 'alert' }, icon('warning'), h('span', { text: note.message })));
+    const busy = S.streaming;
+    const actions = note && note.canForce
+      ? [h('button', { class: 'btn primary', type: 'button', 'data-act': 'undo-force', disabled: busy }, 'Undo anyway')]
+      : [h('button', { class: 'btn primary', type: 'button', 'data-act': 'undo-go', disabled: busy }, icon('undo'), 'Undo')];
+    actions.push(h('button', { class: 'btn', type: 'button', 'data-act': 'undo-toggle' }, 'Cancel'));
+    kids.push(h('div', { class: 'approval-actions' }, actions));
+    e.undo.replaceChildren(...kids);
   }
 
   function fillTool(e, m) {
@@ -1488,6 +1533,12 @@
     } else if (act === 'toggle-tool') {
       if (openTools.has(id)) openTools.delete(id); else openTools.add(id);
       fill(e, m, liveInfo());
+    } else if (act === 'undo-toggle') {
+      if (openUndo.has(id)) { openUndo.delete(id); undoNotes.delete(id); } else openUndo.add(id);
+      fill(e, m, liveInfo());
+    } else if (act === 'undo-go' || act === 'undo-force') {
+      undoNotes.delete(id);
+      post({ type: 'undoRun', id, force: act === 'undo-force' });
     } else if (act === 'toggle-summary') {
       if (openSummaries.has(id)) openSummaries.delete(id); else openSummaries.add(id);
       fill(e, m, liveInfo());
@@ -2163,6 +2214,13 @@
       case 'slashItems': S.slashItems = Array.isArray(msg.items) ? msg.items : []; renderSlash(); break;
       case 'mcp': S.mcpServers = Array.isArray(msg.servers) ? msg.servers : []; mcpReloading = false; renderMcp(); break;
       case 'notice': showNotice(msg.text); break;
+      case 'undoRefused': {
+        undoNotes.set(msg.id, { message: String(msg.message || ''), canForce: !!msg.canForce });
+        openUndo.add(msg.id);
+        const m = findMessage(msg.id), e = entries.get(msg.id);
+        if (m && e) stick(() => fill(e, m, liveInfo()));
+        break;
+      }
       case 'secretPrompt': S.secretPrompt = msg; stick(renderSecretPrompt); break;
       case 'secretPromptClear': S.secretPrompt = null; renderSecretPrompt(); break;
       case 'contextUsage': S.contextUsage = { used: Number(msg.used) || 0, limit: Number(msg.limit) || 0 }; renderMeter(); break;

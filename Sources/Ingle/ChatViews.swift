@@ -248,7 +248,8 @@ struct ChatDetail: View {
                         MessageRow(message: m,
                                    isLast: m.id == conversation.messages.last?.id,
                                    streaming: streaming,
-                                   onRegenerate: { store.regenerate() })
+                                   onRegenerate: { store.regenerate() },
+                                   onUndo: { force in store.undoRun(m.id, force: force) })
                             .id(m.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")

@@ -1,6 +1,7 @@
 // The contract every tool implements. The engine (src/engine) only talks to tools through this.
 import type { IngleSettings } from '../shared/settings';
 import type { ApprovalRequest } from '../shared/protocol';
+import type { RunRef } from './checkpoints';
 
 export type ToolArgs = Record<string, unknown>;
 
@@ -23,6 +24,8 @@ export interface ToolContext {
   vision: boolean;
   /** Extra environment variables for a command (secrets, after approval). Never logged or stored. */
   env?: Record<string, string>;
+  /** The run this call belongs to. File-changing tools pass it to checkpoints.snapshot() before writing. */
+  run?: RunRef;
 }
 
 /** A tool may return plain text, or text plus images (base64 JPEG/PNG, no data: prefix) for vision models.

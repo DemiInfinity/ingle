@@ -247,6 +247,7 @@ enum Persona {
         - \(other)
         - You mostly help with software development, but you're happy to help with anything.
         - \(files)
+        - Ingle saves the files you change, so the user can undo a whole run (every file you changed in one reply) with Undo this run. Changes made by commands aren't covered.
         - SSH: \(SSH.promptFact)
         - \(Secrets.promptFact)
         - \(mac)

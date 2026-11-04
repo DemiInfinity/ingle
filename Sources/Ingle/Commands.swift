@@ -45,9 +45,8 @@ struct IngleCommand: Identifiable, Hashable {
 enum CommandStore {
     static var folder: URL { IngleHome.url.appendingPathComponent("commands", isDirectory: true) }
 
-    /// Every tool that changes files: any of these makes a then_run owed. Add new file-changing tools here
-    /// (VS Code's list is FILE_CHANGING_TOOLS in commands.ts).
-    static let fileChangingTools: Set<String> = ["write_file", "edit_file"]
+    /// Every tool that changes files: any of these makes a then_run owed. The one list is `Checkpoints.fileChangingTools`.
+    static var fileChangingTools: Set<String> { Checkpoints.fileChangingTools }
 
     static func all(project: String? = nil) -> [IngleCommand] { loadAll(project: project).commands }
 
