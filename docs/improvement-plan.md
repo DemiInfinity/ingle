@@ -3,6 +3,11 @@
 A working to-do list for the next round of work, written so each task can be handed to an agent (or a contributor)
 on its own. [roadmap.md](roadmap.md) is the long-term direction; this file is the next concrete steps.
 
+**The goal (the user's words): be the best local assistant possible, not a cloud copy.** Judge every task by
+whether it makes the user's own model, on their own Mac, more reliable, more honest about its results, more efficient
+(memory, battery, heat) and fully usable offline. Spending local time to get more out of the same model is good. Pretending
+to be a frontier model is not. When a job is truly beyond the local model, say so and hand over a clean brief (task 35).
+
 **How to use it.** Tasks are grouped into **waves**. Tasks in the same wave touch different files and can run at the
 same time, each in its own worktree/branch. A wave starts once the tasks it depends on have merged. Tick a task off
 (`[x]`) when its branch is merged into `main`.
@@ -44,7 +49,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B1 | 32 (workflow: task list, plan mode, changes panel using 15's undo, commit) | 15 is merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion), 39 (previewer) | round B1 (32) is merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
-| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle), 40 (learn this project) | 36 is merged |
+| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle), 40 (learn this project), 41 (better local reasoning) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
 
 **Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
@@ -802,6 +807,36 @@ VS Code `src/tools/projectMap.ts`, CLI `learn` command, prompt facts, `HelpTopic
 claims against the code) and fit their token budgets. After editing one file, only its notes and parents are refreshed.
 Ember answers "how does the approval flow work?" correctly by going overview → module guide → code, and does better
 with the guide than without it.
+
+---
+
+## Wave 4h — better reasoning from the same model
+
+### [ ] 41. Better local reasoning: check, don't guess (both apps + CLI; round D)
+**Why.** A local model can't be made cleverer without retraining, but it can be made to **reason more carefully and
+check itself against reality**. That's the best way to spend a laptop's time on hard jobs.
+**Do.**
+- **Run code instead of guessing.** A `scratch_run` tool runs a short Python/Node/Swift snippet in a throwaway
+  temp folder (sandboxed as in task 20 if built, otherwise no network and the temp folder only, time-limited) for
+  maths, counting, parsing, checking a regex, or tracing what a function returns. Prompt fact: "If an answer depends
+  on calculating or checking something, run it rather than reasoning it out." No approval needed inside the sandbox;
+  anything else asks as usual.
+- **Several fixes, the tests decide.** In Debug mode and at Max effort, when there's a failing test or check: write 2–4
+  *different* candidate fixes (each on a checkpoint, task 15), run the check on each, keep the one that passes (the
+  smallest if several pass), and roll back the rest. Show "tried 3 fixes, kept #2 (tests pass)" with the losing
+  diffs folded away. The number of candidates is a setting (default 3; 1 = off). It never runs on battery unless allowed.
+- **Structured thinking for hard jobs.** At High/Max and in Debug, a short required shape before acting: list the
+  possible causes or approaches, rank them, and say what evidence would decide between them. Enforced by the same
+  nudge machinery, and kept brief (small context).
+- **Optional planner/worker.** At Max, Flint writes the plan and Ember carries it out (they take turns in memory). Off
+  by default; turn it on per assistant in Settings → Models. Measured by the benchmark before it's recommended.
+- Measured: the benchmark adds `--no-scratch`, `--candidates 1|3`, `--no-planner` ablations and reports the time cost
+  next to the success gain, so you can see whether the extra minutes are worth it.
+**Files.** New `Sources/Ingle/Scratch.swift`, `Candidates.swift`; VS Code `src/tools/scratch.ts`,
+`src/engine/candidates.ts`; `Effort.swift`/`effort.ts` (hooks), the Debug mode logic from task 32, prompt facts,
+`HelpTopics`, `docs/agent-loop.md`, tests.
+**Done when.** A maths-heavy question is answered by running code and is right. A failing-test task in Debug mode tries
+3 fixes, keeps the passing one and rolls back the others cleanly. The benchmark shows the gain and the time cost.
 
 ---
 
