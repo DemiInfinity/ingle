@@ -105,6 +105,8 @@ build output or personal data. Commits are signed off (`git commit -s`); contrib
 
 ## Roadmap pointers
 
-First-run model picker by RAM · signing/notarisation + app self-update · Windows/Linux extension · shared chat storage
-(`~/.ingle/chats/`, `~/.ingle/coding/<project>/`) · the self-hosted **Ingle Knowledge Portal** (LAN sync + web UI).
+Direction: *models are replaceable engines; Ingle is the part that knows you* (knowledge in files, not weights).
+Phases: 1 benchmark + signed install + model picker · 2 learning loop (rules drafted from corrections, scorecards,
+worked examples, model playbooks, knowledge packs) · 3 projects, scheduled tasks, shared chat storage, checkpoints ·
+4 Windows/Linux extension, **Ingle Knowledge Portal** (LAN sync + web UI), encryption · 5 open design system.
 See `docs/roadmap.md`.
