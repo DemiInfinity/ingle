@@ -764,11 +764,17 @@ where things live. Ingle builds that guide, keeps it current, and the model zoom
   └── map.json           the facts (files, symbols with file:line, imports, dependencies, build/test commands,
                          content hashes for staleness); written by static analysis, read by the tools
   ```
-- **Map first (the user's decision).** The first time a folder is opened in Code mode (or `ingle` runs in it), Ingle
-  **maps it before anything else**: `map.json` and a facts-only `OVERVIEW.md` skeleton come from static analysis in
+- **Map first (the user's decision).** The first time a project is opened anywhere (a Code mode folder in the Mac app, a **VS
+  Code workspace** with the Ingle extension, or `ingle` run in the folder), Ingle **maps it before anything else**: `map.json` and a facts-only `OVERVIEW.md` skeleton come from static analysis in
   seconds to a minute, with no model, so the assistant has the map from its very first answer. The written summaries
   (overview prose, module guides, file notes) then fill in as a background job. Until they're done, the assistant uses
   the facts and says the map is still being written. Opening the project later only refreshes what changed.
+- **One map, shared by every app.** The Mac app, VS Code and the CLI all read and update the same `.ingle/map/`. A lock
+  file (`.ingle/map/.lock`, with the process and time; stale locks are cleared) makes sure only one of them builds or
+  refreshes it at a time, and the others just read it. VS Code shows map progress in its status bar and the chat tab; a
+  multi-root workspace gets one map per root folder. If the Mac app is running, VS Code can hand the background summary
+  writing to it (via the editor bridge) so it uses the same queue as other jobs. Otherwise the extension does it
+  itself, with the same power and idle rules.
 - **Facts first, prose second.** Structure, symbols, imports and dependencies, build/test commands and git history
   hot spots come from **static analysis** (`ingle-code`, task 33): exact and instant, no model needed. The local model
   only writes the short summaries, working **bottom-up** (files → folders → overview), so each step fits its context.
