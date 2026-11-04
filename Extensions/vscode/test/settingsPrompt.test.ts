@@ -25,3 +25,12 @@ test('settingsPrompt: on states', () => {
   assert.match(t, /SSH: On — hosts: nas/);
   assert.match(t, /Editor context: On/);
 });
+
+test('settingsPrompt: the other assistant, awake or asleep', () => {
+  const asleep = settingsPrompt({ ...base, me: 'Ember', others: [{ name: 'Flint', role: 'hard jobs', awake: false }] });
+  assert.match(asleep, /Flint \(hard jobs\): asleep right now/);
+  assert.match(asleep, /answer as yourself \(Ember\) — never pretend to be Flint/);
+  assert.match(asleep, /differently each time/);
+  const awake = settingsPrompt({ ...base, me: 'Ember', others: [{ name: 'Flint', role: 'hard jobs', awake: true }] });
+  assert.match(awake, /Flint \(hard jobs\): awake too right now/);
+});

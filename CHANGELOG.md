@@ -37,6 +37,8 @@ releases. Every change people can notice gets a line here. Ask the assistant "wh
   control, SSH and editor sharing are on, and what each means, so it won't claim to browse with Web off and can suggest
   a better setting.
 - **Reasoning in VS Code too:** the brain pill works the same in both apps.
+- **Ember and Flint know about each other:** each knows whether the other is awake or asleep right now. Call Flint
+  while talking to Ember and she'll tell you, in her own words, whether Flint is up, and offer to switch.
 
 ### Changed
 - **Settings apply when you press Enter:** changing Model, Effort, Mode, Reasoning, Web or Mac while a reply is

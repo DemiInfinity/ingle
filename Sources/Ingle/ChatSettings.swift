@@ -29,12 +29,30 @@ enum ChatSettingsPrompt {
         }
         let hosts: [String] = SSH.isOn ? SSH.enabledHosts : []
         lines.append(hosts.isEmpty ? "- SSH: Off." : "- SSH: On — hosts: \(hosts.joined(separator: ", ")).")
+        lines.append(contentsOf: othersLines(model: model))
         if let editor {
             lines.append(editor
                 ? "- Editor context: On — you see the user's open file and selection."
                 : "- Editor context: Off — the user chose not to share their editor.")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// The other assistant(s), awake or asleep right now, and how to answer when the user calls one by name.
+    @MainActor
+    static func othersLines(model: String) -> [String] {
+        let me: String = ModelNames.display(model)
+        let team: [(name: String, role: String, tag: String)] = [
+            (Prefs.dailyName, "daily coding", Prefs.dailyModel),
+            (Prefs.hardName, "hard jobs", Prefs.hardModel),
+        ]
+        var lines: [String] = []
+        for other in team where other.tag != model && !other.tag.isEmpty && other.name != me {
+            let awake: Bool = ModelManager.current?.isLoaded(other.tag) ?? false
+            lines.append("- \(other.name) (\(other.role)): \(awake ? "awake too" : "asleep") right now.")
+            lines.append("  If the user speaks to \(other.name) by name, answer as yourself (\(me)) — never pretend to be \(other.name). In your own words, and differently each time, say that \(other.name) is \(awake ? "awake" : "asleep") and offer to switch with the assistant picker in the message box, or to help yourself.")
+        }
+        return lines
     }
 
     /// What each effort level asks of the assistant (thinking is Reasoning's job, not Effort's).

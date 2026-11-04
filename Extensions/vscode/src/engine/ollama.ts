@@ -167,6 +167,21 @@ export class OllamaClient {
     }
   }
 
+  /** Models loaded in memory right now (/api/ps), or [] on error. */
+  async running(timeoutMs = 1500): Promise<string[]> {
+    const t = timeoutSignal(timeoutMs);
+    try {
+      const res = await fetch(this.url('api/ps'), { signal: t.signal });
+      if (!res.ok) return [];
+      const obj = (await res.json()) as { models?: { name?: string }[] };
+      return (obj.models ?? []).map((m) => m.name ?? '').filter(Boolean);
+    } catch {
+      return [];
+    } finally {
+      t.done();
+    }
+  }
+
   /** Model capabilities from /api/show (e.g. ["completion","tools","vision","thinking"]), or null on error. */
   async capabilities(model: string, timeoutMs = 4000): Promise<string[] | null> {
     const t = timeoutSignal(timeoutMs);

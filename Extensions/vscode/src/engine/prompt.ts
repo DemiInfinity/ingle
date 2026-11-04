@@ -244,6 +244,8 @@ const EFFORT_MEANING: Record<EffortLevel, string> = {
 export function settingsPrompt(s: {
   model: string; role: string; effort: EffortLevel; mode: WorkMode; reasoning: boolean; web: boolean;
   sshHosts: string[]; editor?: boolean;
+  /** This assistant's name and the others, with whether each is loaded right now. */
+  me?: string; others?: { name: string; role: string; awake: boolean }[];
 }): string {
   const mode = MODES[s.mode];
   const lines = [
@@ -260,6 +262,11 @@ export function settingsPrompt(s: {
       : '- Web: Off — no web access. If current information is needed, suggest switching on Web.',
     s.sshHosts.length ? `- SSH: On — hosts: ${s.sshHosts.join(', ')}.` : '- SSH: Off.',
   ];
+  for (const o of s.others ?? []) {
+    const state = o.awake ? 'awake' : 'asleep';
+    lines.push(`- ${o.name} (${o.role}): ${o.awake ? 'awake too' : 'asleep'} right now.`);
+    lines.push(`  If the user speaks to ${o.name} by name, answer as yourself (${s.me ?? 'you'}) — never pretend to be ${o.name}. In your own words, and differently each time, say that ${o.name} is ${state} and offer to switch with the assistant picker in the message box, or to help yourself.`);
+  }
   if (s.editor !== undefined) {
     lines.push(s.editor
       ? "- Editor context: On — you see the user's open file and selection."

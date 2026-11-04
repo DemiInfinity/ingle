@@ -1582,12 +1582,15 @@ export class ChatEngine implements vscode.Disposable {
     }
   }
 
-  private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = [], effortLine = ''): string {
+  private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = [], effortLine = '', running: string[] = []): string {
     const root = workspaceRoot();
     const parts = [personaPrompt(this.settings, a, chat.web, enabledSSHHosts(this.settings), listSecrets().map((s) => s.name))];
     // Every switch's current state and meaning, so the assistant knows what it can do right now.
     parts.push(settingsPrompt({ model: a.model, role: roleName(a.id), effort: this.effortOf(chat), mode: modeOf(chat), reasoning: !!chat.reasoning,
-      web: chat.web, sshHosts: enabledSSHHosts(this.settings), editor: editor ? chat.useContext !== false : undefined }));
+      web: chat.web, sshHosts: enabledSSHHosts(this.settings), editor: editor ? chat.useContext !== false : undefined,
+      me: a.name,
+      others: this.settings.assistants.filter((x) => x.id !== a.id && x.model !== a.model)
+        .map((x) => ({ name: x.name, role: x.id === 'hard' ? 'hard jobs' : 'daily coding', awake: running.includes(x.model) })) }));
     const commands = commandsBlock(active);
     if (commands) parts.push(commands);
     parts.push(indexPrompt(this.settings, tools, root, chat.web));
@@ -1714,9 +1717,10 @@ export class ChatEngine implements vscode.Disposable {
       // Build the request, compacting first if it would pass ~75 % of the context.
       let history: OllamaMessage[] = [];
       let system = '';
+      const running = await client.running();   // who's awake, for the other assistant's status
       for (let attempt = 0; attempt < 2; attempt++) {
         const c = this.lastCompaction(chat);
-        system = this.buildSystem(chat, a, tools, editor, matched, c >= 0 ? chat.messages[c].content : '', repoMap, active, spec.promptLine);
+        system = this.buildSystem(chat, a, tools, editor, matched, c >= 0 ? chat.messages[c].content : '', repoMap, active, spec.promptLine, running);
         history = toOllamaHistory(chat.messages.slice(c + 1) as Stored[], vision);
         const tokens = Math.ceil((system.length + toolChars) / 4) + estimate(history);
         if (tokens <= limit * COMPACT_AT || attempt > 0) break;
