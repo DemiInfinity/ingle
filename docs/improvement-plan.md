@@ -40,7 +40,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
 
-**Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code 2.1.305 is installed at `~/.local/bin/claude`): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
+**Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
@@ -296,7 +296,7 @@ Claude Code (D) runs with permissions limited to the task copy. Clean up every c
 **Offline.** A–C run with Ingle's network blocked. One extra B run is done with Wi-Fi actually off; the user switches
 it, since the benchmark doesn't change system settings.
 
-**Time: built for a laptop** (the user's Mac is a MacBook Pro, M4 Max, 36 GB). Overnight runs across several nights
+**Time: built for a laptop** (the main test Mac is a laptop with 36 GB of memory). Overnight runs across several nights
 aren't realistic: the lid closes, it travels, and while a 23 GB model is loaded the Mac isn't much use for anything
 else. So:
 - **Smaller default suite.** **Standard** = 20 tasks (10 tuning + 10 held out) × conditions A and B × both models × **2
