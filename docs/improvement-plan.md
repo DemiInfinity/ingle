@@ -18,13 +18,31 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
 - Commit with `git commit -s` on your own branch. Don't push, don't merge, don't touch `local.env` or `private/`.
 - **Fix bugs you find.** Add a test that shows the bug where you can, fix it (in both apps if both have it), and
   list it in your report. Only leave a bug if fixing it would clash with another task's files; say so.
+- **Tear down when you finish.** Quit any copy of Ingle you opened (your worktree's `build/Ingle.app`), stop any
+  engine or background process you started, and delete test data (Keychain items, temp files). Leave the user's own
+  copy (the main checkout's `build/` or `/Applications`) alone. List what you cleaned up.
 - Finish with a short report: what changed, what was checked, what wasn't.
+
+---
+
+## Run order from here (agreed 4 November 2026)
+
+Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same files apart:
+
+| Round | Tasks | Starts when |
+|---|---|---|
+| A0 | 8 (unify commands) | now, alongside the secrets store (28) |
+| A | 29 (effort), 30 (Code mode foundation) | 28 is merged |
+| B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
+| C | 9 (shared spec + `IngleCore`), 10 (benchmark), 11 (model picker) | round B is merged |
+
+Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
 ---
 
 ## Wave 1 — safety, tests, tidy-up (all in parallel)
 
-### [ ] 1. Narrow "Allow for This Session"
+### [x] 1. Narrow "Allow for This Session"
 **Why.** Session allowances are keyed by tool name only (`ChatStore.resolve`, `chatEngine.ts` `approve`). Allowing
 one `run_command` silently allows every later command (`rm -rf`, `curl … | sh`) in every chat until the app quits.
 With Web on, a page that tries to instruct the model could take advantage of this.
@@ -46,7 +64,7 @@ With Web on, a page that tries to instruct the model could take advantage of thi
 **Done when.** Allowing one command doesn't allow a different one; both apps behave the same; the docs describe the
 new scope.
 
-### [ ] 2. Test suite for the VS Code extension
+### [x] 2. Test suite for the VS Code extension
 **Why.** There are no tests, so the two apps drift apart and changes break quietly.
 **Do.** Use Node's built-in `node:test` and `assert`. No new runtime deps; dev-only is fine but avoid it if you can.
 Compile the tests with the existing `tsc`. Cover the pure logic: command parsing and matching (`tools/commands.ts`),
@@ -57,14 +75,14 @@ Add `npm test` to `package.json` and mention it in `CLAUDE.md` → "Build and ch
 plus small extractions from `engine/chatEngine.ts` **only in `toolsFor`** (tell task 1 if you touch it).
 **Done when.** `npm test` runs offline and passes, with at least 30 meaningful assertions.
 
-### [ ] 3. Docs and README tidy-up
+### [x] 3. Docs and README tidy-up
 **Do.** Remove "from the icon next to Claude's" from the README (it only makes sense on one machine). Add source links
 for the specific claims in `weaknesses-and-mitigations.md` (RAG-MCP study, Ollama issue #14493, CVE-2026-7482, Stack
 Overflow survey). Lead the README features with **Commands**, the clearest difference from other local chat apps.
 **Files.** `README.md`, `docs/weaknesses-and-mitigations.md`.
 **Done when.** Every number or CVE has a link, and nothing in the README depends on one person's setup.
 
-### [ ] 4. Check the Qwen tool-call parser
+### [x] 4. Check the Qwen tool-call parser
 **Why.** Ollama has parsed Qwen tool calls in the wrong format (issue #14493); overriding `PARSER`/`RENDERER` roughly
 doubled one user's success rate.
 **Do.** Check whether the bundled engine version still has the problem for the default Ember/Flint models. If it
@@ -75,7 +93,7 @@ result in `weaknesses-and-mitigations.md` §1.
 **Done when.** There's a written answer ("still broken in 0.x, fixed by …" or "fixed upstream in 0.x") and, if needed,
 the override.
 
-### [ ] 5. Research: VS Code Remote-SSH and dev containers (read-only)
+### [x] 5. Research: VS Code Remote-SSH and dev containers (read-only)
 **Why.** When a workspace is opened over Remote-SSH, VS Code may run the extension **on the remote machine**, where
 `localhost:11434`, `~/.ingle` and the macOS-only tools don't exist.
 **Do.** Find out which side the extension runs on (check `extensionKind` in `package.json` and the VS Code docs) and
@@ -120,7 +138,7 @@ server, a NAS, a dev box, a Raspberry Pi.
 - **Privacy.** Add to `PRIVACY.md` and `docs/security-and-privacy.md`: SSH connects only to hosts you configured,
   only when you approve a command, and Ingle sends nothing anywhere else.
 
-### [ ] 6. SSH access — Mac app
+### [x] 6. SSH access — Mac app
 **Files.** `Sources/Ingle/Tools.swift` (definition, `describe`, `needsApproval`, `run`), `ToolSelection.swift`,
 `Prefs.swift` (keys + persona fact), `SettingsViews.swift` (Mac Access tab), `SettingsMirror.swift`,
 `Manifest.swift` (`HelpTopics`), new `Sources/Ingle/SSH.swift` (config parsing, process runner),
@@ -128,7 +146,7 @@ server, a NAS, a dev box, a Raspberry Pi.
 **Done when.** With SSH on and a host ticked, "check disk space on homelab" asks for approval and returns `df -h`
 output. An unticked host or `user@1.2.3.4` is refused. With SSH off the tool is never offered.
 
-### [ ] 7. SSH access — VS Code extension
+### [x] 7. SSH access — VS Code extension
 **Files.** New `Extensions/vscode/src/tools/ssh.ts` (reuse `runShell`/`capOutput` patterns from `command.ts`),
 `tools/index.ts`, `engine/chatEngine.ts` (`toolsFor` only), `engine/prompt.ts`, `shared/settings.ts`,
 `package.json` (settings contribution), `docs/vscode-extension.md`.
@@ -226,6 +244,106 @@ Read the Mac's memory and suggest models that fit (8 / 16 / 24 / 32 / 64 GB+), w
 ### [ ] 12. Signing, notarisation and a `.dmg` — needs you
 Needs an Apple Developer account (yours). An agent can prepare `scripts/release.sh` and the docs; the certificate and
 notarisation credentials must be set up by you and are never entered by an agent.
+
+---
+
+## Wave 4b — Effort and Code mode (after wave 3; can run alongside wave 4)
+
+The two things that make Ingle work like Claude Code: you choose **how hard it tries**, and the Mac app gets a
+**Code mode** for working in a project folder, not just chatting. Order: 29 and 30 in parallel → then 31 and 32 in
+parallel (both need 30) → task 15 (checkpoints) is pulled forward to land with them.
+
+### [ ] 29. Effort levels (both apps)
+**Why.** Today there's only a **Think** on/off pill (`ThinkToggle` in `ChatViews.swift`, `think: Bool` in
+`Ollama.swift`/`ollama.ts`). One switch doesn't let you say "quick answer" vs "take your time and check your work".
+**Design.** Replace the Think pill with an **Effort** menu: **Low · Medium · High · Max**. It's set per chat. The
+default is set per assistant (Ember: Medium, Flint: High) and can be changed in Settings → Models. Each level is a
+bundle of settings defined in one table per app (`EffortLevel` in Swift, `effort.ts` in the extension), kept in step:
+
+| | Low | Medium | High | Max |
+|---|---|---|---|---|
+| Thinking | off | on (`"low"` where the model takes levels) | on (`"medium"`) | on (`"high"`) |
+| Prompt line | "Answer directly in as few steps as possible." | (none) | "Investigate before changing anything: read the related code, then check your work." | "Plan first, investigate fully, verify with the project's checks, then review your own changes before finishing." |
+| Tool filtering | strict | normal | relaxed (core coding tools always offered) | relaxed |
+| Must verify after editing | no | no | run the project's check command once before finishing (a built-in nudge, like `then_run`) | yes, plus a read-only helper reviews the diff |
+| Plan step | no | no | no | a short visible plan first (uses task 32's task list) |
+| Repeat/stuck guard | 3 / 4 | 3 / 4 | 4 / 6 | 4 / 6 |
+
+- Ollama's `think` accepts `true/false` and, for some models, `"low"|"medium"|"high"`. Send a level where the model
+  supports it, `true` otherwise. Keep the existing retry when a model can't think at all (Low then behaves the same).
+- "The project's check command" comes from commands' `then_run` if one applies, otherwise it's detected
+  (`package.json` test/lint, `swift build`, `cargo check`, `go test`, `make test`, `pytest`), otherwise skipped with a
+  note.
+- The pill shows the level and a tooltip saying what it does. ⌘⇧E cycles levels in the Mac app.
+- `Conversation.effort: String?` is optional. Old chats map Think on → High, Think off → Medium.
+- Prompt facts + `HelpTopics` + `docs/agent-loop.md` explain the levels.
+**Files.** New `Sources/Ingle/Effort.swift`, `ChatViews.swift` (pill), `ChatStore.swift` (prompt line,
+verification nudge, guard thresholds), `Ollama.swift` (`think` as level), `ToolSelection.swift`, `Prefs.swift`
+(per-assistant default), `SettingsViews.swift`; new `Extensions/vscode/src/engine/effort.ts`, `ollama.ts`,
+`chatEngine.ts`, `toolSelection.ts`, `media/chat.js`, `shared/protocol.ts`, tests in `test/effort.test.ts`.
+**Done when.** The same request at Low gives a quick answer with no thinking. At High it reads the related code and
+runs the tests before finishing. At Max it shows a plan first and a review note at the end. Both apps behave the same.
+
+### [ ] 30. Code mode — foundation (Mac app)
+**Why.** The Mac app is a chat. To use it the way Claude Code works, a chat needs to belong to a **project folder**,
+with coding tools and a coding prompt, while normal chats stay simple.
+**Design.**
+- A **Chat / Code** switch at the top of the chat window (and ⌘⇧C). New Code chats ask for a folder (picker, drag a
+  folder in, or a recent project). The folder is shown as a chip with the git branch.
+- The sidebar gets two sections: **Chats** and **Code**. Code chats are grouped by project. Storage is ready for roadmap
+  Phase 3's `~/.ingle/coding/<project>/` but can stay in the current store for now.
+- In Code mode the project folder is the **workspace**, like in VS Code: reads, lists and searches inside it need no
+  approval; writes and commands still ask (with the scoped allowances from task 1). Reads outside it ask.
+- The prompt switches to the **coding persona**, the same text as the VS Code extension's (`engine/prompt.ts`), kept in
+  step with a comment in both. It also gets the project's rules files (`AGENTS.md`, `CLAUDE.md`, `.ingle/`), the git
+  branch and a short `git status`.
+- **Mac control is off** in Code mode, and its pill is hidden. Web stays opt-in.
+- `Conversation.mode: String?` and `Conversation.projectPath: String?` are optional (nil = Chat).
+**Files.** `ChatStore.swift` (mode, workspace rules, prompt choice), `ChatViews.swift` (switch, folder chip,
+sidebar sections), new `Sources/Ingle/Project.swift` (folder, git info, rules files, recent projects), `Prefs.swift`,
+`Tools.swift` (workspace-aware approval), `Manifest.swift` (`HelpTopics`), `docs/mac-app.md`.
+**Done when.** You can start a Code chat on a folder, ask "what does this project do?" and get an answer without any
+approval prompts, and normal chats are unchanged.
+
+### [ ] 31. Code mode — coding tools in Swift (Mac app; after 30)
+**Why.** The Mac app has only `list_files`, `read_file`, `write_file` and `run_command`. VS Code has the tools that
+make small models good at code.
+**Do.** Port these from `Extensions/vscode/src/tools/` to Swift, offered only in Code mode, same names, arguments and
+behaviour (task 9's shared fixtures should cover them):
+- `find_files` (glob, skipping `.gitignore`d and build folders);
+- `search_code` (uses `git grep` in a repo, `grep -rn` otherwise; capped results with line numbers);
+- `edit_file` (exact-match replace using the `editmatch.ts` rules, with a **diff in the approval card** and a
+  side-by-side view in a sheet);
+- **repo map** (port `repomap.ts`: ranked outline of files and key symbols, capped at about 1,500 tokens, added to the
+  prompt per request);
+- `get_problems` → runs the detected check command (as in task 29) and returns the errors.
+**Files.** New `Sources/Ingle/CodeTools.swift`, `Sources/Ingle/RepoMap.swift`, `Sources/Ingle/EditMatch.swift`,
+`Tools.swift` (registration only), `ToolSelection.swift`, `MessageViews.swift` (diff in the approval card),
+`docs/mac-app.md`, `docs/agent-loop.md`.
+**Done when.** In a Code chat, "rename `foo` to `bar` everywhere and run the tests" finds the uses, shows diffs to
+approve, edits the files and runs the tests, with the same results as the VS Code extension on the same repo.
+
+### [ ] 32. Code mode — the Claude Code-style workflow (both apps where it fits; after 30)
+**Do.**
+- **Task list.** An `update_tasks` tool. The model keeps a short to-do list for bigger jobs, shown pinned under the
+  latest reply with ticks as it goes (Mac: under the message; VS Code: in the webview). Max effort uses it for its plan.
+- **Plan mode.** A per-chat switch: the assistant can only read and search. It ends with a plan you **Approve** or
+  edit; approving switches back and starts the work with the plan as its task list.
+- **Changes panel.** A list of every file changed in this run with its diff, plus **Undo this run** (task 15) and
+  **Open in editor** (VS Code, or the default app).
+- **Commit.** A **Commit** button when the run changed files in a git repo. It drafts a message from the diff that you
+  can edit, then runs `git commit` (with approval). It never pushes.
+- **Interrupt and steer.** Typing while it works queues your message and gives it to the model at the next step,
+  instead of waiting for the run to end.
+**Files.** Mac: new `Sources/Ingle/TaskList.swift`, `Sources/Ingle/ChangesPanel.swift`, `ChatStore.swift` (plan mode,
+queued messages), `ChatViews.swift`, `MessageViews.swift`. VS Code: `engine/chatEngine.ts`, `media/chat.js`,
+`shared/protocol.ts`, new `tools/tasks.ts`. Docs: `docs/agent-loop.md`, `docs/features.md`.
+**Done when.** A multi-step job in either app shows a live task list, can be planned first, ends with a changes panel,
+and can be committed (or undone) in one click.
+
+**Trade-off to note in the docs.** Porting the coding tools to Swift means three agent loops' worth of logic to keep in
+step (Mac Chat, Mac Code, VS Code). Task 9's shared fixtures are what keeps that safe. Longer term, consider moving the
+agent loop into one shared core.
 
 ---
 
