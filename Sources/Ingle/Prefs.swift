@@ -305,9 +305,10 @@ enum Companion {
 
     static var vscodeInstalled: Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let places = ["/Applications", "/Applications/Development", home + "/Applications"]
+        let places = ["/Applications", home + "/Applications"]
         let apps = ["Visual Studio Code.app", "Cursor.app"]
         if places.contains(where: { place in apps.contains { FileManager.default.fileExists(atPath: place + "/" + $0) } }) { return true }
+        // Anywhere else (e.g. a subfolder of Applications): ask macOS where the app is.
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") != nil
     }
 

@@ -24,13 +24,13 @@ if [[ -n "${VSCODE_PUBLISHER:-}" ]]; then
 fi
 npx --yes @vscode/vsce package --allow-missing-repository --skip-license -o ingle.vsix >/dev/null
 
-# Find VS Code's `code` command: on the PATH, in /Applications/Development, /Applications, ~/Applications,
-# or wherever Spotlight finds VS Code. Set VSCODE_APP in local.env to point at a specific copy.
+# Find VS Code's `code` command: on the PATH, in /Applications or ~/Applications, or wherever Spotlight finds
+# VS Code. If yours lives somewhere unusual, set VSCODE_APP in local.env.
 find_code() {
   command -v code && return
   local apps=()
   [[ -n "${VSCODE_APP:-}" ]] && apps+=("$VSCODE_APP")
-  apps+=("/Applications/Development/Visual Studio Code.app" "/Applications/Visual Studio Code.app" "$HOME/Applications/Visual Studio Code.app")
+  apps+=("/Applications/Visual Studio Code.app" "$HOME/Applications/Visual Studio Code.app")
   while IFS= read -r found; do apps+=("$found"); done < <(mdfind "kMDItemCFBundleIdentifier == 'com.microsoft.VSCode'" 2>/dev/null)
   for app in "${apps[@]}"; do
     [[ -x "$app/Contents/Resources/app/bin/code" ]] && { echo "$app/Contents/Resources/app/bin/code"; return; }
