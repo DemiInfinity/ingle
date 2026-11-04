@@ -16,12 +16,14 @@ Everything a user might want to read or edit by hand lives in **`~/.ingle`**, in
 ├── memory/              one .md per subject + INDEX.md
 ├── research/            one .md per report + INDEX.md
 ├── plans/               plans made in normal chats (Plan mode or Max effort), one .md each
+├── briefs/              second-opinion briefs from normal chats, one .md each (never sent anywhere)
 └── checkpoints/         originals of files changed by each run, for Undo this run (both apps; pruned)
 
 <your project>/.ingle/
 ├── rules/               project rules, shown as project/<name>
 ├── commands/            project commands, shown as project/<name>
-└── plans/               plans made in Code chats (Mac) or in the workspace (VS Code), one .md each
+├── plans/               plans made in Code chats (Mac) or in the workspace (VS Code), one .md each
+└── briefs/              second-opinion briefs for a cloud AI, YYYY-MM-DD-<slug>.md (copy-only; see agent-loop.md)
 ```
 
 Path helpers: `IngleHome` in [`../Sources/Ingle/Extensions.swift`](../Sources/Ingle/Extensions.swift) and `paths` in

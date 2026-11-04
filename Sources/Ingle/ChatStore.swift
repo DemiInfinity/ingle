@@ -36,6 +36,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var plan: PlanRef?
     /// A message typed while a run was going: it joined the run at the model's next step.
     var steer: Bool?
+    /// Second opinion (Escalation.swift): the card under a stuck run's last reply.
+    var escalation: EscalationCard?
 
     var isRealUser: Bool { role == .user && nudge != true }
 
@@ -159,6 +161,7 @@ final class ChatStore {
     private var autoApproved: [Conversation.ID: String] = [:]
 
     static weak var current: ChatStore?
+    static let stuckText = "I seem to be going round in circles, so I’ve stopped. Tell me what to try next, or say “carry on” to let me keep going."
 
     private var task: Task<Void, Never>?
     /// The run in progress per chat (one per reply to a message): file-changing tools checkpoint into it.
@@ -611,6 +614,8 @@ final class ChatStore {
             let project: String? = codeFolder ?? editor?.workspace
             var git: Project.Git? = nil
             if let codeFolder { git = await Project.git(codeFolder) }
+            // What this run did, for the second-opinion card (task 35).
+            var log = Escalation.Log(root: project)
             var attachedNames: [String] = []     // shown on the reply's chip: things actually in use
             var attachedText = ""
             var suggestions: [String] = []       // matched, offered, not loaded
@@ -918,10 +923,17 @@ final class ChatStore {
                         conversations[j].messages[k].plan = card
                     }
                     // Max: a read-only helper reviews what changed, and its notes are shown.
-                    if effort.review, !changedFiles.isEmpty, !Task.isCancelled {
-                        await reviewChanges(id, model: model, web: conv.webOn, commands: tracker.commands,
-                                            request: requestText, files: changedFiles)
+                    // A command still owed after its nudges ("" reason) is a second-opinion trigger; one that couldn't run isn't.
+                    for c in tracker.commands where tracker.givenUp[c.name] == "" {
+                        log.add("command-ignored", Escalation.commandReason(c.name))
                     }
+                    if effort.review, !changedFiles.isEmpty, !Task.isCancelled {
+                        let notes: String = await reviewChanges(id, model: model, web: conv.webOn, commands: tracker.commands,
+                                                                request: requestText, files: changedFiles)
+                        if Escalation.reviewFoundProblems(notes) { log.add("review-problems", Escalation.reviewReason) }
+                    }
+                    // Task 34 (coverage) hook: when affected places stay unresolved, call
+                    // log.add("coverage", Escalation.coverageReason(n)) here, next to its ⚠ chip.
                     break
                 }
 
@@ -937,6 +949,7 @@ final class ChatStore {
                     if repeats >= effort.repeatLimit {
                         // Local models sometimes loop on the same call; nudge it instead of running it again.
                         skips += 1
+                        log.record(call, output: "", denied: false, skipped: true, known: [])
                         guard let jr = index(id) else { break }
                         conversations[jr].messages.append(ChatMessage(
                             role: .tool, content: "You've already made this exact call \(repeats - 1) times and have its result above. Don't repeat it — use that result, try a different approach, or tell the user what's blocking you.",
@@ -945,6 +958,7 @@ final class ChatStore {
                     }
                     // Plan mode refuses anything that changes things, even a tool the model names without being offered it.
                     if planMode, !TaskList.planModeTools.contains(call.name), let jp = index(id) {
+                        log.record(call, output: "", denied: true, skipped: false, known: [])
                         let info0 = MacTools.describe(call)
                         conversations[jp].messages.append(ChatMessage(
                             role: .tool, content: TaskList.planModeRefusal,
@@ -953,6 +967,7 @@ final class ChatStore {
                     }
                     // Debug mode: no edits until the failure is located and its cause stated.
                     if let why = dbg?.refusal(call.name), let jd = index(id) {
+                        log.record(call, output: "", denied: true, skipped: false, known: [])
                         let info0 = MacTools.describe(call)
                         conversations[jd].messages.append(ChatMessage(
                             role: .tool, content: why,
@@ -960,6 +975,7 @@ final class ChatStore {
                         continue
                     }
                     if let ban = tracker.blockingCommand(for: call), let jb = index(id) {
+                        log.record(call, output: "", denied: false, skipped: true, known: [])
                         conversations[jb].messages.append(ChatMessage(
                             role: .tool, content: CommandTracker.blockedMessage(ban.command, ban.item),
                             toolName: call.name, toolTitle: "Blocked by a command", toolDetail: "\(ban.command.name) · \(ban.item)", toolIcon: "hand.raised", denied: true))
@@ -1004,6 +1020,9 @@ final class ChatStore {
                         output = scrubber?.scrub(output) ?? output
                     }
                     tracker.record(call, succeeded: allowed && ran)
+                    // Second opinion: what was tried, and checks that keep failing (the output is already scrubbed).
+                    let knownChecks: [String] = tracker.commands.compactMap(\.thenRun)
+                    log.record(call, output: output, denied: !allowed, skipped: allowed && !ran, known: knownChecks)
                     if allowed && ran, dbg != nil {
                         dbg?.record(call.name)
                         if let jt = index(id), let ticked = dbg?.tick(conversations[jt].tasks) { setTasks(id, ticked) }
@@ -1054,11 +1073,17 @@ final class ChatStore {
                 }
                 save()
                 if skips >= effort.stuckLimit, let js = index(id) {
-                    var note = ChatMessage(role: .assistant, content: "I seem to be going round in circles, so I’ve stopped. Tell me what to try next, or say “carry on” to let me keep going.", model: model)
+                    var note = ChatMessage(role: .assistant, content: Self.stuckText, model: model)
                     note.failed = true
                     conversations[js].messages.append(note)
+                    log.add("stuck", Escalation.stuckReason)
                     break
                 }
+            }
+            // Truly stuck (decided from what happened, never from the model saying so): offer a second opinion.
+            if !Task.isCancelled, let reasons = log.offer() {
+                if scrubber == nil, !Secrets.all().isEmpty { scrubber = await Secrets.scrubber() }
+                await offerEscalation(id, reasons: reasons, log: log, firstNew: firstNew, scrubber: scrubber)
             }
             activeRuns[id] = nil
             endRun(id, run: run, firstNew: firstNew)
@@ -1071,6 +1096,80 @@ final class ChatStore {
             }
             save()
         }
+    }
+
+    // MARK: Second opinion (task 35)
+
+    /// Puts the card (with the brief ready, secrets scrubbed) on the run's last reply. Nothing is sent anywhere.
+    private func offerEscalation(_ id: Conversation.ID, reasons: [String], log: Escalation.Log, firstNew: Int,
+                                 scrubber: Secrets.Scrubber?) async {
+        guard let i = index(id) else { return }
+        let msgs: [ChatMessage] = conversations[i].messages
+        let start: Int = min(firstNew, msgs.count)
+        guard let k = msgs.indices.last(where: { $0 >= start && msgs[$0].role == .assistant && msgs[$0].compactedCount == nil }) else { return }
+        let model: String = conversations[i].model
+        let goal: String = msgs.last(where: { $0.isRealUser })?.content ?? ""
+        let last: ChatMessage? = msgs[start...].last { m in
+            m.role == .assistant && !m.content.isEmpty && m.content != Self.stuckText && !m.content.hasPrefix(EffortLevel.reviewHeading)
+        }
+        let lastText: String = last.map { ThinkSplitter.split($0.content, extra: "").body } ?? ""
+        var branch: String? = nil
+        if let root = log.root { branch = await Project.git(root)?.branch }
+        let parts = Escalation.codeExcerpts(log)
+        let raw: String = Escalation.buildBrief(goal: goal, project: Escalation.projectLine(log.root, branch: branch),
+                                               model: ModelNames.pretty(model), reasons: reasons, log: log,
+                                               excerpts: parts.excerpts, omitted: parts.omitted, lastReply: lastText)
+        let brief: String = Escalation.scrubSecrets(raw, scrubber: scrubber)
+        let summary: String = Escalation.scrubSecrets(
+            Escalation.flintSummary(model: ModelNames.pretty(model), reasons: reasons, log: log), scrubber: scrubber)
+        let hard: String = Prefs.hardModel
+        let flint: String? = (!hard.isEmpty && model != hard) ? Prefs.hardName : nil
+        guard let j = index(id), k < conversations[j].messages.count else { return }
+        conversations[j].messages[k].escalation = EscalationCard(
+            reasons: reasons, flint: flint, chosen: nil, file: nil, goal: Escalation.scrubSecrets(goal, scrubber: scrubber),
+            brief: brief, summary: summary, redact: true, project: log.root)
+        save()
+    }
+
+    /// Try with Flint: the chat moves to the hard-jobs model and carries on, told what was already tried.
+    func tryWithFlint(_ id: Conversation.ID, _ messageID: ChatMessage.ID) {
+        guard streamingID == nil, let i = index(id),
+              let k = conversations[i].messages.firstIndex(where: { $0.id == messageID }),
+              let card = conversations[i].messages[k].escalation else { return }
+        let hard: String = Prefs.hardModel
+        guard !hard.isEmpty, conversations[i].model != hard else { return }
+        conversations[i].model = hard
+        // Flint works at its own default effort at least (High), not a lower one this chat had.
+        let floor: EffortLevel = EffortLevel.defaultFor(model: hard)
+        let all: [EffortLevel] = EffortLevel.allCases
+        let now: Int = all.firstIndex(of: conversations[i].effortLevel) ?? 0
+        if now < (all.firstIndex(of: floor) ?? 0) { conversations[i].effort = floor.rawValue }
+        conversations[i].messages[k].escalation?.chosen = "flint"
+        var note = ChatMessage(role: .user, content: card.summary)
+        note.nudge = true
+        conversations[i].messages.append(note)
+        save()
+        generate(in: id)
+    }
+
+    func keepGoing(_ id: Conversation.ID, _ messageID: ChatMessage.ID) {
+        guard let i = index(id), let k = conversations[i].messages.firstIndex(where: { $0.id == messageID }),
+              conversations[i].messages[k].escalation != nil else { return }
+        conversations[i].messages[k].escalation?.chosen = "kept"
+        save()
+    }
+
+    /// The brief to show (home folder hidden or not), saved as .ingle/briefs/YYYY-MM-DD-<slug>.md.
+    func prepareBrief(_ id: Conversation.ID, _ messageID: ChatMessage.ID, redact: Bool) -> (text: String, file: String?)? {
+        guard let i = index(id), let k = conversations[i].messages.firstIndex(where: { $0.id == messageID }),
+              let card = conversations[i].messages[k].escalation else { return nil }
+        let text: String = redact ? Escalation.redactPaths(card.brief) : card.brief
+        let dir: String = Escalation.briefsDir(project: card.project)
+        let file: String? = Escalation.saveBrief(dir: dir, goal: card.goal, text: text, existing: card.file)
+        conversations[i].messages[k].escalation?.file = file ?? card.file
+        conversations[i].messages[k].escalation?.redact = redact
+        save()
+        return (text, file ?? card.file)
     }
 
     // MARK: Checkpoints (undo a whole run)

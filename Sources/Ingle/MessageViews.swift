@@ -36,30 +36,43 @@ struct MessageRow: View {
         case .tool: tool
         case .assistant where message.compactedCount != nil:
             compaction
+        case .assistant where message.escalation != nil && chat != nil:
+            // A stuck run's last reply: the reply as usual, then the second-opinion card.
+            VStack(alignment: .leading, spacing: 10) {
+                reply
+                if let card = message.escalation, let chat {
+                    EscalationCardView(chat: chat, messageID: message.id, card: card, busy: streaming)
+                }
+            }
         case .assistant:
-            let p = parts
-            let shown: Bool = !p.body.isEmpty || !p.thinking.isEmpty || live || message.toolCalls.isEmpty
-            if let cp = message.checkpoint, !cp.files.isEmpty, let chat {
+            reply
+        }
+    }
+
+    /// An assistant reply with its changes panel or plan card.
+    @ViewBuilder private var reply: some View {
+        let p = parts
+        let shown: Bool = !p.body.isEmpty || !p.thinking.isEmpty || live || message.toolCalls.isEmpty
+        if let cp = message.checkpoint, !cp.files.isEmpty, let chat {
+            VStack(alignment: .leading, spacing: 10) {
+                if shown { assistant(p) }
+                if let onApprovePlan, !streaming { PlanApproveBar(approve: onApprovePlan) }
+                ChangesPanel(chat: chat, messageID: message.id, checkpoint: cp, busy: streaming, onUndo: onUndo)
+            }
+        } else if let plan = message.plan {
+            // A plan saved as a file: its card (with Approve in Plan mode) under the reply.
+            VStack(alignment: .leading, spacing: 10) {
+                if !p.body.isEmpty || !p.thinking.isEmpty { assistant(p) }
+                PlanCard(plan: plan, approve: streaming ? nil : onApprovePlan)
+            }
+        } else if shown {
+            if let onApprovePlan, !streaming, !p.body.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    if shown { assistant(p) }
-                    if let onApprovePlan, !streaming { PlanApproveBar(approve: onApprovePlan) }
-                    ChangesPanel(chat: chat, messageID: message.id, checkpoint: cp, busy: streaming, onUndo: onUndo)
-                }
-            } else if let plan = message.plan {
-                // A plan saved as a file: its card (with Approve in Plan mode) under the reply.
-                VStack(alignment: .leading, spacing: 10) {
-                    if !p.body.isEmpty || !p.thinking.isEmpty { assistant(p) }
-                    PlanCard(plan: plan, approve: streaming ? nil : onApprovePlan)
-                }
-            } else if shown {
-                if let onApprovePlan, !streaming, !p.body.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        assistant(p)
-                        PlanApproveBar(approve: onApprovePlan)
-                    }
-                } else {
                     assistant(p)
+                    PlanApproveBar(approve: onApprovePlan)
                 }
+            } else {
+                assistant(p)
             }
         }
     }

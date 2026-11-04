@@ -38,6 +38,10 @@ import {
   tasksTool, type TaskItem,
 } from '../tools/tasks';
 import { insertQueued, SteerQueue, steerText } from './steer';
+import {
+  addTrigger, briefsDir, buildBrief, codeExcerpts, commandReason, flintSummary, newRunLog, offerFor, projectLine,
+  recordCall, redactPaths, REVIEW_REASON, reviewFoundProblems, saveBrief, scrubSecrets, STUCK_REASON, type RunLog,
+} from './escalation';
 import { planFromReply, plansDir, readPlanFile, savePlan, tasksFromPlanFile, tickPlanFile } from '../tools/planFiles';
 import {
   autoApproval, DEBUG_UNCONFIRMED_CHIP, debugFinishNudge, debugRecord, debugRefusal, debugSaw, debugTasks, debugTick, isWorkMode, modeOf,
@@ -51,7 +55,7 @@ import { DIFF_SCHEME, DiffProvider } from './diff';
 import { Candidate, Matcher } from './matcher';
 import { selectTools } from './toolSelection';
 import {
-  chatEffort, defaultEffort, detectCheckCommand, EFFORT, EffortLevel, isEffort, PLAN_REQUEST, REVIEW_HEADING,
+  chatEffort, defaultEffort, detectCheckCommand, EFFORT, EFFORT_LEVELS, EffortLevel, isEffort, PLAN_REQUEST, REVIEW_HEADING,
   reviewTask, thinkParam, VERIFY_SKIPPED_CHIP, verifyCommand,
 } from './effort';
 import { prettyModel, roleName } from './names';
@@ -150,6 +154,17 @@ interface UserExtras {
   hidden?: boolean;
 }
 type Stored = StoredMessage & UserExtras;
+
+const STUCK_TEXT = 'I seem to be going round in circles, so I’ve stopped. Tell me what to try next, or say “carry on” to let me keep going.';
+
+/** The current git branch of `dir`, or '' (not a repo). Read-only, for the brief's project line. */
+async function gitBranch(dir: string | undefined): Promise<string> {
+  if (!dir) return '';
+  const { execFile } = await import('child_process');
+  return new Promise((resolve) => {
+    execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, timeout: 5000 }, (err, out) => resolve(err ? '' : String(out).trim()));
+  });
+}
 
 // MARK: helpers
 
@@ -322,7 +337,7 @@ function toOllamaHistory(msgs: Stored[], vision: boolean): OllamaMessage[] {
 
 /** The UI shape (without the replay-only fields). */
 function forUI(m: Stored): ChatMessage {
-  const { toolCalls: _t, images: _i, extraContext: _e, notes: _n, hidden: _h, ...rest } = m;
+  const { toolCalls: _t, images: _i, extraContext: _e, notes: _n, hidden: _h, escalationData: _x, ...rest } = m;
   return rest;
 }
 
@@ -489,6 +504,8 @@ export class ChatEngine implements vscode.Disposable {
         case 'editPlan': return await this.openPlan(msg.file, true);
         case 'draftCommit': return await this.draftCommit(msg.id);
         case 'commit': return await this.commitRun(msg.id, msg.message);
+        case 'escalation': return await this.escalationAction(msg.id, msg.action);
+        case 'briefRedact': return this.showBrief(msg.id, msg.redact);
       }
     } catch (e) {
       void vscode.window.showErrorMessage('Ingle: ' + errMessage(e));
@@ -1390,6 +1407,91 @@ export class ChatEngine implements vscode.Disposable {
     await this.send(PLAN_APPROVED, undefined, true);
   }
 
+  // MARK: second opinion (task 35)
+
+  /** At the end of a run: if the harness saw it was truly stuck, put the card under the run's last reply, with the
+   *  brief (secrets scrubbed) ready. At most once per run; never for a run without tool use. Nothing is sent anywhere. */
+  private async offerEscalation(chat: StoredChat, log: RunLog, firstNew: number) {
+    const reasons = offerFor(log);
+    if (!reasons) return;
+    const run = chat.messages.slice(firstNew) as Stored[];
+    const target = [...run].reverse().find((m) => m.role === 'assistant' && !m.compaction);
+    if (!target) return;
+    this.settings = loadSettings();
+    const a = assistant(this.settings, chat.assistantId);
+    const goal = ([...chat.messages].reverse().find((m) => m.role === 'user' && !(m as Stored).hidden)?.content ?? '').trim();
+    const last = [...run].reverse().find((m) => m.role === 'assistant' && m.content.trim() && m.content !== STUCK_TEXT && !m.content.startsWith(REVIEW_HEADING));
+    const { excerpts, omitted } = codeExcerpts(log);
+    let brief = buildBrief({
+      goal, project: projectLine(log.root, await gitBranch(log.root)), model: prettyModel(a.model), reasons,
+      attempts: log.attempts, errors: log.errors, excerpts, omitted, lastReply: last ? stripThink(last.content) : '',
+    });
+    // Saved secrets' values (via the Mac app, which holds them), then anything that looks like a key.
+    brief = scrubSecrets((await this.scrubOutput(brief, new AbortController().signal)) ?? brief, []);
+    let summary = flintSummary(prettyModel(a.model), reasons, log.attempts, log.errors);
+    summary = scrubSecrets((await this.scrubOutput(summary, new AbortController().signal)) ?? summary, []);
+    const hard = this.settings.assistants.find((x) => x.id === 'hard');
+    const flint = hard && chat.assistantId !== 'hard' && hard.model !== a.model ? hard.name : undefined;
+    target.escalation = { reasons, flint };
+    target.escalationData = { goal: scrubSecrets(goal, []), brief, summary, redact: true };
+    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(target) });
+    this.store.saveSoon();
+  }
+
+  private async escalationAction(messageId: string, action: 'flint' | 'brief' | 'keep' | 'openBrief') {
+    const chat = this.current();
+    const m = chat.messages.find((x) => x.id === messageId) as Stored | undefined;
+    if (!m?.escalation || !m.escalationData) return;
+    if (action === 'brief') return this.showBrief(messageId, m.escalationData.redact ?? true);
+    if (action === 'openBrief') {
+      const file = m.escalation.file;
+      if (!file || !fs.existsSync(file)) return this.post({ type: 'notice', text: 'The brief file no longer exists. Prepare it again.' });
+      await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(file));
+      return;
+    }
+    if (action === 'keep') {
+      m.escalation.chosen = 'kept';
+      this.store.save();
+      this.postFor(chat.id, { type: 'messageUpdate', message: forUI(m) });
+      return;
+    }
+    // Try with Flint: this chat moves to the hard-jobs assistant and carries on, told what was already tried.
+    if (this.generating) return this.post({ type: 'notice', text: 'Wait for the reply to finish (or press Stop) first.' });
+    this.settings = loadSettings();
+    const hard = this.settings.assistants.find((x) => x.id === 'hard');
+    if (!hard || chat.assistantId === 'hard') return;
+    chat.assistantId = hard.id;
+    // Flint works at its own default effort at least (High), not a lower one this chat had.
+    const floor = defaultEffort(hard.id, hard.effort);
+    if (EFFORT_LEVELS.indexOf(this.effortOf(chat)) < EFFORT_LEVELS.indexOf(floor)) chat.effort = floor;
+    m.escalation.chosen = 'flint';
+    const note: Stored = { id: uid(), role: 'user', content: m.escalationData.summary, hidden: true };
+    chat.messages.push(note);
+    this.store.save();
+    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(m) });
+    this.postInit();
+    void this.refreshVision();
+    await this.generate(chat.id);
+  }
+
+  /** Shows the brief (and saves it as .ingle/briefs/YYYY-MM-DD-<slug>.md) with the home folder hidden or not. */
+  private showBrief(messageId: string, redact: boolean) {
+    const chat = this.current();
+    const m = chat.messages.find((x) => x.id === messageId) as Stored | undefined;
+    const data = m?.escalationData;
+    if (!m?.escalation || !data) return;
+    data.redact = redact;
+    const text = redact ? redactPaths(data.brief) : data.brief;
+    try {
+      m.escalation.file = saveBrief(briefsDir(workspaceRoot()), data.goal, text, m.escalation.file);
+    } catch (e) {
+      this.post({ type: 'notice', text: 'Couldn’t save the brief: ' + errMessage(e) });
+    }
+    this.store.save();
+    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(m) });
+    this.post({ type: 'brief', id: messageId, text, file: m.escalation.file ? tidy(m.escalation.file) : undefined, redact });
+  }
+
   // MARK: changes panel and commit
 
   /** The run behind reply `id` in the current chat, with its files (absolute paths). */
@@ -1510,6 +1612,8 @@ export class ChatEngine implements vscode.Disposable {
     this.generating = { chatId, abort };
     const run: RunRef = { chat: chatId, run: uid() };
     const firstNew = chat.messages.length;
+    // What this run did, for the second-opinion card (task 35).
+    const log = newRunLog(workspaceRoot());
     this.activeRun = run;
     this.activity = null;
     // A finished task list goes when the next job starts; an unfinished one stays (e.g. "carry on" after Stop).
@@ -1527,7 +1631,8 @@ export class ChatEngine implements vscode.Disposable {
         this.postFor(chatId, { type: 'messageAdd', message: forUI(fail) });
         return;
       }
-      await this.runLoop(chat, abort.signal);
+      await this.runLoop(chat, abort.signal, log);
+      if (!abort.signal.aborted) await this.offerEscalation(chat, log, firstNew);
     } catch (e) {
       void vscode.window.showErrorMessage('Ingle: ' + errMessage(e));
     } finally {
@@ -1579,7 +1684,7 @@ export class ChatEngine implements vscode.Disposable {
     return -1;
   }
 
-  private async runLoop(chat: StoredChat, signal: AbortSignal) {
+  private async runLoop(chat: StoredChat, signal: AbortSignal, log: RunLog) {
     const a = assistant(this.settings, chat.assistantId);
     const model = a.model;
     const pretty = prettyModel(model);
@@ -1782,6 +1887,8 @@ export class ChatEngine implements vscode.Disposable {
           continue;
         }
         const chips = [...ignored].map(([n, why]) => ignoredChip(n, why));
+        // A command still owed after its nudges ('' reason) is a second-opinion trigger; one that couldn't run isn't.
+        for (const [n, why] of ignored) if (!why) addTrigger(log, 'command-ignored', commandReason(n));
         if (verifyMissing) chips.push(VERIFY_SKIPPED_CHIP);
         if (dbg && dbg.edited && !dbg.confirmed) chips.push(DEBUG_UNCONFIRMED_CHIP);
         if (chips.length) {
@@ -1800,8 +1907,11 @@ export class ChatEngine implements vscode.Disposable {
         }
         // Max: a read-only helper reviews what changed, and its notes are shown.
         if (spec.review && changedFiles.length && !signal.aborted) {
-          await this.reviewChanges(chat, a, model, limit, vision, signal, active, lastText, changedFiles);
+          const notes = await this.reviewChanges(chat, a, model, limit, vision, signal, active, lastText, changedFiles);
+          if (reviewFoundProblems(notes)) addTrigger(log, 'review-problems', REVIEW_REASON);
         }
+        // Task 34 (coverage) hook: when affected places stay unresolved, call
+        // addTrigger(log, 'coverage', coverageReason(n)) here, next to its ⚠ chip.
         return;
       }
 
@@ -1815,7 +1925,7 @@ export class ChatEngine implements vscode.Disposable {
           ? `You've already made this exact call ${repeats - 1} times and have its result above. Don't repeat it — use that result, try a different approach, or tell the user what's blocking you.`
           : undefined;
         if (skip) skips++;
-        const record = await this.runToolCall(chat, call, tools, vision, signal, skip, active, planMode, dbg);
+        const record = await this.runToolCall(chat, call, tools, vision, signal, skip, active, planMode, dbg, log);
         // Show a skill, rule or report on the chip once the assistant has actually opened it.
         const callName = call.function?.name ?? '';
         if (!skip && ['use_skill', 'use_rule', 'report_read'].includes(callName)) {
@@ -1849,9 +1959,10 @@ export class ChatEngine implements vscode.Disposable {
       this.store.save();
       // Stuck: it keeps repeating the same calls even after being told it has the result.
       if (skips >= spec.stuckLimit && !signal.aborted) {
-        const note: Stored = { id: uid(), role: 'assistant', content: 'I seem to be going round in circles, so I’ve stopped. Tell me what to try next, or say “carry on” to let me keep going.', assistantName: a.name, model: pretty, failed: true };
+        const note: Stored = { id: uid(), role: 'assistant', content: STUCK_TEXT, assistantName: a.name, model: pretty, failed: true };
         chat.messages.push(note);
         this.postFor(chat.id, { type: 'messageAdd', message: forUI(note) });
+        addTrigger(log, 'stuck', STUCK_REASON);
         return;
       }
       if (step === maxSteps - 1 && !signal.aborted) {
@@ -1881,7 +1992,7 @@ export class ChatEngine implements vscode.Disposable {
   }
 
   /** Runs one call. Returns what was run (for command checks), or undefined if it was skipped, blocked or unknown. */
-  private async runToolCall(chat: StoredChat, call: RawToolCall, tools: ToolDef[], vision: boolean, signal: AbortSignal, skip?: string, active: CommandEntry[] = [], planMode = false, dbg?: DebugState): Promise<CallRecord | undefined> {
+  private async runToolCall(chat: StoredChat, call: RawToolCall, tools: ToolDef[], vision: boolean, signal: AbortSignal, skip?: string, active: CommandEntry[] = [], planMode = false, dbg?: DebugState, log?: RunLog): Promise<CallRecord | undefined> {
     const name = call.function?.name ?? '';
     const args = parseArgs(call.function?.arguments);
     // Plan mode refuses anything that changes things, even a tool the model names without being offered it.
@@ -1956,6 +2067,11 @@ export class ChatEngine implements vscode.Disposable {
     }
     if (images) row.images = images;
     this.postFor(chat.id, { type: 'messageUpdate', message: forUI(row) });
+    // Second opinion: what was tried, and checks that keep failing (the output is already scrubbed).
+    if (log) {
+      const known = active.map((c) => c.thenRun.trim()).filter(Boolean);
+      recordCall(log, { name, args, output: text, denied: denied || (!ran && !skip), skipped: !!skip }, { known, changing: FILE_CHANGING_TOOLS });
+    }
     return ran ? { name, args, denied } : undefined;
   }
 
@@ -2023,18 +2139,19 @@ export class ChatEngine implements vscode.Disposable {
     return true;
   }
 
-  /** Max effort's review: a read-only helper looks at the diff (or the files) and its notes are shown. */
+  /** Max effort's review: a read-only helper looks at the diff (or the files) and its notes are shown. Returns them. */
   private async reviewChanges(chat: StoredChat, a: AssistantSettings, model: string, limit: number, vision: boolean,
-    signal: AbortSignal, active: CommandEntry[], request: string, files: string[]): Promise<void> {
+    signal: AbortSignal, active: CommandEntry[], request: string, files: string[]): Promise<string> {
     this.setActivity('Reviewing the changes…');
     const diff = await gitDiff(files);
     const notes = await this.runSubAgent(reviewTask(request, files, diff), chat, model, limit, vision, signal, active);
     this.setActivity(null);
-    if (signal.aborted) return;
+    if (signal.aborted) return '';
     const note: Stored = { id: uid(), role: 'assistant', content: `${REVIEW_HEADING}\n\n${notes.trim()}`, assistantName: a.name, model: prettyModel(model), usedContext: ['helper review'] };
     chat.messages.push(note);
     this.postFor(chat.id, { type: 'messageAdd', message: forUI(note) });
     this.store.saveSoon();
+    return notes;
   }
 
   /** A helper with a fresh context and read-only tools, on the same model, ≤ 10 steps. */

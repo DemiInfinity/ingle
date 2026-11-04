@@ -50,6 +50,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `TaskList.swift` | **Task list** (`update_tasks`, `TaskListView`), **plan mode** (`planModeTools`, refusal, `PlanApproveBar`), steering text — rules in step with `tasks.ts` |
 | `ChangesPanel.swift` | **Changes panel** under a run's last reply (diffs, Open in editor, Undo this run, Commit) and `GitCommit` (commit exactly the run's files, never push) — in step with `gitCommit.ts` |
 | `Checkpoints.swift` | **Undo this run**: `snapshot(path:run:)` (called by every file-changing tool; the one list is `fileChangingTools`), `finish`, `changes`, `restore(force:)`, pruning — same format as `checkpoints.ts` |
+| `Escalation.swift` | **Second opinion** (task 35): run log + triggers (stuck, same check failing 3×, ⚠ command, Max review problems; coverage hook), brief builder + scrubbing, `EscalationCardView`, `BriefSheet` — in step with `escalation.ts` |
 | `Commands.swift` | **Commands** (obedience layer): `CommandStore` (files in `~/.ingle/commands`), `CommandTracker` (requirements, blocking, nudges) |
 | `Prefs.swift` | UserDefaults keys/defaults, `Persona` (default characters + `systemPrompt(for:web:)` with the built-in facts every model gets), `ModelNames`, `ModelProfiles` (names/personas for any model), `Companion` (does the other app exist?) |
 | `Manifest.swift` | `IngleManifest.refresh` builds the `INGLE.md` index; `HelpTopics` = in-app help the model reads via `ingle_help` — **keep it accurate** |
@@ -81,6 +82,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
 | `engine/modes.ts`, `tools/planFiles.ts`, `tools/tasks.ts`, `engine/steer.ts`, `tools/gitCommit.ts` | Task list + plan mode filter, steering queue, commit a run's files (all pure, tested in `test/workflow.test.ts`) |
+| `engine/escalation.ts` | **Second opinion** (pure, tested in `test/escalation.test.ts`): triggers, `recordCall`, `offerFor`, `buildBrief`, `codeExcerpts`, `scrubSecrets`, `redactPaths`, `saveBrief` |
 | `tools/checkpoints.ts` | **Undo this run** (pure, tested): `snapshot()` from every file-changing tool (`FILE_CHANGING_TOOLS` lives here), `finish`, `changes`, `restore`, `prune` |
 | `tools/secretsCore.ts`, `secrets.ts` | Secrets store (pure logic, tested) and `secret_list` + getting values from the Mac app / `security` |
 | `tools/*.ts` | `ToolDef`s: files (read/list/find/search/problems/edit with diff/write), command, documents/images (macOS tools), web, memory, knowledge, `commands.ts`, `mcp.ts`, `repomap.ts`, `stores.ts` (reads `~/.ingle`) |
@@ -111,6 +113,8 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
   Sets `think` (level only for models that take one), a prompt line, tool-filter strictness, guard limits; High/Max
   must run the project's check command after editing (built-in `verify` command via the command checks); Max plans
   first and a read-only helper reviews the diff. Both tables live in `Effort.swift` / `effort.ts` — change both.
+- **Second opinion:** the harness (never the model) offers a card when a run is truly stuck: Try with Flint, or a
+  copy-only brief (scrubbed, saved in `.ingle/briefs/`, never sent). Once per run, never for plain chat.
 - **Small-model tuning:** per-turn tool filtering; Qwen sampling settings; repeat-call guard (3rd identical call skipped,
   4th at High/Max); stuck stop after 4 skips (6 at High/Max); no small step cap (200 backstop); compaction at ~75% of context, then `fit()` trimming.
 - **Prompt facts:** every model gets the same Ingle facts (`Persona.systemPrompt` / `personaPrompt`) whatever its name.

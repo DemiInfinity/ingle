@@ -37,6 +37,20 @@ export interface ChatMessage {
   steer?: boolean;
   /** A plan saved as a Markdown file (tools/planFiles.ts): shown as a card with Open, Edit and (in Plan mode) Approve. */
   plan?: { file: string; name: string; status: 'draft' | 'approved' | 'done' };
+  /** Second opinion (engine/escalation.ts): the card under a run's last reply when the run was truly stuck. */
+  escalation?: EscalationInfo;
+}
+
+/** The "This might need a stronger model" card. Offered by the harness, at most once per run. */
+export interface EscalationInfo {
+  /** Why it was offered ("`npm test` failed 3 times."). */
+  reasons: string[];
+  /** The hard-jobs assistant's name ("Flint") when Try with Flint is offered; missing when already on it. */
+  flint?: string;
+  /** What the user chose: the card shrinks to a note. */
+  chosen?: 'flint' | 'kept';
+  /** The saved brief, once prepared. */
+  file?: string;
 }
 
 /** One item on the chat's task list (update_tasks; see tools/tasks.ts). */
@@ -168,7 +182,9 @@ export type ToWebview =
   /** The changes panel under reply `id`: each file's diff, and the repo when Commit is possible (else why not). */
   | { type: 'runChanges'; id: string; files: RunChangeFile[]; repo?: string; noCommit?: string }
   | { type: 'commitDraft'; id: string; message: string }                        // a drafted message to edit
-  | { type: 'commitFailed'; id: string; message: string };
+  | { type: 'commitFailed'; id: string; message: string }
+  /** The brief for reply `id`, to read and copy (nothing is sent anywhere). `redact`: home folder and username hidden. */
+  | { type: 'brief'; id: string; text: string; file?: string; redact: boolean };
 
 // Webview → extension
 export type FromWebview =
@@ -207,4 +223,7 @@ export type FromWebview =
   | { type: 'openPlan'; file: string }                   // a plan file in the Markdown preview
   | { type: 'editPlan'; file: string }                   // a plan file in the editor
   | { type: 'draftCommit'; id: string }
-  | { type: 'commit'; id: string; message: string };
+  | { type: 'commit'; id: string; message: string }
+  /** The second-opinion card under reply `id`: Try with Flint, Prepare a brief, Keep going, or open the saved brief. */
+  | { type: 'escalation'; id: string; action: 'flint' | 'brief' | 'keep' | 'openBrief' }
+  | { type: 'briefRedact'; id: string; redact: boolean };

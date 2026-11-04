@@ -31,6 +31,12 @@ a command you approved, which sends it wherever that command sends it. Output th
 the name before it's kept. Ingle for VS Code gets values from the Mac app on your Mac (or from macOS's Keychain
 prompt), never over the network.
 
+**Briefs for a cloud AI.** When a job seems beyond the local model, Ingle can prepare a short written brief you
+could give another AI assistant. It's only shown to you to copy, and saved as a file in your project's
+`.ingle/briefs` folder (or `~/.ingle/briefs`). Ingle never sends it anywhere: if you paste it into a cloud service,
+that service's privacy policy applies. Saved secrets are replaced with their names, anything that looks like a key or
+password is removed, and your home folder and username are hidden unless you switch that off.
+
 The AI models run on your Mac through the built-in Ollama engine. Your messages are processed on your Mac and
 are not sent to an AI company.
 

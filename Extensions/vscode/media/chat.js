@@ -863,10 +863,29 @@
     h('div', { class: 'modal-foot' }, mcpEdit, mcpReload, h('span', { class: 'grow' }), mcpDone));
   const mcpModal = h('div', { class: 'modal-backdrop', hidden: true }, mcpCard);
 
+  // The brief for a cloud AI (second opinion): read it, Copy it. Nothing is sent anywhere.
+  const briefText = h('pre', { class: 'brief-text', tabindex: '0', 'aria-label': 'The brief' });
+  const briefRedact = h('input', { type: 'checkbox', id: 'brief-redact' });
+  const briefFile = h('button', { class: 'link-btn brief-file', type: 'button', title: 'Open the saved brief' });
+  const briefCopy = h('button', { class: 'btn primary', type: 'button' }, icon('copy'), h('span', { text: 'Copy' }));
+  const briefDone = h('button', { class: 'btn', type: 'button' }, 'Done');
+  const briefClose = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close' }, icon('close'));
+  const briefCard = h('section', { class: 'modal brief-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'brief-title', 'aria-describedby': 'brief-sub', tabindex: '-1' },
+    h('div', { class: 'modal-head' },
+      h('span', { class: 'modal-ic' }, icon('doc')),
+      h('div', { class: 'modal-titles' },
+        h('h2', { class: 'modal-title', id: 'brief-title', text: 'Brief for a cloud AI' }),
+        h('p', { class: 'modal-sub', id: 'brief-sub', text: 'Nothing is sent anywhere. Read it, copy it, and paste it into the assistant you choose. Saved secrets are replaced with placeholders.' })),
+      briefClose),
+    h('label', { class: 'brief-opt', for: 'brief-redact' }, briefRedact, h('span', { text: 'Hide my home folder and username' })),
+    briefText,
+    h('div', { class: 'modal-foot' }, briefFile, h('span', { class: 'grow' }), briefDone, briefCopy));
+  const briefModal = h('div', { class: 'modal-backdrop', hidden: true }, briefCard);
+
   const announcer = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
 
   app.append(header, banner, main, activity, secretSlot, approvalSlot,
-    h('div', { class: 'bottom' }, slashMenu, chip, queuedRow, composer, hint), mcpModal, announcer);
+    h('div', { class: 'bottom' }, slashMenu, chip, queuedRow, composer, hint), mcpModal, briefModal, announcer);
 
   function announce(text) {
     announcer.textContent = '';
@@ -1255,9 +1274,10 @@
         h('span', { class: 'plan-text', text: 'Plan mode · Approve to start the work with this plan as the task list, or reply to change it.' }),
         h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan' }, icon('check'), 'Approve'));
       e.planCard = h('div', { class: 'plan-card', hidden: true });
+      e.escal = h('div', { class: 'escal-card', hidden: true });
       root.append(
         h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model),
-        e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
+        e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.escal, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
       e.out = h('pre', { class: 'tool-out', hidden: true, tabindex: '0' });
@@ -1380,7 +1400,41 @@
     fillPlanCard(e, m, canApprove);
     e.planBar.hidden = !canApprove || !!m.plan;
     fillUndo(e, m);
-    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint && !m.plan;
+    fillEscalation(e, m);
+    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint && !m.plan && !m.escalation;
+  }
+
+  /** Second opinion: offered by Ingle (never the model) when a run was truly stuck, at most once per run.
+   *  Try with Flint (hidden when already on it), Prepare a brief for a cloud AI (copy-only), Keep going. */
+  function fillEscalation(e, m) {
+    const x = m.escalation;
+    e.escal.hidden = !x;
+    if (!x) { e.escalKey = ''; return; }
+    const key = JSON.stringify([x, S.streaming]);
+    if (e.escalKey === key) return;
+    e.escalKey = key;
+    const briefBtn = (label) => h('button', { class: 'btn', type: 'button', 'data-act': 'escal-brief',
+      title: 'A Markdown brief to paste into a cloud AI yourself. Nothing is sent anywhere.' }, icon('doc'), label);
+    if (x.chosen) {
+      e.escal.className = 'escal-card done';
+      e.escal.replaceChildren(
+        icon(x.chosen === 'flint' ? 'bolt' : 'check'),
+        h('span', { class: 'escal-done-text', text: x.chosen === 'flint' ? `Continued with ${x.flint || 'Flint'}.` : 'Kept going with this model.' }),
+        h('span', { class: 'grow' }),
+        briefBtn('Brief'));
+      return;
+    }
+    const reasons = Array.isArray(x.reasons) ? x.reasons : [];
+    e.escal.className = 'escal-card';
+    e.escal.replaceChildren(
+      h('div', { class: 'escal-head' }, icon('sparkle'), h('strong', { text: 'This might need a stronger model' })),
+      reasons.length ? h('ul', { class: 'escal-why' }, reasons.map((r) => h('li', { text: String(r).replace(/`/g, '') }))) : null,
+      h('div', { class: 'escal-actions' },
+        x.flint ? h('button', { class: 'btn primary', type: 'button', 'data-act': 'escal-flint', disabled: S.streaming,
+          title: `Carry on in this chat with ${x.flint}, the bigger local model, told what was already tried` }, icon('bolt'), `Try with ${x.flint}`) : null,
+        briefBtn('Prepare a brief for a cloud AI'),
+        h('button', { class: 'btn', type: 'button', 'data-act': 'escal-keep' }, 'Keep going')),
+      h('p', { class: 'escal-note', text: 'Nothing leaves your Mac unless you copy it yourself.' }));
   }
 
   const UNDO_VERB = { restore: 'Put back', remove: 'Remove', recreate: 'Bring back' };
@@ -1715,6 +1769,9 @@
       c.phase = 'committing'; c.error = '';
       post({ type: 'commit', id, message: c.message });
       fill(e, m, liveInfo());
+    } else if (act === 'escal-flint' || act === 'escal-brief' || act === 'escal-keep') {
+      post({ type: 'escalation', id, action: act === 'escal-flint' ? 'flint' : act === 'escal-brief' ? 'brief' : 'keep' });
+      if (act === 'escal-keep') input.focus();
     } else if (act === 'plan-open' || act === 'plan-edit') {
       if (m.plan) post({ type: act === 'plan-open' ? 'openPlan' : 'editPlan', file: m.plan.file });
     } else if (act === 'approve-plan') {
@@ -2272,6 +2329,58 @@
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
 
+  // ----- Brief for a cloud AI -----
+
+  let brief = null;            // { id, text, file, redact } while the dialog is open
+  let briefReturnFocus = null;
+
+  function openBrief(msg) {
+    const wasHidden = briefModal.hidden;
+    brief = { id: msg.id, text: String(msg.text || ''), file: msg.file || '', redact: !!msg.redact };
+    briefText.textContent = brief.text;
+    briefRedact.checked = brief.redact;
+    briefFile.hidden = !brief.file;
+    briefFile.replaceChildren(icon('doc'), h('span', { text: brief.file ? 'Saved as ' + brief.file : '' }));
+    briefModal.hidden = false;
+    if (wasHidden) {
+      briefReturnFocus = document.activeElement;
+      closeMenu(false);
+      closeMeter(false);
+      closeSlash();
+      briefCopy.focus();
+    }
+  }
+
+  function closeBrief() {
+    if (!brief) return;
+    brief = null;
+    briefModal.hidden = true;
+    const back = briefReturnFocus && document.contains(briefReturnFocus) ? briefReturnFocus : input;
+    back.focus();
+  }
+
+  briefDone.addEventListener('click', closeBrief);
+  briefClose.addEventListener('click', closeBrief);
+  briefCopy.addEventListener('click', () => {
+    if (!brief) return;
+    post({ type: 'copy', text: brief.text });
+    briefCopy.replaceChildren(icon('check'), h('span', { text: 'Copied' }));
+    announce('Brief copied');
+    setTimeout(() => briefCopy.replaceChildren(icon('copy'), h('span', { text: 'Copy' })), 1600);
+  });
+  briefRedact.addEventListener('change', () => { if (brief) post({ type: 'briefRedact', id: brief.id, redact: briefRedact.checked }); });
+  briefFile.addEventListener('click', () => { if (brief) post({ type: 'escalation', id: brief.id, action: 'openBrief' }); });
+  briefModal.addEventListener('mousedown', (e) => { if (e.target === briefModal) closeBrief(); });
+  briefModal.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBrief(); return; }
+    if (e.key !== 'Tab') return;
+    const f = [...briefCard.querySelectorAll('button:not(:disabled):not([hidden]), input, [tabindex="0"]')];
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === briefCard)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+
   // ----- Notice under the composer -----
 
   let hintTimer = 0;
@@ -2497,6 +2606,7 @@
       case 'slashItems': S.slashItems = Array.isArray(msg.items) ? msg.items : []; renderSlash(); break;
       case 'mcp': S.mcpServers = Array.isArray(msg.servers) ? msg.servers : []; mcpReloading = false; renderMcp(); break;
       case 'notice': showNotice(msg.text); break;
+      case 'brief': openBrief(msg); break;
       case 'undoRefused': {
         undoNotes.set(msg.id, { message: String(msg.message || ''), canForce: !!msg.canForce });
         openUndo.add(msg.id);

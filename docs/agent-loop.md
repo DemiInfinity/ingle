@@ -227,6 +227,38 @@ nudges. Details in [commands.md](commands.md#how-enforcement-works).
 **Errors** are turned into plain sentences (`ChatStore.friendly`, `friendly()`): engine unreachable, model not
 downloaded, model can't use tools.
 
+**Second opinion (task 35).** Some jobs are beyond a local model, so the harness — never the model saying it's
+unsure — offers help when a run is truly stuck. Module: [`Escalation.swift`](../Sources/Ingle/Escalation.swift) /
+[`src/engine/escalation.ts`](../Extensions/vscode/src/engine/escalation.ts) (tested in `test/escalation.test.ts`).
+Each run keeps a log of its tool calls (what, and ok / failed / denied / not run), the files it read and changed, and
+the errors from failed checks and commands. **Triggers:**
+
+- the stuck stop fired;
+- the **same check failed 3 times** in the run: `run_command` with a test, build, type-check or lint command (npm test,
+  swift build, cargo test, pytest, tsc…, or the project's own check/`then_run` command; `cd …&&`, `2>&1` and `| tail`
+  are ignored when comparing) ending with a non-zero exit code or a timeout, or `get_problems` reporting errors;
+- a command still ended **⚠ after its nudges** (one marked ⚠ because its tool couldn't be offered doesn't count);
+- at **Max** effort, the review helper's notes found problems (anything but "Looks good"); the run ends after the
+  review, so they're unfixed;
+- task 34's coverage check leaving affected places unresolved (a marked hook next to the review, not built yet).
+
+At most once per run, never for a run with no tool calls (ordinary chat), and not when you press Stop. The card goes
+under the run's last reply: **This might need a stronger model**, with the reasons and:
+
+- **Try with Flint** (hidden when the chat is already on the hard-jobs model): the chat switches to it (effort raised
+  to its default, High, if lower) and continues, with a short summary of what was tried and the last error added as
+  a hidden note (Mac: shown as a small "Ingle reminded the assistant" line).
+- **Prepare a brief for a cloud AI**: a self-contained Markdown brief — goal (your request), the project and stack in
+  a line, why it stopped, what was tried (steps and outcomes), the exact errors (the end of each failing output), and
+  only the relevant code: around each `file:line` in the errors first, then the files the run changed, then those it
+  read, inside the project, trimmed to ~12,000 characters (never `.env`, keys or build output). It's built when the
+  card is offered and **scrubbed**: saved secrets' values (and their base64 and other forms) become
+  `{{secret:name}}`, and anything else that looks like a key, token, password or card number becomes
+  `[redacted …]`. The home folder (→ `~`) and username (→ `<user>`) are hidden too, with a switch in the sheet (on
+  by default). You read it in a sheet (Mac) or dialog (VS Code) and **Copy** it; it's also saved as
+  `<project>/.ingle/briefs/YYYY-MM-DD-<slug>.md` (or `~/.ingle/briefs/`). **Nothing is sent anywhere.**
+- **Keep going**: the card shrinks to a note; carry on as usual.
+
 ## 4b. Task list, plan mode and steering
 
 The Claude Code-style workflow (task 32). Mac: [`TaskList.swift`](../Sources/Ingle/TaskList.swift),

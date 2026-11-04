@@ -284,17 +284,19 @@ extension ChatStore {
 
     /// Max's review: a read-only helper looks at the diff (or the files) and its notes are shown.
     /// Same as reviewChanges in chatEngine.ts.
+    @discardableResult
     func reviewChanges(_ id: Conversation.ID, model: String, web: Bool, commands: [IngleCommand],
-                       request: String, files: [String]) async {
+                       request: String, files: [String]) async -> String {
         activity = "Reviewing the changes…"
         let diff: String = await EffortLevel.gitDiff(files)
         let task: String = EffortLevel.reviewTask(request: request, files: files, diff: diff)
         let notes: String = await runSubAgent(task: task, model: model, web: web, parent: id, commands: commands)
         activity = nil
-        guard !Task.isCancelled, let j = index(id) else { return }
+        guard !Task.isCancelled, let j = index(id) else { return "" }
         var note = ChatMessage(role: .assistant, content: EffortLevel.reviewHeading + "\n\n" + notes.trimmingCharacters(in: .whitespacesAndNewlines), model: model)
         note.usedContext = ["helper review"]
         conversations[j].messages.append(note)
         save()
+        return notes
     }
 }

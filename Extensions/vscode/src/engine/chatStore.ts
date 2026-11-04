@@ -13,6 +13,8 @@ export interface StoredMessage extends ChatMessage {
   toolCalls?: RawToolCall[];
   /** Base64 images sent with this message (user attachments, or images returned by a tool). */
   images?: string[];
+  /** Second opinion: the brief (secrets scrubbed) and the summary for Flint, kept with the card. Not sent to the UI. */
+  escalationData?: { goal: string; brief: string; summary: string; redact?: boolean };
 }
 
 export interface StoredChat {
