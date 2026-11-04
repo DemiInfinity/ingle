@@ -540,6 +540,15 @@ final class ChatStore {
                 activity = nil
             }
 
+            // Code mode: the project at a glance, ranked for this request (at most ~1,500 tokens), once per request.
+            var repoMap = ""
+            if let codeFolder, let startConv {
+                activity = "Mapping the project…"
+                repoMap = await RepoMap.promptSection(root: codeFolder, query: requestText,
+                                                      contextTokens: Prefs.contextLength(for: startConv.model))
+                activity = nil
+            }
+
             // Local models cost nothing per step: keep going until done, stopped, or clearly stuck (200 is a backstop).
             let maxSteps = 200
             // Scrubs every saved secret's value from tool output; read from the Keychain at the first tool result.
@@ -569,6 +578,7 @@ final class ChatStore {
                 // Only the short INGLE.md index goes in; details load on demand through tools.
                 system.append(IngleManifest.refresh(macAccess: mac, project: project, web: conv.webOn, currentChat: id, code: codeFolder != nil))
                 if let codeFolder { system.append(Project.promptSection(codeFolder, git: git)) }
+                if !repoMap.isEmpty { system.append(repoMap) }
                 if let editor {
                     system.append(editor.promptSection)
                     if let projectRules = editor.projectInstructions { system.append(projectRules) }
@@ -605,6 +615,7 @@ final class ChatStore {
                 // Terminal (files, commands) is always available and asks first; controlling the Mac needs the Mac button.
                 system.append(codeFolder == nil ? MacTools.systemPrompt : MacTools.codePrompt)
                 tools += MacTools.definitions
+                if codeFolder != nil { tools += CodeTools.definitions }
                 if !MCPManager.shared.servers.isEmpty { tools += MacTools.mcpTools }
                 if mac {
                     system.append(MacTools.controlPrompt)
@@ -741,7 +752,9 @@ final class ChatStore {
                 for modelCall in calls {
                     if Task.isCancelled { break }
                     // Code mode: relative paths and missing working folders mean the project folder.
-                    let call: ToolCall = Project.prepare(modelCall, folder: codeFolder)
+                    // get_problems: the check command it will run is filled in here, before the card is shown.
+                    let call: ToolCall = CodeTools.prepare(Project.prepare(modelCall, folder: codeFolder),
+                                                           folder: codeFolder, commands: tracker.commands)
                     let signature = call.name + "|" + call.arguments.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }.joined(separator: "&")
                     let repeats = (callCounts[signature] ?? 0) + 1
                     callCounts[signature] = repeats
@@ -890,6 +903,10 @@ final class ChatStore {
                     : "This model can't see images, so here is the text found in \(url.lastPathComponent) (attached below)."
             }
         }
+        if CodeTools.names.contains(call.name) {
+            guard let folder = index(id).flatMap({ conversations[$0].codeFolder }) else { return "\(call.name) only works in Code mode." }
+            return await CodeTools.run(call, folder: folder)
+        }
         switch call.name {
         case "chat_list", "chat_search", "chat_read":
             return chatTool(call, excluding: id)
@@ -970,11 +987,17 @@ final class ChatStore {
         pool.append(MacTools.helpTool)
         pool.append(SkillStore.toolDefinition)
         pool.append(RuleStore.toolDefinition)
+        // In Code mode helpers can also find their way round the project (read-only code tools).
+        var allowed: Set<String> = KnowledgeTools.subAgentAllowed
+        if codeFolder != nil {
+            pool.append(contentsOf: CodeTools.readOnlyDefinitions)
+            allowed.formUnion(CodeTools.readOnlyNames)
+        }
         let commandCheck = CommandTracker(commands)
         let banned: Set<String> = commandCheck.blocked
         let tools = pool.filter { def in
             guard let fn = def["function"] as? [String: Any], let name = fn["name"] as? String,
-                  KnowledgeTools.subAgentAllowed.contains(name) else { return false }
+                  allowed.contains(name) else { return false }
             if banned.contains(name.lowercased()) { return false }
             if name.hasPrefix("web_") { return web }
             return true
@@ -1017,7 +1040,7 @@ final class ChatStore {
                 let result: String
                 if let ban = commandCheck.blockingCommand(for: c) {
                     result = CommandTracker.blockedMessage(ban.command, ban.item)
-                } else if !KnowledgeTools.subAgentAllowed.contains(c.name) {
+                } else if !allowed.contains(c.name) {
                     result = "Helpers can only read, so that tool isn't available."
                 } else if !Secrets.names(in: c).isEmpty {
                     result = "Helpers can’t use secrets. " + Secrets.refused
@@ -1025,6 +1048,9 @@ final class ChatStore {
                     result = codeFolder == nil ? "Helpers can only read inside the workspace folders." : "Helpers can only read inside the project folder."
                 } else if c.name.hasPrefix("chat_") {
                     result = chatTool(c, excluding: parent)
+                } else if let codeFolder, CodeTools.readOnlyNames.contains(c.name) {
+                    activity = "Helper: " + MacTools.describe(c).title + "…"
+                    result = await CodeTools.run(c, folder: codeFolder)
                 } else {
                     activity = "Helper: " + MacTools.describe(c).title + "…"
                     result = await MacTools.run(c)

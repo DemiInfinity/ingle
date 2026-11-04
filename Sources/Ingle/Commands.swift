@@ -289,7 +289,8 @@ struct CommandTracker {
         for c in commands {
             guard let run = c.thenRun?.lowercased() else { continue }
             if CommandStore.fileChangingTools.contains(call.name) { changedSinceRun[c.name] = true }
-            if call.name == "run_command", call.arg("command").lowercased().contains(run) { changedSinceRun[c.name] = false }
+            // get_problems (Code mode) runs the check command it shows, so it counts as running it too.
+            if ["run_command", "get_problems"].contains(call.name), call.arg("command").lowercased().contains(run) { changedSinceRun[c.name] = false }
         }
     }
 

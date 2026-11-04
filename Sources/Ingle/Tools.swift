@@ -84,10 +84,10 @@ enum MacTools {
     }
 
     /// Code mode's "how to work" guidance, used instead of `systemPrompt`. Same meaning as `guidancePrompt` in
-    /// Extensions/vscode/src/engine/prompt.ts — keep the two in step. (edit_file and search_code arrive with task 31.)
+    /// Extensions/vscode/src/engine/prompt.ts — keep the two in step.
     static let codePrompt = """
     ## How to work
-    - Read files before changing them. Keep changes small and targeted; write_file replaces a whole file, so read it first and keep everything you aren't changing.
+    - Read files before editing them. Prefer edit_file with small, exact replacements over rewriting whole files.
     - Run tests or builds with run_command when it helps confirm a change works.
     - Use one tool at a time. If the user denies an action, don't retry it; ask what they'd like instead.
     - Never delete files, run sudo, or change system settings unless the user clearly asked.
@@ -114,6 +114,7 @@ enum MacTools {
             let args = call.raw.flatMap { String(data: $0, encoding: .utf8) } ?? ""
             return Info(title: "Use \(t?.name ?? call.name) (\(t?.server ?? "MCP"))", detail: args, icon: "puzzlepiece.extension")
         }
+        if let code = CodeTools.describe(call) { return code }
         switch call.name {
         case "use_skill": return Info(title: "Use a skill", detail: call.arg("name"), icon: "book")
         case "use_rule": return Info(title: "Check a rule", detail: call.arg("name"), icon: "list.bullet.rectangle")
@@ -182,13 +183,18 @@ enum MacTools {
             let folder: String = cwd.isEmpty ? "" : standardPath(cwd)
             let place: String = folder.isEmpty ? "" : " in " + (folder as NSString).lastPathComponent
             return ApprovalScope(key: "run_command\n\(folder)\n\(command)", label: "“\(clip(command))”\(place)")
+        case "get_problems":
+            // The check command filled in by CodeTools.prepare: the same scope as running it with run_command.
+            let command: String = call.arg("command").trimmingCharacters(in: .whitespacesAndNewlines)
+            let folder: String = standardPath(call.arg("cwd"))
+            return ApprovalScope(key: "run_command\n\(folder)\n\(command)", label: "“\(clip(command))” in " + (folder as NSString).lastPathComponent)
         case "ssh_command":
             let host: String = call.arg("host").trimmingCharacters(in: .whitespaces).lowercased()
             let command: String = call.arg("command").trimmingCharacters(in: .whitespacesAndNewlines)
             let cwd: String = call.arg("cwd").trimmingCharacters(in: .whitespacesAndNewlines)
             let place: String = cwd.isEmpty ? "" : " in \(cwd)"
             return ApprovalScope(key: "ssh\n\(host)\n\(cwd)\n\(command)", label: "“\(clip(command))” on \(call.arg("host"))\(place)")
-        case "write_file":
+        case "write_file", "edit_file":
             let folder: String = (standardPath(call.arg("path")) as NSString).deletingLastPathComponent
             return ApprovalScope(key: "write\n\(folder)", label: "writing files in \(tidyPath(folder))")
         case "list_files", "read_file":
@@ -242,6 +248,10 @@ enum MacTools {
         case "use_skill", "use_rule", "ingle_help", "mcp_tools", "secret_list", "web_search", "web_fetch", "memory_search", "memory_read",
              "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate":
             return false
+        case "find_files", "search_code", "repo_map":
+            return false   // Code mode only, and they only read inside the project
+        case "get_problems":
+            return !call.arg("command").isEmpty   // runs the project's checks; nothing to run, nothing to ask
         case "memory_save", "memory_rewrite", "memory_forget":
             return Prefs.memoryAskFirst
         case "ssh_command":
@@ -289,7 +299,10 @@ enum MacTools {
         case "ssh_command": return await SSH.run(host: call.arg("host"), command: call.arg("command"), cwd: call.arg("cwd"))
         case "open": return await shell("open \(quoteForOpen(call.arg("target")))", cwd: "")
         case "applescript": return await appleScript(call.arg("script"))
-        default: return "Unknown tool \(call.name)."
+        default:
+            // Code tools run through CodeTools.run with the chat's project folder (ChatStore.runTool).
+            if CodeTools.names.contains(call.name) { return "\(call.name) only works in Code mode." }
+            return "Unknown tool \(call.name)."
         }
     }
 

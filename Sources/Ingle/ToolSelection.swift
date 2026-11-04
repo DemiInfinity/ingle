@@ -38,6 +38,7 @@ enum ToolSelection {
     static func strictWants(_ name: String, _ t: String) -> Bool {
         switch name {
         case "report_read", "report_search": return mentions(t, ["report", "research", "earlier"])
+        case "repo_map": return mentions(t, ["repo map", "project structure", "overview", "codebase", "architecture"])
         default: return true
         }
     }

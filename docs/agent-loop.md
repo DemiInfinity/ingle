@@ -54,8 +54,9 @@ for small models (earlier text weighs more), so the persona and any COMMANDS com
    language. See [Matching](#matching-rules-skills-memory-and-reports) below.
 4. **Editor context** — Mac: `EditorBridge.freshContext` (if the chat's editor chip is on). VS Code: a snapshot of
    the active editor (if the context chip is on).
-5. **Repo map** (VS Code only) — `buildRepoMap` with a budget of `min(6000, 0.4 × context)` characters
-   (about a tenth of the context, at most ~1,500 tokens). See [vscode-extension.md](vscode-extension.md#repo-map).
+5. **Repo map** (VS Code, and Mac Code mode) — `buildRepoMap` / `RepoMap.promptSection` with a budget of
+   `min(6000, 0.4 × context)` characters (about a tenth of the context, at most ~1,500 tokens). See
+   [vscode-extension.md](vscode-extension.md#repo-map) and [mac-app.md](mac-app.md#code-mode).
 
 ### The system message, Mac app
 
@@ -69,7 +70,8 @@ Built fresh every step in `generate(in:)`:
 4. `IngleManifest.refresh(...)` — the `INGLE.md` index (tools, always-on rules in full, rules index, skills,
    MCP servers, commands, research index, recent chat titles, memory index, your notes). Also saved to
    `~/.ingle/INGLE.md`.
-5. `editor.promptSection` and `editor.projectInstructions` — what you're working on, and the project's
+5. Code mode: `Project.promptSection` (folder, git branch and status, the project's rules files) and the
+   `## Repo map`. Otherwise `editor.promptSection` and `editor.projectInstructions` — what you're working on, and the project's
    `AGENTS.md` / `CLAUDE.md` / `.cursorrules` (8,000 characters each).
 6. `## Effort` — the effort level's prompt line, if it has one (see [Effort and thinking](#7-effort-and-thinking)).
 7. `## Loaded for this request` — matched and forced rules, skills, memories and reports.
@@ -124,7 +126,7 @@ items in `usedNames` (`ChatStore.generate`); VS Code pushes them onto `used` aft
 
 | Group | Mac app | VS Code | Approval |
 |---|---|---|---|
-| Files | `list_files`, `read_file`, `write_file` | `list_files`, `read_file`, `find_files`, `search_code`, `get_problems`, `edit_file`, `write_file`, `read_document`, `view_image`, `repo_map` | Reads: free inside workspace folders, else asks. Writes and edits: always ask. |
+| Files | `list_files`, `read_file`, `write_file`; in Code mode also `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map` | `list_files`, `read_file`, `find_files`, `search_code`, `get_problems`, `edit_file`, `write_file`, `read_document`, `view_image`, `repo_map` | Reads: free inside workspace folders (Code mode: the project), else asks. Writes and edits: always ask, with the diff on the card. Mac `get_problems` runs the check command, so it asks like `run_command`. |
 | Commands | `run_command` | `run_command`, `open_url` | Always ask |
 | Mac control | `open`, `applescript`, `screenshot` (only with the Mac button on) | — | Always ask |
 | Web | `web_search`, `web_fetch` (only with Web on) | same | No (read-only) |
@@ -163,6 +165,7 @@ needs. This is keyword-based, deliberately simple, and runs every step against t
 | `command_create` | the message mentions "command" |
 | `use_skill` / `use_rule` | you have skills / non-always rules |
 | `open`, `applescript`, `screenshot` | the Mac button is on |
+| `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map` | Code mode (`repo_map` at Low effort only when the message says repo map, project structure, overview, codebase or architecture) |
 | web tools, `report_save` | Web is on |
 
 **VS Code** — `ChatEngine.toolsFor`: each `ToolDef.available(ctx)` first (web tools need Web, memory tools need
@@ -252,7 +255,7 @@ Helpers run one at a time because only one big model fits in memory, and they ca
 
 | | Mac `runSubAgent` | VS Code `runSubAgent` |
 |---|---|---|
-| Tools | `KnowledgeTools.subAgentAllowed`: web (if Web on), memory search/read, reports search/read, past chats, `use_skill`, `use_rule`, `ingle_help`, `list_files`/`read_file` | every offered tool with `readOnly: true` (files, search, problems, documents, images, repo map, web, memory search/read, knowledge reads, `mcp_tools`) |
+| Tools | `KnowledgeTools.subAgentAllowed`: web (if Web on), memory search/read, reports search/read, past chats, `use_skill`, `use_rule`, `ingle_help`, `list_files`/`read_file`; in Code mode also `find_files`, `search_code`, `repo_map` | every offered tool with `readOnly: true` (files, search, problems, documents, images, repo map, web, memory search/read, knowledge reads, `mcp_tools`) |
 | Reading files | only inside workspace folders (whatever the Mac button says — Terminal reads are always on) | inside the project freely; outside asks you ("Helper: Wants to read …") |
 | Command bans | applied (`CommandTracker.blockingCommand`) | applied (`bannedBy`) |
 | Activity line | "Helper is thinking…", "Helper: Search the web…" | same |
