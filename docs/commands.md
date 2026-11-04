@@ -164,8 +164,9 @@ must_use: mcp:tracker/create_issue
 | File-changing tools for `then_run` | `write_file` | `edit_file`, `write_file` |
 | Nudges | one command per nudge message | all owed commands in one nudge message |
 | `command_create` | saves any command | refuses a command with no `must_use`, `never_use` or `then_run` ("that's just advice — use rule_create") |
-| Helpers obey bans | no | yes |
-| Duplicate names | project commands are added alongside yours | project commands with the same final name are skipped |
+
+The same in both: helpers (`delegate`) obey `never_use` (banned tools are hidden from them and blocked), and project
+commands are listed alongside yours as `project/<name>`.
 
 These differences are worth unifying; see [roadmap.md](roadmap.md).
 

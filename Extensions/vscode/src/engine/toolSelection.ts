@@ -39,7 +39,6 @@ export interface SelectionInput<T extends SelectableTool> {
 
 export function selectTools<T extends SelectableTool>(input: SelectionInput<T>): T[] {
   const { available, isSubAgent, active, mcpToolNames, mcpWanted, delegate } = input;
-  if (isSubAgent) return available.filter((t) => t.readOnly);
   const t = input.lastUser.toLowerCase();
   // Commands: tools a must_use needs are always offered; never_use tools are removed.
   const forced = new Set<string>();
@@ -51,6 +50,8 @@ export function selectTools<T extends SelectableTool>(input: SelectionInput<T>):
     }
     for (const n of c.neverUse) if (!n.toLowerCase().startsWith('mcp:')) banned.add(n.trim().toLowerCase());
   }
+  // Helpers: read-only tools only, and never_use applies to them too.
+  if (isSubAgent) return available.filter((tool) => tool.readOnly && !banned.has(tool.name.toLowerCase()));
   const list = available.filter((tool) => {
     if (forced.has(tool.name)) return true;
     if (mcpToolNames.includes(tool.name)) return mcpWanted;

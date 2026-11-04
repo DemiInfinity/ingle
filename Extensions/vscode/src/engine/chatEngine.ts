@@ -1424,7 +1424,7 @@ export class ChatEngine implements vscode.Disposable {
     task = task.trim();
     if (!task) return 'The helper needs a task.';
     const client = new OllamaClient(this.settings.serverURL);
-    const tools = this.toolsFor(this.makeCtx(chat.id, chat.web, vision, signal, true, '', {}, () => undefined), task);
+    const tools = this.toolsFor(this.makeCtx(chat.id, chat.web, vision, signal, true, '', {}, () => undefined), task, undefined, active);
     const toolJSON = tools.map(toOllama);
     const messages: OllamaMessage[] = [
       { role: 'system', content: subAgentPrompt(model, chat.web, this.settings) },

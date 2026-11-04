@@ -194,8 +194,9 @@ shows the placeholder instead. Both apps behave the same.
 **Do.** Remove every row in the "Mac vs VS Code differences" table in [commands.md](commands.md). Suggested choices:
 `always` must be the only value; `never_use` accepts `mcp:` in both apps; a required tool that isn't available is added
 anyway, and if it can't be, the command gets ⚠ straight away; `then_run` is triggered by every file-changing tool;
-all owed commands go in one nudge; `command_create` refuses advice-only commands in both apps; helpers obey bans;
-duplicate project names are skipped.
+all owed commands go in one nudge; `command_create` refuses advice-only commands in both apps. (Already done: helpers
+obey bans in both apps, and project commands are kept alongside yours as `project/<name>` in both, since the prefix means
+they can't clash.)
 **Files.** `Sources/Ingle/Commands.swift`, `ChatStore.swift` (commands section), `tools/commands.ts`,
 `engine/chatEngine.ts` (commands section), `docs/commands.md`.
 **Done when.** The differences table is gone (or empty) and task 2's tests cover each rule.

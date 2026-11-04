@@ -84,3 +84,9 @@ test('selectTools does not change the list it is given', () => {
   pick('investigate', { available });
   assert.deepEqual(available, ALL);
 });
+
+test('never_use also hides tools from sub-agents', () => {
+  const got = pick('read the readme', { isSubAgent: true, active: [cmd([], ['READ_FILE'])] });
+  assert.ok(!got.includes('read_file'));
+  assert.ok(got.includes('list_files'));
+});

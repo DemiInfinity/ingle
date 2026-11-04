@@ -32,13 +32,11 @@ function loadRules(folder: string, prefix: string): RuleEntry[] {
   });
 }
 
-/** ~/.ingle/rules, plus `<workspace>/.ingle/rules` with names prefixed `project/`. */
+/** ~/.ingle/rules, plus `<workspace>/.ingle/rules` with names prefixed `project/` (so both are kept,
+ *  as on the Mac — RuleStore). */
 export function listRules(workspaceRoot?: string): RuleEntry[] {
   const out = loadRules(paths.rules, '');
-  if (workspaceRoot) {
-    const names = new Set(out.map((r) => r.name));
-    out.push(...loadRules(path.join(workspaceRoot, '.ingle', 'rules'), 'project/').filter((r) => !names.has(r.name)));
-  }
+  if (workspaceRoot) out.push(...loadRules(path.join(workspaceRoot, '.ingle', 'rules'), 'project/'));
   return out;
 }
 
