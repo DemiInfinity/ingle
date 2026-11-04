@@ -1,4 +1,5 @@
 // Every tool the chat can use. The engine adds `delegate` itself.
+import { codeIntelTools } from './codeintel';
 import { commandTools } from './command';
 import { commandCreateTool } from './commands';
 import { documentTools } from './documents';
@@ -21,7 +22,7 @@ export { enabledSSHHosts } from './ssh';
 
 /** All tools, in the order they're offered. Filter with `available(ctx)` (and `readOnly` for helpers). */
 export function allTools(): ToolDef[] {
-  return [repoMapTool, ...fileTools, ...documentTools, ...commandTools, ...sshTools, ...secretTools, ...webTools, ...memoryTools, ...knowledgeTools, commandCreateTool, ...mcpTools];
+  return [repoMapTool, ...fileTools, ...codeIntelTools, ...documentTools, ...commandTools, ...sshTools, ...secretTools, ...webTools, ...memoryTools, ...knowledgeTools, commandCreateTool, ...mcpTools];
 }
 
 /** One tool by name. */

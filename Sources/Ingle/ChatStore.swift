@@ -328,7 +328,9 @@ final class ChatStore {
 
     func delete(_ id: Conversation.ID) {
         if streamingID == id { stop() }
+        let folder: String? = index(id).flatMap { conversations[$0].codeFolder }
         conversations.removeAll { $0.id == id }
+        CodeIntel.shared.chatClosed(folder: folder, stillUsed: conversations.contains { $0.codeFolder == folder })
         Checkpoints.discardChat(id.uuidString)
         if selection == id { selection = conversations.first?.id }
         if conversations.isEmpty { newChat() }
@@ -775,7 +777,7 @@ final class ChatStore {
                 // Terminal (files, commands) is always available and asks first; controlling the Mac needs the Mac button.
                 system.append(codeFolder == nil ? MacTools.systemPrompt : MacTools.codePrompt)
                 tools += MacTools.definitions
-                if codeFolder != nil { tools += CodeTools.definitions }
+                if codeFolder != nil { tools += CodeTools.definitions + CodeIntel.definitions }
                 if !MCPManager.shared.servers.isEmpty { tools += MacTools.mcpTools }
                 if mac {
                     system.append(MacTools.controlPrompt)
@@ -1151,6 +1153,10 @@ final class ChatStore {
             guard let folder = index(id).flatMap({ conversations[$0].codeFolder }) else { return "\(call.name) only works in Code mode." }
             return await CodeTools.run(call, folder: folder, run: activeRuns[id])
         }
+        if CodeIntel.toolNames.contains(call.name) {
+            guard let i = index(id), let folder = conversations[i].codeFolder else { return "\(call.name) only works in Code mode." }
+            return await CodeIntel.shared.run(call, folder: folder, chat: conversations[i])
+        }
         switch call.name {
         case "update_tasks":
             switch TaskList.parse(call) {
@@ -1243,6 +1249,8 @@ final class ChatStore {
         if codeFolder != nil {
             pool.append(contentsOf: CodeTools.readOnlyDefinitions)
             allowed.formUnion(CodeTools.readOnlyNames)
+            pool.append(contentsOf: CodeIntel.definitions)
+            allowed.formUnion(CodeIntel.toolNames)
         }
         let commandCheck = CommandTracker(commands)
         let banned: Set<String> = commandCheck.blocked
@@ -1299,6 +1307,9 @@ final class ChatStore {
                     result = codeFolder == nil ? "Helpers can only read inside the workspace folders." : "Helpers can only read inside the project folder."
                 } else if c.name.hasPrefix("chat_") {
                     result = chatTool(c, excluding: parent)
+                } else if let codeFolder, CodeIntel.toolNames.contains(c.name), let pi = index(parent) {
+                    activity = "Helper: " + MacTools.describe(c).title + "…"
+                    result = await CodeIntel.shared.run(c, folder: codeFolder, chat: conversations[pi])
                 } else if let codeFolder, CodeTools.readOnlyNames.contains(c.name) {
                     activity = "Helper: " + MacTools.describe(c).title + "…"
                     result = await CodeTools.run(c, folder: codeFolder)

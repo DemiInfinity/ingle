@@ -284,8 +284,16 @@ actor MCPConnection {
     private var buffer = Data()
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
+    /// How long one request may take (code intelligence's first query can wait for a language server's index).
+    private let requestTimeout: Duration
 
-    init(_ config: MCPServerConfig) { self.config = config }
+    init(_ config: MCPServerConfig, timeout: Duration = .seconds(60)) {
+        self.config = config
+        self.requestTimeout = timeout
+    }
+
+    /// The server's process ID (0 before start), so it can be signalled synchronously when Ingle quits.
+    func processID() -> Int32 { process?.processIdentifier ?? 0 }
 
     func start() async throws -> [MCPTool] {
         let p = Process()
@@ -372,7 +380,7 @@ actor MCPConnection {
             pending[id] = continuation
             send(message)
             Task {
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: self.requestTimeout)
                 self.timeout(id)
             }
         }

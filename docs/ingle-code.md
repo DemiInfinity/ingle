@@ -6,8 +6,8 @@ by **missing things** — a caller they didn't look at, a file they skipped, hal
 servers already know every definition, reference and type error exactly; ingle-code asks them, and gives the model
 complete answers that fit a 16–32K context window.
 
-Status: the engine and MCP server are built (task 33 in [improvement-plan.md](improvement-plan.md)). Wiring them into
-both apps as built-in tools is task 33b; coverage checks that use them are task 34.
+Status: the engine and MCP server are built (task 33 in [improvement-plan.md](improvement-plan.md)) and both apps use
+them as built-in tools (task 33b, below). Coverage checks that use them are task 34.
 
 ## One engine, three ways in
 
@@ -24,8 +24,8 @@ both apps as built-in tools is task 33b; coverage checks that use them are task 
                                                                          (read_exhaustively only)
 ```
 
-- **VS Code** will import `CodeEngine` and `callTool` directly and register the tools as ordinary `ToolDef`s.
-- **The Mac app** will start `bin/ingle-code` as a helper per project and show its tools as built-in tools (normal
+- **VS Code** imports `CodeEngine` and `callTool` directly and registers the tools as ordinary `ToolDef`s.
+- **The Mac app** starts `bin/ingle-code` as a helper per project and shows its tools as built-in tools (normal
   names, no `mcp_call` step, no approval inside the project — they are read-only).
 - **Anything else** can use it as a standard MCP server. Set-up for Claude Code, Claude Desktop, Cursor and
   `~/.ingle/mcp.json` is in [../Extensions/ingle-code/README.md](../Extensions/ingle-code/README.md).
@@ -101,3 +101,37 @@ listed, so the model can say so rather than assume.
 cd Extensions/ingle-code && npm install && npm test        # tsc + node:test
 node node_modules/typescript/bin/tsc -p . --noEmit
 ```
+
+## In Ingle (task 33b)
+
+Both apps offer `outline`, `definition`, `references`, `callers`, `callees`, `impact`, `diagnostics` and
+`read_exhaustively` as built-in tools with the names and output in [TOOLS.md](../Extensions/ingle-code/TOOLS.md)
+(`code_status` stays MCP-only). They're read-only and never ask. Per-turn tool selection offers them when a request
+needs them: a named symbol (`` `backticks` ``, `foo()`, `snake_case`) or words about uses, callers, definitions,
+changes, errors, outlines or big files (`CODE_INTEL_WANTS` in `toolSelection.ts`, `ToolSelection.codeIntelWants` in
+Swift — the same patterns). Helpers and Plan mode get them too.
+
+- **VS Code:** [`codeintel.ts`](../Extensions/vscode/src/tools/codeintel.ts) and the pure, tested
+  [`codeintelCore.ts`](../Extensions/vscode/src/tools/codeintelCore.ts). The engine is compiled into the extension's
+  `vendor/ingle-code` by `scripts/build-engine.js` (before compile and test, and after `npm install`) and loaded
+  in-process, one `CodeEngine` per workspace, disposed when the extension deactivates.
+- **Mac app (Code mode):** [`CodeIntel.swift`](../Sources/Ingle/CodeIntel.swift). `build.sh` compiles the engine into
+  `Ingle.app/Contents/Resources/ingle-code`; Ingle runs it with the user's Node 18+ (PATH, Homebrew, MacPorts, nvm,
+  Volta, asdf, fnm) as one helper per project over `MCPConnection`. Stopped after 10 idle minutes, when the project's
+  last Code chat is deleted, and when Ingle quits. Without Node: `search_code` / repo map, and the first answer in a
+  chat says results are approximate until Node is installed.
+
+**Working set first.** When the model leaves out the target, the tools use what the user is working on, never the
+whole project: a symbol selected in the editor (VS Code; on the Mac, VS Code's selection when it's the same project),
+else the functions and types the uncommitted changes touch (`git diff -U0 HEAD` mapped onto each file's outline, at
+most 3 — `impact` covers each); `outline` uses the open file; `diagnostics` checks the open, changed and mentioned
+files. Files the chat names (`src/a.ts`, `` `Tools.swift` `` when it exists) count as mentioned.
+
+**For coverage (task 34).** `impactLocations(engine, symbol, { file })` in `codeintelCore.ts` (and
+`impactLocationsIn(root, symbol)` in `codeintel.ts`) and `CodeIntel.shared.impact(_:folder:file:)` in Swift return every
+place a change could affect as workspace-relative `{ path, line }`: each real use (definitions and comment/string-only
+text matches left out) plus each caller's call lines, sorted, no duplicates.
+
+**Prompt facts.** Both apps' coding guidance says to run `impact` before changing anything other code uses and check
+every place it lists, and to prefer exact results to text search; the persona facts list the tools.
+

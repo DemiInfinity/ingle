@@ -156,6 +156,7 @@ enum TaskList {
         "list_files", "read_file", "find_files", "search_code", "repo_map", "use_skill", "use_rule", "ingle_help", "mcp_tools",
         "secret_list", "web_search", "web_fetch", "memory_search", "memory_read", "chat_list", "chat_search", "chat_read",
         "report_search", "report_read", "delegate", "update_tasks",
+        "outline", "definition", "references", "callers", "callees", "impact", "diagnostics", "read_exhaustively",
     ]
 
     static let planModeRefusal = "Plan mode is on: you can only read and search. Don’t change files or run commands. Finish your investigation and end with a numbered plan; the user will approve it or ask for changes."
