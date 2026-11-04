@@ -1092,6 +1092,8 @@
 
     const allow = h('button', { class: 'btn primary', type: 'button', onclick: () => decide('allow'), onkeydown: noEnter }, 'Allow');
     const always = h('button', { class: 'btn', type: 'button', onclick: () => decide('always'), onkeydown: noEnter }, 'Allow for this session');
+    const scope = a.sessionScope ? `Allow for this session covers ${a.sessionScope}, until VS Code closes.` : '';
+    if (scope) always.title = scope;
     const deny = h('button', { class: 'btn', type: 'button', onclick: () => decide('deny') }, 'Deny');
     const diff = a.canShowDiff
       ? h('button', { class: 'btn ghost', type: 'button', onclick: () => post({ type: 'showDiff', id: a.id }) }, icon('diff'), 'View Diff')
@@ -1105,6 +1107,7 @@
         h('span', { class: 'approval-title', id: titleId, text: a.title || 'Allow this action?' })),
       a.detail ? detail : null,
       preview,
+      scope ? h('p', { class: 'approval-scope', text: scope }) : null,
       h('div', { class: 'approval-actions' },
         deny, diff, h('span', { class: 'grow' }), always, allow));
     approvalSlot.append(card);

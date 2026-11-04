@@ -28,13 +28,14 @@ talk to the network on their own.
 
 Every action that changes something, runs code, controls an app, uses an MCP tool or reads outside your workspace
 folders goes through an approval card showing the exact detail. Session allowances ("Allow for This Session") are
-per tool name, kept in memory only, and cleared on quit or with one click. Full rules:
+narrow — the exact command in the same folder, writes in the same folder, the same app, link or script, the same MCP
+`server/tool` — and the card says what they cover. They are kept in memory only and cleared on quit or with one click. Full rules:
 [terminal-and-mac-control.md](terminal-and-mac-control.md#approvals).
 
 **Approving is the trust boundary.** Ingle shows you exactly what will happen; it can't judge whether a command is
 safe. Local models make mistakes, and text the model reads (web pages, files, MCP results) can contain instructions
-meant to mislead it (prompt injection). Read the card before pressing Allow, and be careful with session allowances
-for `run_command` and `applescript`.
+meant to mislead it (prompt injection). Read the card before pressing Allow. A session allowance for one command
+doesn't allow any other command, but a folder allowance for writes covers every file in that folder.
 
 ## Web access
 

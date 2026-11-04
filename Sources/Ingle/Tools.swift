@@ -72,7 +72,7 @@ enum MacTools {
         - Look before you act: list or read files before changing them.
         - Use one tool at a time and explain briefly what you are about to do.
         - Never delete files, run sudo, or change system settings unless the user clearly asked.
-        - The user approves every command and write (they may allow a kind of action for the session). If they deny one, don't retry it; ask what they want instead.
+        - The user approves every command and write ("Allow for This Session" covers only the same command in the same folder, writes in the same folder, or the same app action). If they deny one, don't retry it; ask what they want instead.
         - Terminal is for files, code, git, builds and scripts. Don't use osascript or `open` from Terminal to control apps — that's Mac control, which has its own switch.
         - When done, summarise what you changed in plain words.
         """
@@ -138,6 +138,69 @@ enum MacTools {
         case "screenshot": return Info(title: "Look at the screen", detail: "Takes a screenshot", icon: "camera.viewfinder")
         default: return Info(title: call.name, detail: call.arguments.map { "\($0.key): \($0.value)" }.joined(separator: ", "), icon: "wrench")
         }
+    }
+
+    /// What "Allow for This Session" covers for one call: `key` is what is remembered, `label` is shown on the card.
+    struct ApprovalScope: Equatable {
+        let key: String
+        let label: String
+    }
+
+    /// The approval scope for a call. Commands are allowed by exact text and folder, writes and outside reads
+    /// by folder (that folder only, not its subfolders), app actions by exact target or script, MCP by server/tool.
+    /// Any tool not listed only covers the exact same call again, so a new tool must add a case to get a wider scope.
+    /// Keep in step with `approvalScope` in Extensions/vscode/src/engine/chatEngine.ts.
+    @MainActor
+    static func approvalScope(_ call: ToolCall) -> ApprovalScope {
+        switch call.name {
+        case "run_command":
+            let command: String = call.arg("command").trimmingCharacters(in: .whitespacesAndNewlines)
+            let cwd: String = call.arg("cwd").trimmingCharacters(in: .whitespaces)
+            let folder: String = cwd.isEmpty ? "" : standardPath(cwd)
+            let place: String = folder.isEmpty ? "" : " in " + (folder as NSString).lastPathComponent
+            return ApprovalScope(key: "run_command\n\(folder)\n\(command)", label: "“\(clip(command))”\(place)")
+        case "write_file":
+            let folder: String = (standardPath(call.arg("path")) as NSString).deletingLastPathComponent
+            return ApprovalScope(key: "write\n\(folder)", label: "writing files in \(tidyPath(folder))")
+        case "list_files", "read_file":
+            let path: String = standardPath(call.arg("path"))
+            let folder: String = call.name == "list_files" ? path : (path as NSString).deletingLastPathComponent
+            return ApprovalScope(key: "read\n\(folder)", label: "reading in \(tidyPath(folder))")
+        case "open":
+            let target: String = call.arg("target").trimmingCharacters(in: .whitespaces)
+            return ApprovalScope(key: "open\n\(target)", label: "opening “\(clip(target))”")
+        case "applescript":
+            return ApprovalScope(key: "applescript\n\(call.arg("script"))", label: "this exact script")
+        case "screenshot":
+            return ApprovalScope(key: "screenshot", label: "taking screenshots")
+        case "mcp_call":
+            let server: String = call.arg("server").trimmingCharacters(in: .whitespaces)
+            let tool: String = call.arg("tool").trimmingCharacters(in: .whitespaces)
+            return ApprovalScope(key: "mcp\n\(server.lowercased())/\(tool)", label: "the MCP tool \(server)/\(tool)")
+        default:
+            if let t = MCPManager.shared.tool(named: call.name) {
+                return ApprovalScope(key: "mcp\n\(t.server.lowercased())/\(t.name)", label: "the MCP tool \(t.server)/\(t.name)")
+            }
+            let pairs: [String] = call.arguments.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }
+            let raw: String = call.raw.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let key: String = "exact\n\(call.name)\n" + pairs.joined(separator: "\n") + "\n" + raw
+            return ApprovalScope(key: key, label: "this exact \(call.name) action")
+        }
+    }
+
+    private static func standardPath(_ path: String) -> String {
+        URL(fileURLWithPath: Prefs.expand(path.trimmingCharacters(in: .whitespaces))).standardizedFileURL.path
+    }
+
+    private static func tidyPath(_ path: String) -> String {
+        let home: String = FileManager.default.homeDirectoryForCurrentUser.path
+        if path == home { return "~" }
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+
+    private static func clip(_ text: String) -> String {
+        let flat: String = text.replacingOccurrences(of: "\n", with: " ")
+        return flat.count > 80 ? String(flat.prefix(79)) + "…" : flat
     }
 
     static func needsApproval(_ call: ToolCall) -> Bool {

@@ -9,8 +9,9 @@ export interface ToolContext {
   workspaceRoot?: string;          // the open folder in VS Code, if any
   web: boolean;                    // Web switch for this chat
   isSubAgent: boolean;             // helpers may only use readOnly tools
-  /** Ask the user via the approval card. Resolves 'allow' or 'deny' ("always" is handled by the engine). */
-  requestApproval(req: Omit<ApprovalRequest, 'id'>): Promise<'allow' | 'deny'>;
+  /** Ask the user via the approval card. Resolves 'allow' or 'deny' ("always" is handled by the engine).
+   *  `target` is the absolute path the approval is about (command folder, file, read path), used for its session scope. */
+  requestApproval(req: Omit<ApprovalRequest, 'id' | 'sessionScope'>, target?: string): Promise<'allow' | 'deny'>;
   /** Short status for the activity line, e.g. "Searching the web…". */
   setActivity(text: string | null): void;
   /** Cancelled when the user presses Stop. */

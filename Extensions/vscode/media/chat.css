@@ -726,6 +726,7 @@ body.vscode-high-contrast .used-chip { border-color: var(--ember-line); }
 }
 .approval-detail { max-height: 120px; }
 .approval-preview { max-height: 240px; }
+.approval-scope { margin: 0; font-size: 0.9em; opacity: 0.75; overflow-wrap: anywhere; }
 .approval-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .btn {
   display: inline-flex;

@@ -57,6 +57,7 @@ export interface ApprovalRequest {
   detail: string;       // command text, file path, or JSON
   preview?: string;     // e.g. a unified diff for edits, or file content for writes
   canShowDiff?: boolean; // true for edits: the webview shows a "View Diff" button
+  sessionScope?: string; // what "Allow for this session" covers, e.g. "“npm test” in Ingle"
 }
 
 /** An entry in the "/" menu. Commands: compact, new, mcp, skill-reload. Skills: every skill by name. */

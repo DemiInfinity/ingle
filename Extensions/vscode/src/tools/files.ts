@@ -319,7 +319,7 @@ const editFile: ToolDef = {
       const answer = await ctx.requestApproval({
         kind: 'edit', title: 'Wants to edit a file', detail: rel,
         preview: unifiedDiff(p.original, p.proposed, rel), canShowDiff: true,
-      });
+      }, p.abs);
       if (answer !== 'allow') return DENIED;
       ctx.setActivity('Editing a file…');
       const err = await applyText(p.abs, p.proposed, p.original);
@@ -351,7 +351,7 @@ const writeFile: ToolDef = {
       const answer = await ctx.requestApproval({
         kind: 'write', title: p.exists ? 'Wants to overwrite a file' : 'Wants to create a file', detail: rel,
         preview, canShowDiff: p.exists,
-      });
+      }, p.abs);
       if (answer !== 'allow') return DENIED;
       ctx.setActivity('Writing a file…');
       const bytes = Buffer.byteLength(p.proposed, 'utf8');

@@ -23,6 +23,7 @@ import {
 import { mcp, MCP_TOOL_NAMES, wantsMCP } from '../tools/mcp';
 import { extractDocument, prepareImage } from '../tools/documents';
 import { listMemory, listReports, listRules, listSkills, mcpServers } from '../tools/stores';
+import { isDir, resolvePath as resolveToolPath, tidy } from '../tools/paths';
 import { buildRepoMap } from '../tools/repomap';
 import { str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
 import { ChatStore, NEW_TITLE, StoredChat, StoredMessage, uid } from './chatStore';
@@ -55,7 +56,57 @@ interface PendingApproval {
   toolName: string;
   args: ToolArgs;
   request: ApprovalRequest;
+  scopeKey: string;
   resolve(decision: 'allow' | 'deny'): void;
+}
+
+/** What "Allow for this session" covers for one approval: `key` is remembered, `label` is shown on the card. */
+export interface ApprovalScope { key: string; label: string }
+
+/** The approval scope for a request. Commands are allowed by exact text and folder, writes and outside reads by
+ *  folder (that folder only, not its subfolders), links by exact URL, MCP by server/tool. Any tool not listed only
+ *  covers the exact same call again, so a new tool must add a case to get a wider scope.
+ *  Keep in step with `MacTools.approvalScope` in Sources/Ingle/Tools.swift. */
+export function approvalScope(toolName: string, args: ToolArgs, kind: ApprovalRequest['kind'], target: string | undefined, root: string | undefined): ApprovalScope {
+  const clip = (t: string) => { const f = t.replace(/\n/g, ' '); return f.length > 80 ? f.slice(0, 79) + '…' : f; };
+  const where = (folder: string) => tidy(folder) || path.basename(folder) || folder;
+  if (kind === 'read') {
+    const abs = target ?? resolveToolPath(str(args, 'path'), root);
+    const folder = isDir(abs) ? abs : path.dirname(abs);
+    return { key: `read\n${folder}`, label: `reading in ${where(folder)}` };
+  }
+  switch (toolName) {
+    case 'run_command': {
+      const command = str(args, 'command').trim();
+      const folder = target ?? '';
+      return { key: `run_command\n${folder}\n${command}`, label: `“${clip(command)}”` + (folder ? ` in ${path.basename(folder)}` : '') };
+    }
+    case 'write_file':
+    case 'edit_file': {
+      const folder = path.dirname(target ?? resolveToolPath(str(args, 'path'), root));
+      return { key: `write\n${folder}`, label: `writing files in ${where(folder)}` };
+    }
+    case 'open_url': {
+      const url = target ?? str(args, 'url').trim();
+      return { key: `open\n${url}`, label: `opening “${clip(url)}”` };
+    }
+    case 'mcp_call': {
+      const server = str(args, 'server').trim(), tool = str(args, 'tool').trim();
+      return { key: `mcp\n${server.toLowerCase()}/${tool}`, label: `the MCP tool ${server}/${tool}` };
+    }
+    default:
+      return { key: `exact\n${toolName}\n${stableJSON(args)}`, label: `this exact ${toolName} action` };
+  }
+}
+
+/** JSON with object keys sorted, so the same arguments always give the same text. */
+function stableJSON(v: unknown): string {
+  if (Array.isArray(v)) return '[' + v.map(stableJSON).join(',') + ']';
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return '{' + Object.keys(o).sort().map((k) => JSON.stringify(k) + ':' + stableJSON(o[k])).join(',') + '}';
+  }
+  return JSON.stringify(v) ?? 'null';
 }
 
 interface Matched {
@@ -228,7 +279,7 @@ export class EngineShared implements vscode.Disposable {
   readonly matcher = new Matcher();
   readonly diff = new DiffProvider();
   readonly visionCache = new Map<string, boolean>();
-  /** Kinds of action allowed for this session ("Allow for this session"), shared by every Ingle tab until VS Code closes. */
+  /** Approval scope keys allowed for this session ("Allow for this session", see approvalScope), shared by every Ingle tab until VS Code closes. */
   readonly sessionAllowed = new Set<string>();
   readonly engines = new Set<ChatEngine>();
   private readonly registration: vscode.Disposable;
@@ -757,8 +808,9 @@ export class ChatEngine implements vscode.Disposable {
       vision,
       signal,
       setActivity: (t) => this.setActivity(t === null ? null : isSubAgent ? 'Helper: ' + t : t),
-      requestApproval: async (req) => {
-        const d = await this.requestApproval(chatId, toolName, args, req, isSubAgent, signal);
+      requestApproval: async (req, target) => {
+        const scope = approvalScope(toolName, args, req.kind, target, workspaceRoot());
+        const d = await this.requestApproval(chatId, toolName, args, scope, req, isSubAgent, signal);
         if (d === 'deny') onDeny();
         return d;
       },
@@ -829,11 +881,11 @@ export class ChatEngine implements vscode.Disposable {
     };
   }
 
-  private requestApproval(chatId: string, toolName: string, args: ToolArgs, req: Omit<ApprovalRequest, 'id'>, isSub: boolean, signal: AbortSignal): Promise<'allow' | 'deny'> {
+  private requestApproval(chatId: string, toolName: string, args: ToolArgs, scope: ApprovalScope, req: Omit<ApprovalRequest, 'id' | 'sessionScope'>, isSub: boolean, signal: AbortSignal): Promise<'allow' | 'deny'> {
     if (signal.aborted) return Promise.resolve('deny');
-    if (this.shared.sessionAllowed.has(toolName)) return Promise.resolve('allow');
+    if (this.shared.sessionAllowed.has(scope.key)) return Promise.resolve('allow');
     if (this.pending) this.pending.resolve('deny'); // only one card at a time
-    const request: ApprovalRequest = { ...req, id: uid(), title: isSub ? 'Helper: ' + req.title : req.title };
+    const request: ApprovalRequest = { ...req, id: uid(), title: isSub ? 'Helper: ' + req.title : req.title, sessionScope: scope.label };
     return new Promise((resolve) => {
       let settled = false;
       const onAbort = () => finish('deny');
@@ -848,7 +900,7 @@ export class ChatEngine implements vscode.Disposable {
         resolve(d);
       };
       signal.addEventListener('abort', onAbort);
-      this.pending = { id: request.id, chatId, toolName, args, request, resolve: finish };
+      this.pending = { id: request.id, chatId, toolName, args, request, scopeKey: scope.key, resolve: finish };
       this.postFor(chatId, { type: 'approval', approval: request });
     });
   }
@@ -857,7 +909,7 @@ export class ChatEngine implements vscode.Disposable {
     const p = this.pending;
     if (!p || p.id !== id) return;
     if (decision === 'always') {
-      this.shared.sessionAllowed.add(p.toolName);
+      this.shared.sessionAllowed.add(p.scopeKey);
     }
     p.resolve(decision === 'deny' ? 'deny' : 'allow');
   }

@@ -367,7 +367,7 @@ struct ChatDetail: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Ember.warn)
-                    .help("Allowed for this session without asking: \(store.sessionAllowed.sorted().joined(separator: ", ")). Click to ask every time again.")
+                    .help("Allowed for this session without asking: \(store.sessionAllowed.values.sorted().joined(separator: "; ")). Click to ask every time again.")
                 }
                 Image(systemName: "hand.raised")
                     .font(.system(size: 11))
@@ -595,12 +595,16 @@ struct ApprovalCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Ember.secondary)
             }
+            Text("Allow for This Session covers \(pending.scope.label), until Ingle quits.")
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.secondary)
+                .textSelection(.enabled)
             HStack(spacing: 8) {
                 Button("Deny") { store.resolve(false) }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Allow for This Session") { store.resolve(true, always: true) }
-                    .help("Don’t ask again for this kind of action until Ingle quits")
+                    .help("Don’t ask again for \(pending.scope.label) until Ingle quits")
                 Button("Allow") { store.resolve(true) }
                     .buttonStyle(.borderedProminent)
             }

@@ -67,7 +67,7 @@ export function isInProject(abs: string, ctx: Pick<ToolContext, 'settings' | 'wo
 /** null when reading is allowed (inside the project, or the user approved), else the denial text. */
 export async function checkRead(abs: string, ctx: ToolContext, what = 'a file'): Promise<string | null> {
   if (isReadableFreely(abs, ctx)) return null;
-  const answer = await ctx.requestApproval({ kind: 'read', title: `Wants to read ${what} outside the project`, detail: tidy(abs) });
+  const answer = await ctx.requestApproval({ kind: 'read', title: `Wants to read ${what} outside the project`, detail: tidy(abs) }, abs);
   return answer === 'allow' ? null : DENIED;
 }
 
