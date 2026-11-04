@@ -397,7 +397,7 @@ sidebar sections), new `Sources/Ingle/Project.swift` (folder, git info, rules fi
 **Done when.** You can start a Code chat on a folder, ask "what does this project do?" and get an answer without any
 approval prompts, and normal chats are unchanged.
 
-### [ ] 31. Code mode — coding tools in Swift (Mac app; after 30)
+### [x] 31. Code mode — coding tools in Swift (Mac app; after 30)
 **Why.** The Mac app has only `list_files`, `read_file`, `write_file` and `run_command`. VS Code has the tools that
 make small models good at code.
 **Do.** Port these from `Extensions/vscode/src/tools/` to Swift, offered only in Code mode, same names, arguments and
@@ -709,7 +709,7 @@ downloading the model.
 (settings, command), `shared/settings.ts`, `docs/vscode-extension.md`.
 **Done when.** Completions appear in under a second on an M-series Mac, and nothing runs while the switch is off.
 
-#### [ ] 15. Checkpoints: undo a whole run
+#### [x] 15. Checkpoints: undo a whole run
 **Why.** Approvals stop bad changes one at a time. Checkpoints make *all* of a run's changes reversible in one click.
 This pulls roadmap Phase 3 forward.
 **Do.** Before the first change to each file in a run, copy the original to `~/.ingle/checkpoints/<chat>/<run>/`
