@@ -55,6 +55,7 @@ commands and MCP servers follow you between the Mac app and your editor.
 | [building-and-releasing.md](building-and-releasing.md) | Prerequisites, `build.sh`, `local.env`, the extension, `export-release.sh`, git flow, versioning, signing plans |
 | [troubleshooting.md](troubleshooting.md) | Common problems and fixes |
 | [roadmap.md](roadmap.md) | Known gaps and planned work, including the Ingle Knowledge Portal |
+| [improvement-plan.md](improvement-plan.md) | The next concrete tasks, in waves, written so each can be handed to an agent (includes SSH access) |
 
 ## Conventions in these docs
 
