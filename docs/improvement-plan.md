@@ -36,7 +36,10 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
-| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 10 (benchmark, including an offline run), 11 (model picker) | 36 is merged |
+| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker) | 36 is merged |
+| **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
+
+**Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness, with Wi-Fi on and off. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
