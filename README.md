@@ -15,11 +15,17 @@ Private by design. Free per message. Yours to shape.
 ![Swift](https://img.shields.io/badge/Swift-SwiftUI-f05138)
 ![VS Code](https://img.shields.io/badge/VS%20Code-extension-007acc)
 ![Powered by Ollama](https://img.shields.io/badge/powered%20by-Ollama-000000)
+![Status: early preview](https://img.shields.io/badge/status-early%20preview-ffc861)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff9f6b)](CONTRIBUTING.md)
 
 [Get started](#-get-started) · [Features](#-what-it-does) · [How it works](#-how-it-works) · [Docs](docs/README.md) · [Contribute](#-contributing)
 
 </div>
+
+> [!WARNING]
+> **Early preview.** Ingle is new and still being tested — expect rough edges, and builds that sometimes need a fix.
+> It installs from source for now (no signed download yet), and the default models need about 32 GB of memory;
+> on smaller Macs, pick smaller models in Settings → Models. Bug reports and pull requests are very welcome.
 
 ---
 
