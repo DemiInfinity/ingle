@@ -35,7 +35,7 @@ are under our control:
 | **Repo map** — a ranked outline of the project so the model finds code without blind file reads | `repomap.ts` | Done (VS Code) |
 | **Suggestions, not pasted context** — matched skills/rules/research are offered as one-line hints the model opens if relevant; matching skips chatty messages and needs a clear winner | `SemanticMatcher.swift`, `matcher.ts` | Done |
 | **Honest chips** — the reply only lists what the model actually used, so you can see when it ignored a skill | `usedNames` / `used` | Done |
-| Check and override Ollama's tool-call parser for Qwen models (Modelfile `PARSER`/`RENDERER qwen3-coder`) | — | Not yet |
+| **Qwen tool-call format** — checked on Ollama 0.40.14: library Qwen models are fixed upstream (XML calls, `</think>` closed); GGUF imports like Ember's default arrive with no parser, so Ingle gives them the built-in `qwen3.5` renderer/parser after a pull. Parser drift ([#16383](https://github.com/ollama/ollama/issues/16383)) is still open | `ModelTuning.formatFix`, `fixFormatIfNeeded` in `Ollama.swift`; [engine.md](engine.md#qwen-tool-call-format) | Done |
 | An in-app tool-call test to compare quantisations (e.g. IQ4_XS vs Q4_K_XL) | — | Not yet |
 | Optional "bring your own API key" fallback for the hardest jobs | — | Not yet |
 

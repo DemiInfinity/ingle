@@ -138,6 +138,42 @@ The fuller plan (CI-built slim engines, real tool-call smoke tests, Developer ID
 [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md#3-keeping-ollama-updated) and
 [roadmap.md](roadmap.md).
 
+## Qwen tool-call format
+
+**Question.** [ollama/ollama#14493](https://github.com/ollama/ollama/issues/14493) (opened on 0.17.4) reported Qwen3.5
+being rendered and parsed with the wrong tool-call format (Hermes JSON instead of the Qwen3-Coder XML it was trained
+on), unclosed `<think>` tags in multi-turn history, and repetition penalties being ignored. The workaround in the thread
+was a Modelfile with `RENDERER qwen3-coder` / `PARSER qwen3-coder` (tool-call success 2/5 → 4/5, but `<think>` leaked
+into the reply). Does that still apply to the engine Ingle bundles (**Ollama 0.40.14**, checked 4 November 2026)?
+
+**Answer: fixed upstream for Ollama's own Qwen models; still broken for GGUF imports — which includes Ember's default.**
+
+- **Ollama library models** (`qwen3.6:35b-mlx`, Flint's `qwen3.8:27b-mlx`) ship `RENDERER qwen3.5`/`qwen3.8` and
+  `PARSER qwen3.5`. On 0.40.14 that renderer writes Qwen3-Coder XML tool calls (`<tool_call><function=…>`), closes
+  `</think>` before a tool call in history and adds the generation prompt after a tool result (checked with
+  `_debug_render_only`). The fix was [#14605](https://github.com/ollama/ollama/pull/14605) (merged 4 March 2026;
+  [#14603](https://github.com/ollama/ollama/pull/14603) was closed in its favour). A live test on Flint gave
+  **5/5** correct `list_files` calls with thinking on and nothing leaked into the reply. **Don't** apply the
+  `qwen3-coder` override to these — it loses thinking and is the older workaround.
+- **GGUF imports** such as Ember's default `hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS` arrive with **no
+  `PARSER`/`RENDERER`** and a short text template from Hugging Face that has no tools, no message history and an empty
+  `<think></think>` block (it even contains a broken `.Prompt }}`). Without a built-in renderer Ollama has nothing to
+  turn tool calls into, and asking for thinking fails with "does not support thinking".
+- **Still open upstream:** the model sometimes drifts from the XML format and the `qwen3.5` parser returns a 500 or
+  drops the call ([#16383](https://github.com/ollama/ollama/issues/16383), reported up to 0.40.7; tolerance PR
+  [#16398](https://github.com/ollama/ollama/pull/16398) not merged). #14493 itself is still open, mainly for
+  penalties.
+
+**What Ingle does.** `ModelTuning.formatFix` (`Ollama.swift`) matches a model with no renderer whose GGUF family is
+`qwen35` or `qwen35moe` (Qwen3.5/3.6/3.8), and `OllamaClient.fixFormatIfNeeded` rewrites it in place with
+`/api/create` (`from` = itself, `renderer`/`parser` = `qwen3.5`) — same name, same weights, no extra disk. It runs
+after every pull in Ingle and once per launch for Ember's and Flint's models. Models that already have a renderer are
+never touched. The VS Code extension needs no change: it uses the same engine, so it sees the fixed model.
+
+**Not verified.** The fix wasn't run against the real 18 GB Ember GGUF (not downloaded); the mechanism was checked on a
+small copy (it gained `tools` and `thinking` and the XML renderer). Whether `presence_penalty` (sent by `ModelTuning`
+for non-thinking Qwen turns) has any effect on the MLX and Go runners wasn't tested.
+
 ## Trade-offs
 
 | We chose | We gave up | Why |
