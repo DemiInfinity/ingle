@@ -36,7 +36,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
-| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker) | 36 is merged |
+| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
 
 **Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness, with Wi-Fi on and off. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
@@ -543,6 +543,46 @@ tab), new `docs/jobs.md`, `docs/ingle-home.md` (the `jobs/` folder), `PRIVACY.md
 checks you set up), `HelpTopics`, prompt facts.
 **Done when.** "Watch PR 42" with the `gh` CLI notifies you when CI finishes, without the model running between
 checks. A weekday-morning summary runs at 9:00. Both can be paused and edited as files.
+
+---
+
+## Wave 4e — Ingle in the terminal
+
+### [ ] 38. Command-line Ingle (`ingle`) (round D, before the benchmark)
+**Why.** You should be able to use Ingle straight from a terminal, the way Claude Code works: in any folder, over SSH,
+in scripts, and offline. The benchmark also needs a headless way to run tasks, and this is it.
+**Design.**
+- **Shared engine, not a fourth copy.** The VS Code extension's engine is mostly free of VS Code already. The
+  VS Code-specific parts are `chatEngine.ts` (about 55 uses), `tools/files.ts` (about 22), `repomap.ts`, `paths.ts`
+  and `engine/diff.ts`. Move the agent loop behind a small **`Host` interface** (workspace folders, read/write files,
+  show a diff, ask for approval, show progress, problems/diagnostics) into a VS Code-free core
+  (`Extensions/vscode/src/core/` or a sibling `Extensions/core/`). Then **VS Code** and the **CLI** each provide a
+  `Host`. VS Code behaviour must stay identical, and the existing tests must keep passing.
+- **Interactive mode:** `ingle` in a folder opens a chat in the terminal. Replies stream, thinking is folded away,
+  tool calls show as one-line rows, and diffs are coloured. Approvals are a prompt: **[y] allow · [s] allow for this
+  session · [n] deny** (same scopes as task 1; secrets always ask). Slash commands: `/effort`, `/model`, `/plan`,
+  `/compact`, `/new`, `/background`, `/exit`. The folder is the workspace (Code mode rules from task 30).
+- **One-shot mode for scripts:** `ingle -p "explain this error" < log.txt`, `git diff | ingle -p "review this"`,
+  `--json` for machine-readable output, `--effort`, `--model`, `--allow "run_command:npm test"` to pre-approve
+  specific scoped actions. With no terminal to ask in, anything not pre-approved is **denied**, never silently allowed.
+  Exit codes say whether it succeeded.
+- **Same brain.** It reads `~/.ingle` (rules, skills, commands, memory, secrets via the Keychain or the Mac app,
+  `mcp.json`, settings), uses the same engine (starts the bundled one from `Ingle.app` if it's installed and not
+  running, otherwise uses `OLLAMA_HOST`), and saves sessions under `~/.ingle/` so they can be resumed (`ingle
+  --resume`). Background jobs (task 36) started from the CLI show up in the Mac app's Jobs list via the editor bridge
+  when it's running.
+- **Install.** Settings → General → **Install command-line tool** (like VS Code's `code` command) symlinks `ingle`
+  into `/usr/local/bin` or `~/.local/bin`, plus `Extensions/cli/install.sh`. Node 18+ is required; say so clearly
+  if it's missing.
+- Works on Linux too (it's plain Node), which is a first step towards roadmap Phase 4.
+**Files.** The core extraction (`Extensions/vscode/src/engine/chatEngine.ts` → core + `VSCodeHost`,
+`tools/files.ts`, `repomap.ts`, `paths.ts`, `engine/diff.ts`), new `Extensions/cli/**` (entry point, terminal UI
+with no npm deps, `TerminalHost`, tests), `SettingsViews.swift` (install button), `build.sh` (copy the CLI into
+`Ingle.app/Contents/Resources/cli`), new `docs/cli.md`, `docs/README.md`, `CLAUDE.md` (build/check commands).
+**Done when.** `ingle` in this repo can answer questions, edit a file with an approved diff and run the tests.
+`git diff | ingle -p "review this" --json` works with no prompts and denies anything not pre-approved. The VS Code
+extension behaves exactly as before, with all tests passing. The benchmark (final round) can drive tasks through
+`ingle -p`.
 
 ---
 
