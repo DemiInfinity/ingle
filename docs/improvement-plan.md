@@ -35,7 +35,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | A | 29 (effort), 30 (Code mode foundation) | 28 is merged |
 | B | 31 (coding tools), 15 (checkpoints) | 8, 29 and 30 are merged |
 | B1 | 32 (workflow: task list, plan mode, changes panel using 15's undo, commit) | 15 is merged |
-| B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
+| B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion), 39 (previewer) | round B1 (32) is merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
@@ -427,6 +427,10 @@ approve, edits the files and runs the tests, with the same results as the VS Cod
   starts the work with it as the task list) and **Debug** (no edits until it has reproduced the bug and stated the
   cause with evidence; after the fix it must rerun the reproduction). Auto-approved actions are listed in the run log,
   so nothing is silent.
+- **Plans are Markdown files (the user's decision).** Saved as `<project>/.ingle/plans/YYYY-MM-DD-<slug>.md` (Code
+  chats) or `~/.ingle/plans/` (normal chats), with frontmatter (`title`, `status`, `chat`, `created`) and a `- [ ]` checklist.
+  The chat shows a plan card (Open · Approve · Edit). Approve reads the file, so your edits are what runs, and steps are
+  ticked in the file as they finish.
 - **Changes panel.** A list of every file changed in this run with its diff, plus **Undo this run** (task 15) and
   **Open in editor** (VS Code, or the default app).
 - **Commit.** A **Commit** button when the run changed files in a git repo. It drafts a message from the diff that you
@@ -681,6 +685,48 @@ with no npm deps, `TerminalHost`, tests), `SettingsViews.swift` (install button)
 `git diff | ingle -p "review this" --json` works with no prompts and denies anything not pre-approved. The VS Code
 extension behaves exactly as before, with all tests passing. The benchmark (final round) can drive tasks through
 `ingle -p`.
+
+---
+
+## Wave 4f — see files properly
+
+### [ ] 39. Previewer for Markdown, HTML and more (both apps; round B2)
+**Why.** Plans are now Markdown files (task 32), and assistants often write HTML pages, diagrams, SVGs, CSVs and
+READMEs. Like Claude's and Cursor's previews, you should see them rendered next to the chat, not as raw text.
+**Design.**
+- **Mac app:** a **preview pane** that slides in to the right of the chat (resizable, ⌥⌘P toggles it), with tabs for
+  several open files. It opens from plan cards, from file links in replies and tool rows (`write_file`/`edit_file`
+  results), from the changes panel, by dropping a file on it, and with `/preview <path>`.
+- **What it renders:**
+  - **Markdown** (GitHub-flavoured: tables, task lists with live ticks, code with Ingle's highlighting, **Mermaid**
+    diagrams, maths), with links to other local files opening in a new tab;
+  - **HTML** (with its CSS/JS, see safety below);
+  - **SVG**, images, **PDF** (PDFKit);
+  - **CSV/TSV** as a sortable table;
+  - **JSON/YAML** as a foldable tree;
+  - anything else as highlighted code.
+- **Preview / Source / Split** for text files. **Edit** in Source mode saves the file (plans especially), and an edit
+  made outside Ingle **reloads live** (file watcher). The preview always shows what's on disk.
+- **Safety (HTML runs code).** A separate `WKWebView` per tab with a **non-persistent** data store, **no network**
+  (a content rule list blocks every `http(s)` request, so pages can't call home or load trackers; it works offline),
+  file access limited to the file's own folder, no access to Ingle's bridge, no pop-ups. A small banner says "JavaScript
+  on · network blocked", and JavaScript can be switched off per tab. Never auto-opens HTML that came from the web.
+- **One renderer, both apps.** The Markdown/HTML renderer is a small page bundled in the app
+  (`Support/preview/`, with a Markdown parser and Mermaid shipped as files, MIT-licensed, credited in `LICENSING.md`;
+  nothing is fetched at runtime). **VS Code** uses the same page in a `WebviewPanel` (to the side, via an
+  **Open Preview** button on plan cards and file links), with the same no-network content security policy, so
+  previews look the same in both apps. The extension still has no runtime npm deps, since the renderer files are
+  static assets.
+- Plan cards and `PlanFiles.open(url)` (task 32) now open here. The assistant can open a file for you with an
+  `open_preview` tool (no approval: it only shows a file you could already see).
+**Files.** New `Sources/Ingle/Preview/` (`PreviewPane.swift`, `PreviewTabs.swift`, `WebPreview.swift`,
+`FileWatcher.swift`), `ChatViews.swift` (pane in the split view), `MessageViews.swift` (open links), `Support/preview/**`
+(renderer page and assets), `build.sh` (copy them), VS Code `src/ui/previewPanel.ts`, `media/chat.js` (Open Preview),
+`package.json` (assets), `LICENSING.md`, `PRIVACY.md` (previews make no network requests), `docs/mac-app.md`,
+`docs/vscode-extension.md`, `HelpTopics`.
+**Done when.** A plan file opens rendered beside the chat, ticks update live as the run goes, and editing the file
+changes what Approve runs. An HTML page with a script and an external `<img>` renders, its script runs, and the external
+request is blocked (checked in the web inspector). Mermaid, CSV, SVG and PDF render. Everything works with Wi-Fi off.
 
 ---
 
