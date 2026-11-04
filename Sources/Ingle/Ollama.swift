@@ -97,6 +97,28 @@ struct OllamaClient: Sendable {
         return obj["capabilities"] as? [String] ?? []
     }
 
+    /// Give a Qwen3.5-family GGUF import (e.g. Ember's hf.co default) Ollama's built-in tool-call format.
+    /// Those downloads come with a plain text template and no PARSER/RENDERER, so tools and thinking don't work.
+    /// Rewrites the model in place under the same name (same weights, no extra disk). Returns true if it changed.
+    @discardableResult
+    func fixFormatIfNeeded(_ model: String) async -> Bool {
+        var req = URLRequest(url: base.appendingPathComponent("api/show"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 10
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": model])
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        let renderer: String = obj["renderer"] as? String ?? ""
+        let details: [String: Any] = obj["details"] as? [String: Any] ?? [:]
+        let family: String = details["family"] as? String ?? ""
+        guard let fix = ModelTuning.formatFix(family: family, renderer: renderer) else { return false }
+        let body: [String: Any] = ["model": model, "from": model, "renderer": fix.renderer,
+                                   "parser": fix.parser, "stream": false]
+        do { try await post("api/create", body) } catch { return false }
+        return true
+    }
+
     func unload(_ model: String) async throws {
         try await post("api/generate", ["model": model, "keep_alive": 0])
     }
@@ -256,6 +278,16 @@ struct OllamaClient: Sendable {
 
 /// Sampling settings the model makers recommend, sent on every request rather than trusting Ollama's defaults.
 enum ModelTuning {
+    /// Ollama's own Qwen3.5/3.6/3.8 models use the built-in "qwen3.5" parser and renderer (Qwen3-Coder XML tool
+    /// calls with thinking — checked on Ollama 0.40.14). GGUF imports of the same models arrive without them.
+    /// See docs/engine.md, "Qwen tool-call format".
+    static func formatFix(family: String, renderer: String) -> (renderer: String, parser: String)? {
+        guard renderer.isEmpty else { return nil }                 // already has a built-in format: leave it alone
+        let qwen35Families: Set<String> = ["qwen35", "qwen35moe"]   // GGUF architecture names
+        guard qwen35Families.contains(family.lowercased()) else { return nil }
+        return ("qwen3.5", "qwen3.5")
+    }
+
     static func options(model: String, think: Bool, numCtx: Int) -> [String: Any] {
         var o: [String: Any] = ["num_ctx": numCtx]
         let m = model.lowercased()

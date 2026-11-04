@@ -53,6 +53,7 @@ final class ModelManager {
             running = models
             if version.isEmpty { version = (try? await client.version()) ?? "" }
             if let tags = try? await client.tags() { available = tags }
+            await fixFormats()
             let names = Set(models.map(\.name))
             if names.contains(Prefs.hardModel) { state = .hard }
             else if names.contains(Prefs.dailyModel) { state = .daily }
@@ -72,6 +73,19 @@ final class ModelManager {
             try? await client.load(Prefs.autoModel, keepAlive: "-1m")
         }
         lastState = state
+    }
+
+    /// Models already checked for the Qwen tool-call format fix this launch (one /api/show each).
+    private var formatChecked: Set<String> = []
+
+    /// Give the assistants' models the right tool-call format if they came without one (see `fixFormatIfNeeded`).
+    private func fixFormats() async {
+        let wanted: [String] = [Prefs.dailyModel, Prefs.hardModel]
+        let have: Set<String> = Set(available.map(\.name))
+        for model in wanted where have.contains(model) && !formatChecked.contains(model) {
+            formatChecked.insert(model)
+            await client.fixFormatIfNeeded(model)
+        }
     }
 
     /// Free autocomplete's memory while a big assistant is working (Smart mode only).
@@ -197,6 +211,7 @@ final class ModelManager {
                 return
             }
         }
+        for model in wanted { await client.fixFormatIfNeeded(model) }
         downloadStatus = "All models downloaded"
         await refresh()
     }
@@ -230,6 +245,8 @@ final class ModelManager {
             installStatus = "Couldn’t download \(label): \(error.localizedDescription)"
             return
         }
+
+        await client.fixFormatIfNeeded(tag)
 
         let old = role.currentModel
         if let key = role.prefKey { Prefs.d.set(tag, forKey: key) }
