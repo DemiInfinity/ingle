@@ -51,6 +51,32 @@ test('scan outline nests members and skips locals', () => {
   assert.equal(enclosingFunction(o, 5)?.name, 'approvalScope');
 });
 
+test('TypeScript methods with parameters over several lines are found, multi-line calls are not', () => {
+  const src = [
+    'class ChatEngine {',
+    '  private async reviewChanges(chat: StoredChat, model: string,',
+    '    signal: AbortSignal): Promise<void> {',
+    '    const notes = await this.runSubAgent(task, chat,',
+    '      model);',
+    '  }',
+    '  private planFirst(',
+    '    chat: StoredChat,',
+    '  ): boolean {',
+    '    return true;',
+    '  }',
+    '}',
+  ].join('\n');
+  const o = scanOutline(src, ts);
+  assert.deepEqual(o.map((s) => [s.name, s.kind, s.startLine, s.endLine, s.container ?? '']), [
+    ['ChatEngine', 'class', 1, 12, ''],
+    ['reviewChanges', 'method', 2, 6, 'ChatEngine'],
+    ['planFirst', 'method', 7, 11, 'ChatEngine'],
+  ]);
+  assert.equal(enclosingFunction(o, 4)?.name, 'reviewChanges');
+  assert.equal(matchDefinition(ts, '    doThing(first,', 'doThing'), undefined, 'a multi-line call is not a method');
+  assert.equal(matchDefinition(ts, '    this.post({', 'post'), undefined);
+});
+
 test('python outline uses indentation', () => {
   const o = scanOutline('class A:\n    def f(self):\n        x = 1\n        return x\n\ndef g():\n    pass\n', py);
   assert.deepEqual(o.map((s) => [s.name, s.startLine, s.endLine, s.depth]), [['A', 1, 4, 0], ['f', 2, 4, 1], ['g', 6, 7, 0]]);
@@ -63,6 +89,18 @@ test('codeMask blanks comments and strings but keeps positions', () => {
   assert.equal(m.split('\n')[0].includes('{'), false);
   assert.equal(m.split('\n')[1].includes('foo('), true);
   assert.equal(m.split('\n')[1].includes('bar'), false);
+});
+
+test('TypeScript regex literals are masked, divisions are not', () => {
+  const src = [
+    "const re = /run(Sub)Agent ['\"]/g; call(a);",
+    'const half = total / 2 / count; go(b);',
+    "if (/x[/']y/.test(s)) done(c);",
+  ].join('\n');
+  const m = codeMask(src, ts).split('\n');
+  assert.ok(!m[0].includes('Sub') && m[0].includes('call(a)'), m[0]);
+  assert.equal(m[1], 'const half = total / 2 / count; go(b);');
+  assert.ok(!m[2].includes('y') && m[2].includes('done(c)'), m[2]);
 });
 
 test('interpolated code stays visible', () => {

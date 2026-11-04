@@ -8,3 +8,4 @@ NOTES-*.md
 out-test/**
 test/**
 tsconfig.test.json
+scripts/**

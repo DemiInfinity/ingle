@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { disposeEngines } from './tools/codeintelCore';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -172,4 +173,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   if (timer) clearTimeout(timer);
+  return disposeEngines();   // stops code intelligence's language servers
 }

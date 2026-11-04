@@ -54,6 +54,10 @@ export const LANGUAGES: Language[] = [
       { src: `^\\s*(?:export\\s+)?(?:default\\s+)?(?:declare\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?<kw>function\\*?|class|interface|type|enum|namespace|module|const|let|var)\\s+NAME\\b` },
       // Methods: name(params) { — the parameter list must be balanced (one level) so calls like foo(() => { don't match.
       { src: `^\\s*${TS_MODS}\\*?NAME\\s*(?:<[^>]*>)?\\s*\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)\\s*(?::\\s*[^=;{]+)?\\s*\\{\\s*$`, kind: 'method' },
+      // Methods whose parameter list goes on over several lines: a typed first parameter and no closing ")",
+      // or at least one modifier and a lone "(" (a multi-line call has neither).
+      { src: `^\\s*${TS_MODS}\\*?NAME\\s*(?:<[^>]*>)?\\s*\\(\\s*(?:\\.\\.\\.)?[A-Za-z_$][\\w$]*\\??\\s*:[^()]*(?:\\([^()]*\\)[^()]*)*$`, kind: 'method' },
+      { src: `^\\s*(?:(?:public|private|protected|static|async|override)\\s+)+\\*?NAME\\s*(?:<[^>]*>)?\\s*\\(\\s*$`, kind: 'method' },
       { src: `^\\s*${TS_MODS}NAME\\s*[?!]?\\s*(?::[^=;]+)?=\\s*(?:async\\s+)?(?:\\([^)]*\\)|${IDENT})\\s*(?::[^=]+)?=>`, kind: 'method' },
       { src: `^\\s*${TS_MODS}NAME\\s*[?!]?\\s*:\\s*[^,;]+[;,]?\\s*$`, kind: 'property' },
     ],

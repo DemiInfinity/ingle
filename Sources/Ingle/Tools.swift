@@ -89,6 +89,7 @@ enum MacTools {
     ## How to work
     - Read files before editing them. Prefer edit_file with small, exact replacements over rewriting whole files.
     - Run tests or builds with run_command when it helps confirm a change works.
+    - Before changing something other code uses (a shared function, type or setting), run impact on it and check every place it lists. For questions about code, prefer exact results (references, callers, definition, diagnostics) to text search.
     - Use one tool at a time. If the user denies an action, don't retry it; ask what they'd like instead.
     - Never delete files, run sudo, or change system settings unless the user clearly asked.
     - When done, explain what you changed briefly, in plain words.
@@ -115,6 +116,7 @@ enum MacTools {
             return Info(title: "Use \(t?.name ?? call.name) (\(t?.server ?? "MCP"))", detail: args, icon: "puzzlepiece.extension")
         }
         if let code = CodeTools.describe(call) { return code }
+        if let intel = CodeIntel.describe(call) { return intel }
         switch call.name {
         case "use_skill": return Info(title: "Use a skill", detail: call.arg("name"), icon: "book")
         case "use_rule": return Info(title: "Check a rule", detail: call.arg("name"), icon: "list.bullet.rectangle")
@@ -259,6 +261,8 @@ enum MacTools {
             return false
         case "find_files", "search_code", "repo_map":
             return false   // Code mode only, and they only read inside the project
+        case "outline", "definition", "references", "callers", "callees", "impact", "diagnostics", "read_exhaustively":
+            return false   // code intelligence: Code mode only, read-only, and the engine refuses paths outside the project
         case "get_problems":
             return !call.arg("command").isEmpty   // runs the project's checks; nothing to run, nothing to ask
         case "memory_save", "memory_rewrite", "memory_forget":
@@ -311,7 +315,7 @@ enum MacTools {
         case "applescript": return await appleScript(call.arg("script"))
         default:
             // Code tools run through CodeTools.run with the chat's project folder (ChatStore.runTool).
-            if CodeTools.names.contains(call.name) { return "\(call.name) only works in Code mode." }
+            if CodeTools.names.contains(call.name) || CodeIntel.toolNames.contains(call.name) { return "\(call.name) only works in Code mode." }
             return "Unknown tool \(call.name)."
         }
     }

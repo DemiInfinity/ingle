@@ -44,6 +44,7 @@ import {
   MODES, newDebugState, WORK_MODES, type DebugState, type WorkMode,
 } from './modes';
 import { isDir, resolvePath as resolveToolPath, tidy } from '../tools/paths';
+import { noteChatText } from '../tools/codeintel';
 import { buildRepoMap } from '../tools/repomap';
 import { DENIED, str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
 import { ChatStore, NEW_TITLE, StoredChat, StoredMessage, uid } from './chatStore';
@@ -934,6 +935,7 @@ export class ChatEngine implements vscode.Disposable {
       try { return t.available(ctx); } catch { return false; }
     });
     const sshHosts = available.some((t) => t.name === 'ssh_command') ? enabledSSHHosts(ctx.settings) : [];
+    if (!ctx.isSubAgent) noteChatText(lastUser, ctx.workspaceRoot);   // the working set for code intelligence
     return selectTools({
       available, lastUser, isSubAgent: ctx.isSubAgent, active, delegate,
       mcpToolNames: MCP_TOOL_NAMES, mcpWanted: !ctx.isSubAgent && wantsMCP(lastUser.toLowerCase()), sshHosts, strictness,

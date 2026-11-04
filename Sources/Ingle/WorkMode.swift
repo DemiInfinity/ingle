@@ -149,7 +149,8 @@ struct DebugState {
     var confirmed = false
     var nudges = 0
 
-    private static let looking: Set<String> = ["read_file", "list_files", "find_files", "search_code", "repo_map", "get_problems", "run_command", "delegate"]
+    private static let looking: Set<String> = ["read_file", "list_files", "find_files", "search_code", "repo_map", "get_problems", "run_command", "delegate",
+                                               "outline", "definition", "references", "callers", "callees", "impact", "diagnostics", "read_exhaustively"]
     private static let runs: Set<String> = ["run_command", "get_problems"]
     private static let edits: Set<String> = ["edit_file", "write_file"]
 

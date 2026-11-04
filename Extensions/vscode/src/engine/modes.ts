@@ -109,7 +109,8 @@ export function autoApproval(mode: WorkMode, req: { kind: string; toolName: stri
 export interface DebugState { located: boolean; cause: boolean; edited: boolean; confirmed: boolean; nudges: number }
 export function newDebugState(): DebugState { return { located: false, cause: false, edited: false, confirmed: false, nudges: 0 }; }
 
-const LOOKING = new Set(['read_file', 'list_files', 'find_files', 'search_code', 'repo_map', 'get_problems', 'run_command', 'delegate']);
+const LOOKING = new Set(['read_file', 'list_files', 'find_files', 'search_code', 'repo_map', 'get_problems', 'run_command', 'delegate',
+  'outline', 'definition', 'references', 'callers', 'callees', 'impact', 'diagnostics', 'read_exhaustively']);
 const RUNS = new Set(['run_command', 'get_problems']);
 const EDITS = new Set(['edit_file', 'write_file']);
 

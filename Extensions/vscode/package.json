@@ -175,9 +175,12 @@
     }
   },
   "scripts": {
+    "engine": "node scripts/build-engine.js",
+    "postinstall": "node scripts/build-engine.js",
+    "precompile": "node scripts/build-engine.js",
     "compile": "tsc -p ./",
     "package": "vsce package --allow-missing-repository --skip-license",
-    "pretest": "rm -rf out-test && tsc -p tsconfig.test.json",
+    "pretest": "node scripts/build-engine.js && rm -rf out-test && tsc -p tsconfig.test.json",
     "test": "node --test out-test/test/*.test.js"
   },
   "devDependencies": {
