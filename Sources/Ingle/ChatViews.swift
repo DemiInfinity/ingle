@@ -312,6 +312,12 @@ struct ChatDetail: View {
                     .toggleStyle(PillToggleStyle())
                     .help("Let the assistant search and read web pages (read-only: no logins, forms or your local network)")
 
+                    Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
+                        Label("Mac", systemImage: "macbook")
+                    }
+                    .toggleStyle(PillToggleStyle())
+                    .help("Mac control: let the assistant open and drive apps (AppleScript) and look at your screen — asking before each action. Terminal commands and files work without this.")
+
                     Spacer(minLength: 8)
                     if !store.sessionAllowed.isEmpty {
                         Button { store.forgetSessionApprovals() } label: {
@@ -324,7 +330,9 @@ struct ChatDetail: View {
                     }
                     Image(systemName: "hand.raised")
                         .font(.system(size: 11))
-                        .help("The assistant can use your Mac and Terminal, but asks before every command, file change or app it opens")
+                        .help(conversation.macAccess
+                              ? "Terminal and Mac control are on — every command, file change and app action asks you first"
+                              : "Terminal is available and asks before every command or file change. Switch on Mac to let it control apps and see your screen.")
                     Button {
                         if streaming { store.stop() } else { send() }
                     } label: {

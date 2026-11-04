@@ -1,7 +1,9 @@
 import Foundation
 import AppKit
 
-/// "Mac access" tools the model can call. Anything that changes the Mac always needs approval.
+/// Tools for the user's Mac. Terminal tools (files and commands) are always available; Mac control
+/// (apps, AppleScript, screenshots) needs the Mac button on in the chat. Anything that changes the Mac
+/// or looks at the screen needs approval.
 enum MacTools {
     static func prop(_ description: String) -> [String: Any] {
         ["type": "string", "description": description]
@@ -20,10 +22,18 @@ enum MacTools {
              ["path": prop("File path")], required: ["path"]),
         tool("write_file", "Create or overwrite a text file on the user's Mac. The user must approve.",
              ["path": prop("File path"), "content": prop("The full new file contents")], required: ["path", "content"]),
-        tool("run_command", "Run a zsh command in Terminal on the user's Mac and return its output. The user must approve. Use for git, builds, scripts, osascript and searching.",
+        tool("run_command", "Run a zsh command in Terminal on the user's Mac and return its output. The user must approve. Use for git, builds, tests, scripts and searching.",
              ["command": prop("The command to run"), "cwd": prop("Optional working folder")], required: ["command"]),
+    ]
+
+    /// Controlling the Mac itself — only when the Mac button is on in the chat.
+    static let controlDefinitions: [[String: Any]] = [
         tool("open", "Open an app, file, folder or URL on the user's Mac. The user must approve.",
              ["target": prop("App name (e.g. Safari), path, or URL")], required: ["target"]),
+        tool("applescript", "Control apps on the user's Mac with AppleScript: tell an app to do something (play music, make a note, open a document, set a window), or use System Events to click buttons, choose menus and type. The user must approve each script.",
+             ["script": prop("The AppleScript to run")], required: ["script"]),
+        tool("screenshot", "Take a screenshot of the user's screen to see what's on it (asks the user first). Use it to check the result of what you did.",
+             [:], required: []),
     ]
 
     static let helpTool: [String: Any] = tool(
@@ -62,10 +72,18 @@ enum MacTools {
         - Look before you act: list or read files before changing them.
         - Use one tool at a time and explain briefly what you are about to do.
         - Never delete files, run sudo, or change system settings unless the user clearly asked.
-        - The user approves every command, write and open. If they deny one, don't retry it; ask what they want instead.
+        - The user approves every command and write (they may allow a kind of action for the session). If they deny one, don't retry it; ask what they want instead.
+        - Terminal is for files, code, git, builds and scripts. Don't use osascript or `open` from Terminal to control apps — that's Mac control, which has its own switch.
         - When done, summarise what you changed in plain words.
         """
     }
+
+    static let controlPrompt = """
+    Mac control is ON in this chat: you can open apps, files and links (open), drive apps with AppleScript (applescript — including System Events to click, choose menus and type), and look at the screen (screenshot). Each action asks the user first.
+    - Prefer an app's own AppleScript commands over clicking through its interface.
+    - After doing something visible, take a screenshot to check it worked, then say what you did.
+    - Never enter passwords, buy anything, send messages or delete things unless the user clearly asked for exactly that.
+    """
 
     struct Info {
         let title: String
@@ -116,6 +134,8 @@ enum MacTools {
             let cwd = call.arg("cwd")
             return Info(title: "Run a command", detail: cwd.isEmpty ? call.arg("command") : "cd \(cwd) && \(call.arg("command"))", icon: "terminal")
         case "open": return Info(title: "Open", detail: call.arg("target"), icon: "arrow.up.forward.app")
+        case "applescript": return Info(title: "Control the Mac (AppleScript)", detail: call.arg("script"), icon: "applescript")
+        case "screenshot": return Info(title: "Look at the screen", detail: "Takes a screenshot", icon: "camera.viewfinder")
         default: return Info(title: call.name, detail: call.arguments.map { "\($0.key): \($0.value)" }.joined(separator: ", "), icon: "wrench")
         }
     }
@@ -168,6 +188,7 @@ enum MacTools {
         case "write_file": return writeFile(call.arg("path"), call.arg("content"))
         case "run_command": return await shell(call.arg("command"), cwd: call.arg("cwd"))
         case "open": return await shell("open \(quoteForOpen(call.arg("target")))", cwd: "")
+        case "applescript": return await appleScript(call.arg("script"))
         default: return "Unknown tool \(call.name)."
         }
     }
@@ -214,6 +235,14 @@ enum MacTools {
         let escaped = "'" + t.replacingOccurrences(of: "'", with: "'\\''") + "'"
         if t.contains("://") || t.hasPrefix("/") || t.hasPrefix("~") { return t.hasPrefix("~") ? "\"$HOME\(t.dropFirst())\"" : escaped }
         return "-a " + escaped
+    }
+
+    /// Runs AppleScript from a temporary file, so quotes in the script don't need escaping.
+    private static func appleScript(_ script: String) async -> String {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ingle-\(UUID().uuidString).applescript")
+        do { try script.write(to: file, atomically: true, encoding: .utf8) } catch { return "Couldn't prepare the script." }
+        defer { try? FileManager.default.removeItem(at: file) }
+        return await shell("/usr/bin/osascript '\(file.path)'", cwd: "")
     }
 
     private static func shell(_ command: String, cwd: String) async -> String {

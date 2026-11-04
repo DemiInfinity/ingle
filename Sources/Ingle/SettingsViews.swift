@@ -533,7 +533,7 @@ struct MacAccessSettings: View {
     var body: some View {
         EmberForm {
             Section {
-                Text("The assistant can always look at files in these folders, and use your Mac and Terminal — but it asks you before every command, file change or app it opens (or once per session if you choose “Allow for This Session”).")
+                Text("The assistant can always read files in these folders and use Terminal, asking before every command or file change (or once per session with “Allow for This Session”). Switch on Mac in a chat to also let it control apps and see your screen.")
                     .font(.system(size: 12))
                     .foregroundStyle(Ember.secondary)
             }

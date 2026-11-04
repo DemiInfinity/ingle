@@ -422,7 +422,7 @@ final class ChatStore {
                 if let persona = Persona.systemPrompt(for: model, web: conv.webOn) { system.append(persona) }
                 if let block = CommandStore.promptBlock(tracker.commands) { system.append(block) }
                 // Only the short INGLE.md index goes in; details load on demand through tools.
-                system.append(IngleManifest.refresh(macAccess: true, project: project, web: conv.webOn, currentChat: id))
+                system.append(IngleManifest.refresh(macAccess: conv.macAccess, project: project, web: conv.webOn, currentChat: id))
                 if let editor {
                     system.append(editor.promptSection)
                     if let projectRules = editor.projectInstructions { system.append(projectRules) }
@@ -451,10 +451,13 @@ final class ChatStore {
                 if lastText.contains("skill") || lastText.contains("rule") { tools += KnowledgeTools.builderDefinitions }
                 if !SkillStore.all().isEmpty { tools.append(SkillStore.toolDefinition) }
                 if RuleStore.all(project: project).contains(where: { !$0.always }) { tools.append(RuleStore.toolDefinition) }
-                do {   // The Mac and Terminal are always available; every change asks first.
-                    system.append(MacTools.systemPrompt)
-                    tools += MacTools.definitions
-                    if !MCPManager.shared.servers.isEmpty { tools += MacTools.mcpTools }
+                // Terminal (files, commands) is always available and asks first; controlling the Mac needs the Mac button.
+                system.append(MacTools.systemPrompt)
+                tools += MacTools.definitions
+                if !MCPManager.shared.servers.isEmpty { tools += MacTools.mcpTools }
+                if conv.macAccess {
+                    system.append(MacTools.controlPrompt)
+                    tools += MacTools.controlDefinitions
                 }
                 tools = ToolSelection.filter(tools, lastUserText: lastText)
                 if lastText.contains("command") { tools.append(CommandStore.toolDefinition) }
@@ -592,7 +595,7 @@ final class ChatStore {
                     lastToolImages = []
                     if allowed {
                         activity = info.title + "…"
-                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: true)
+                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess)
                         activity = nil
                     }
                     tracker.record(call, succeeded: allowed)
@@ -627,6 +630,25 @@ final class ChatStore {
     // MARK: Tools that need the chat store
 
     private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool) async -> String {
+        if ["open", "applescript", "screenshot"].contains(call.name) && !mac {
+            return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Think and Web) if they want you to control apps or see the screen."
+        }
+        if call.name == "screenshot" {
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("ingle-screen-\(UUID().uuidString).png")
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            p.arguments = ["-x", file.path]
+            try? p.run()
+            p.waitUntilExit()
+            defer { try? FileManager.default.removeItem(at: file) }
+            guard let name = ImageStore.importImage(from: file) else {
+                return "Couldn't take a screenshot. macOS may need permission: System Settings → Privacy & Security → Screen & System Audio Recording → turn on Ingle, then try again."
+            }
+            lastToolImages = [name]
+            return await supportsVision(model)
+                ? "Here is the screen right now (attached)."
+                : "This model can't see images, so here is the text on the screen (attached below)."
+        }
         if call.name == "read_file" {
             let url = URL(fileURLWithPath: Prefs.expand(call.arg("path")))
             if DocumentReader.isImage(url) {
@@ -789,6 +811,7 @@ final class ChatStore {
         pool.append(SkillStore.toolDefinition)
         pool.append(RuleStore.toolDefinition)
         pool += MacTools.definitions
+        pool += MacTools.controlDefinitions
         pool += MacTools.mcpTools
         pool.append(CommandStore.toolDefinition)
         return pool
