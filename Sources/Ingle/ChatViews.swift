@@ -432,7 +432,7 @@ struct ContextMeter: View {
         HStack(spacing: 6) {
             ZStack {
                 Circle().stroke(Color.white.opacity(0.12), lineWidth: 2)
-                Circle().trim(from: 0, to: max(0.02, usage))
+                Circle().trim(from: 0, to: usage > 0 ? max(0.02, usage) : 0)
                     .stroke(usage > 0.75 ? Ember.accent : Ember.secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
@@ -445,7 +445,7 @@ struct ContextMeter: View {
                     .help("Summarise the older messages so the chat can keep going (or type /compact)")
             }
         }
-        .help("How much of the model’s context this chat uses. Ingle summarises older messages automatically at 75%.")
+        .help("How much of the model’s context this chat uses, including Ingle’s instructions and tools once you’ve sent a message. Ingle summarises older messages automatically at 75%.")
     }
 }
 

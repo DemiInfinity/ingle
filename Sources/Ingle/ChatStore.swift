@@ -914,6 +914,8 @@ final class ChatStore {
 
     /// Roughly how full the model's context is for this chat (0…1), for the meter under the message box.
     func contextUsage(_ conv: Conversation) -> Double {
+        // Nothing sent yet: nothing used (the instructions only count once there's a chat to send).
+        if conv.messages.isEmpty { return 0 }
         let start = (conv.messages.lastIndex { $0.compactedCount != nil }).map { $0 + 1 } ?? 0
         let summaryChars: Int = latestSummary(conv)?.count ?? 0
         var tokens = 3000 + summaryChars / 4   // system prompt and index, roughly
