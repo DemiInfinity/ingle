@@ -3,23 +3,39 @@ import AppKit
 
 // Code mode's views: the Chat / Code switch, the folder picker for a new Code chat, and the project chip.
 
-/// The Chat / Code switch at the top of the chat window (⌘⇧C).
+/// The Chat / Code switch, as two icons at the top of the sidebar (⌘⇧C). The window's top bar stays empty
+/// (the user's rule); the work mode shows in the message box's Mode pill.
 struct ModeSwitch: View {
     @Environment(ChatStore.self) private var store
 
     var body: some View {
-        HStack(spacing: 10) {
-            Picker("Mode", selection: Binding(get: { store.current?.isCode ?? false }, set: { store.switchMode(code: $0) })) {
-                Text("Chat").tag(false)
-                Text("Code").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 140)
-            .help("Chat for anything; Code to work on a project folder (⌘⇧C)")
-            // Only the Chat / Code switch lives in the top bar (the user's rule). The work mode shows in the
-            // message box's Mode pill.
+        let code: Bool = store.current?.isCode ?? false
+        HStack(spacing: 2) {
+            segment(icon: "bubble.left.and.bubble.right", label: "Chat",
+                    help: "Chat: for anything (⌘⇧C switches)", on: !code) { store.switchMode(code: false) }
+            segment(icon: "chevron.left.forwardslash.chevron.right", label: "Code",
+                    help: "Code: work on a project folder (⌘⇧C switches)", on: code) { store.switchMode(code: true) }
         }
+        .padding(3)
+        .background(Capsule().fill(Color.white.opacity(0.06)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Chat or Code")
+    }
+
+    private func segment(icon: String, label: String, help: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .frame(height: 26)
+                .foregroundStyle(on ? Ember.text : Ember.secondary)
+                .background(Capsule().fill(on ? Color.white.opacity(0.12) : Color.clear))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

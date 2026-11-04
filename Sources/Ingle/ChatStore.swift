@@ -1117,7 +1117,7 @@ final class ChatStore {
     private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool, commands: [IngleCommand] = [], env: [String: String] = [:]) async -> String {
         if ["open", "applescript", "screenshot"].contains(call.name) && !mac {
             if index(id).flatMap({ conversations[$0].codeFolder }) != nil {
-                return "Mac control is off in Code mode. If the user needs it, they can start a normal chat (Chat at the top of the window) and switch on the Mac button there."
+                return "Mac control is off in Code mode. If the user needs it, they can start a normal chat (the Chat icon at the top of the sidebar) and switch on the Mac button there."
             }
             return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Effort and Web) if they want you to control apps or see the screen."
         }

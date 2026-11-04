@@ -37,8 +37,8 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
 - **Never "I can't read all of that" (the user's principle).** If a codebase, file or log is too big, give the model a
   way in: the project map in `.ingle/map/` (task 40), the repo map, code intelligence, chunked reading. It works at the right level of
   detail instead of giving up.
-- **Where controls go (the user's rule).** The window's top bar holds **only the Chat / Code switch**; never add
-  badges, buttons or indicators there. **Anything that affects the chat goes in the message box**: its pill row
+- **Where controls go (the user's rule).** The window's top bar stays **empty** (the Chat / Code switch is a pair of
+  icons at the top of the sidebar); never add badges, buttons or indicators to the top bar. **Anything that affects the chat goes in the message box**: its pill row
   (Model, Effort, Mode, Web, Mac, …) or its ⋯ menu, styled like the existing pills. In VS Code, the same: chat controls
   live in the composer, not the tab's header.
 - Finish with a short report: what changed, what was checked, what wasn't.
@@ -400,7 +400,7 @@ runs the tests before finishing. At Max it shows a plan first and a review note 
 **Why.** The Mac app is a chat. To use it the way Claude Code works, a chat needs to belong to a **project folder**,
 with coding tools and a coding prompt, while normal chats stay simple.
 **Design.**
-- A **Chat / Code** switch at the top of the chat window (and ⌘⇧C). New Code chats ask for a folder (picker, drag a
+- A **Chat / Code** switch, two icons at the top of the sidebar (and ⌘⇧C). New Code chats ask for a folder (picker, drag a
   folder in, or a recent project). The folder is shown as a chip with the git branch.
 - The sidebar gets two sections: **Chats** and **Code**. Code chats are grouped by project. Storage is ready for roadmap
   Phase 3's `~/.ingle/coding/<project>/` but can stay in the current store for now.

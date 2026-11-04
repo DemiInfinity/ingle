@@ -86,7 +86,7 @@ A chat can belong to a project folder, the way Claude Code works, while normal c
 [`Project.swift`](../Sources/Ingle/Project.swift) has the folder logic; views are in
 [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift).
 
-- **Switch:** **Chat / Code** at the top of the window (`ModeSwitch`), or ⇧⌘C. A new Code chat asks for a folder
+- **Switch:** **Chat / Code** icons at the top of the sidebar (`ModeSwitch`), or ⇧⌘C. A new Code chat asks for a folder
   (`ProjectPicker`: Choose Folder…, drop a folder in, or a recent project — the last eight, `Prefs.K.recentProjects`).
   The folder shows as a chip with its git branch; it can be changed until the first message. A Code chat is blank
   and unsaved until its first message, like any new chat.
@@ -252,7 +252,7 @@ servers and the engine Ingle started are stopped.
 | [`Prefs.swift`](../Sources/Ingle/Prefs.swift) | 320 | `Prefs` keys and defaults, `Persona` (defaults and `systemPrompt`), `ModelNames`, `ModelProfiles`, `Companion` |
 | [`Manifest.swift`](../Sources/Ingle/Manifest.swift) | 170 | `IngleManifest` (`INGLE.md`), `HelpTopics` |
 | [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
-| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (with the mode badge), `ProjectPicker`, `ProjectChip` |
+| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (the Chat / Code icons at the top of the sidebar), `ProjectPicker`, `ProjectChip` |
 | [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift) | 260 | `WorkMode` (Ask · Edit · Auto · Plan · Debug: labels, prompt lines, `riskyCommand`, `autoApproval`), `DebugState`, `ModeMenu`, `ModeBadge` — in step with `modes.ts` |
 | [`PlanFiles.swift`](../Sources/Ingle/PlanFiles.swift) | 260 | `PlanFiles` (plan Markdown files: path, render, parse, tick, `open`), `PlanRef`, `PlanCard` — in step with `planFiles.ts` |
 | [`TaskList.swift`](../Sources/Ingle/TaskList.swift) | 250 | `TaskItem`, `TaskList` (update_tasks parsing, prompt, plan → tasks, plan mode tools and wording, steering text), `TaskListView`, `PlanApproveBar` |
