@@ -46,7 +46,7 @@ commands and MCP servers follow you between the Mac app and your editor.
 | [mac-app.md](mac-app.md) | Mac app features and where each lives; file-by-file map of `Sources/Ingle` |
 | [vscode-extension.md](vscode-extension.md) | `EngineShared` vs per-tab `ChatEngine`, webview protocol, tools, settings, `install.sh`, file map |
 | [agent-loop.md](agent-loop.md) | Prompt assembly, tool selection, approvals, the loop and its guards, compaction, sub-agents, thinking, tuning, vision |
-| [terminal-and-mac-control.md](terminal-and-mac-control.md) | The two levels of access, approvals and session allowances, AppleScript, screenshots, macOS permissions |
+| [terminal-and-mac-control.md](terminal-and-mac-control.md) | The two levels of access, SSH to your own servers, approvals and session allowances, AppleScript, screenshots, macOS permissions |
 | [commands.md](commands.md) | The obedience layer: concept, file format, enforcement, examples, Mac vs VS Code |
 | [ingle-home.md](ingle-home.md) | Every file format in `~/.ingle`, with examples, and other data locations |
 | [engine.md](engine.md) | Bundling and slimming Ollama (`INGLE_MLX`), auto-start, remote servers, `EngineUpdater` |

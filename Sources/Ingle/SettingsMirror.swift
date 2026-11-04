@@ -76,6 +76,7 @@ final class SettingsMirror {
                     "searxngURL": Prefs.searxngURL, "braveKey": Prefs.braveKey],
             "memory": ["enabled": Prefs.memoryEnabled, "askFirst": Prefs.memoryAskFirst],
             "workspaceFolders": Prefs.workspaceFolders,
+            "ssh": ["enabled": Prefs.sshEnabled, "hosts": Prefs.sshHosts],
             "useClaudeSkills": Prefs.useClaudeSkills,
             "smartMatching": Prefs.smartMatching,
             "mcpDisabled": Array(MCPManager.shared.disabledNames).sorted(),

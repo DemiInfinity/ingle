@@ -36,6 +36,7 @@ are not sent to an AI company.
 | **Checking for engine updates** (once a day; can be turned off in Settings → General) | A request for the latest version number | GitHub (`api.github.com`) |
 | **You update the engine** | A download request | GitHub |
 | **You approve a command, an MCP tool or opening a link** | Whatever that command, tool or link does | The service it talks to |
+| **SSH is on and you approve a command on one of your servers** | That command, through your own SSH setup | Only that server, one you set up in `~/.ssh/config` and ticked in Settings → Mac Access → SSH |
 
 Ingle blocks the assistant's web reading from reaching addresses on your local network, and the web tools only read
 — they can't log in, fill in forms or post anything. Like any website visit, the sites and search services
@@ -47,7 +48,9 @@ Ingle doesn't send crash reports, usage statistics or identifiers. There is no "
 
 Ingle can only see your files when you let it: **Mac access** is off by default in each chat, and in VS Code the
 assistant works inside the project you have open. Changing files, running commands, opening apps and using
-MCP tools each show an approval card first. Files you attach are read on your Mac. Text in images is read by
+MCP tools each show an approval card first. **SSH** (off by default) connects only to servers you configured and
+ticked, only when you approve a command; Ingle uses your SSH keys or ssh-agent, never asks for or stores passwords,
+and sends nothing anywhere else. Files you attach are read on your Mac. Text in images is read by
 macOS on your Mac when the model can't see images.
 
 ## Other software

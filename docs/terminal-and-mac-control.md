@@ -7,9 +7,11 @@ an approval card first.
 |---|---|---|---|
 | **1. Terminal** | `list_files`, `read_file`, `write_file`, `run_command` (VS Code also `find_files`, `search_code`, `get_problems`, `edit_file`, `read_document`, `view_image`, `open_url`) | **Always**, in every chat | Writes, edits and commands: always. Reads: only outside your workspace folders. |
 | **2. Mac control** (Mac app only) | `open`, `applescript`, `screenshot` | Only when the **Mac** button in that chat's message bar is on | Every action |
+| **SSH** (your own servers) | `ssh_command` | Only when SSH is on in Settings → Mac Access → SSH (off by default) and the message is about a server | Every command |
 
 Code: [`../Sources/Ingle/Tools.swift`](../Sources/Ingle/Tools.swift) (`MacTools.definitions`,
 `MacTools.controlDefinitions`, `MacTools.needsApproval`, `MacTools.run`),
+[`../Sources/Ingle/SSH.swift`](../Sources/Ingle/SSH.swift) (`SSH`, `CommandRunner`),
 [`../Sources/Ingle/ChatStore.swift`](../Sources/Ingle/ChatStore.swift) (`runTool`, `requestApproval`, `resolve`),
 [`../Extensions/vscode/src/tools/files.ts`](../Extensions/vscode/src/tools/files.ts),
 [`command.ts`](../Extensions/vscode/src/tools/command.ts), [`paths.ts`](../Extensions/vscode/src/tools/paths.ts).
@@ -41,11 +43,11 @@ is mostly guesswork, and every command or write still needs your approval.
 - **`edit_file`** (VS Code) replaces one exact piece of text; see
   [vscode-extension.md](vscode-extension.md#editing-files-safely).
 - **`run_command`** runs `zsh -lc "<command>"` (a login shell, so your `PATH` from Terminal applies) with a
-  **2-minute timeout**; output (stdout and stderr together) is capped at 20,000 characters.
-  - Mac: optional `cwd` anywhere; runs detached from the UI.
-  - VS Code: runs in the project folder; `cwd` must be **inside the project**. Output has ANSI colours stripped,
-    `TERM=dumb`, `NO_COLOR=1`, pagers off, and keeps the start and mostly the end. **Stop** kills the whole process
-    group.
+  **2-minute timeout**; output (stdout and stderr together) has ANSI colours stripped and is capped at 20,000
+  characters, keeping the start and mostly the end.
+  - Mac: optional `cwd` anywhere; runs off the main thread (`CommandRunner`). **Stop** ends the command.
+  - VS Code: runs in the project folder; `cwd` must be **inside the project**. `TERM=dumb`, `NO_COLOR=1`, pagers
+    off. **Stop** kills the whole process group.
 - **`open_url`** (VS Code) opens an http(s) link in your browser after approval.
 
 The prompt also tells models: look before you act, one tool at a time, never delete files, use `sudo` or change
@@ -83,6 +85,30 @@ same one (`INGLE_BUNDLE_ID` in `local.env`) or macOS treats a rebuild as a new a
 Because Ingle is ad-hoc signed during the preview, macOS may forget these grants after a rebuild; see
 [troubleshooting.md](troubleshooting.md#macos-permissions-applescript-screenshots-rider).
 
+## SSH: commands on your own servers
+
+SSH lets the assistant run commands on **your own servers** — a home server, a NAS, a dev box, a Raspberry Pi.
+
+- **Turn it on** in Settings → Mac Access → SSH (off by default), then tick the hosts Ingle may use. The list is
+  every plain `Host` alias in `~/.ssh/config` and the files it `Include`s; wildcard and negated patterns
+  (`Host *`, `Host !foo`) and `Match` blocks are skipped. The setting is mirrored to `~/.ingle/settings.json` as
+  `"ssh": { "enabled": false, "hosts": [] }` for VS Code.
+- **Hosts come from you, never the model.** `ssh_command { host, command, cwd? }` only accepts an alias that is both
+  in `~/.ssh/config` and ticked. Anything else — an unticked host, `user@1.2.3.4`, `host:22` — is refused with
+  "That host isn't set up for Ingle. Add it in Settings → Mac Access → SSH." without asking you.
+- **It runs the Mac's own client:** `/usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes
+  -T <alias> -- <command>`, with `cd <cwd> &&` in front when `cwd` is given (single-quoted; a leading `~` becomes
+  `"$HOME"`). `BatchMode` means **keys or ssh-agent only — Ingle never asks for, stores or types passwords.** An
+  unknown or changed host key fails, and the result tells the model to ask you to run `ssh <alias>` once in Terminal.
+- **Same limits as `run_command`:** 2 minutes, ANSI codes removed, output trimmed to the start and end, **Stop**
+  ends it (this closes the connection; a remote program that ignores the hang-up may keep running).
+- **Always asks.** The card shows the host in large type ("on **homelab** over SSH") and the exact command.
+  "Allow for This Session" covers only the same command on the same host in the same folder.
+- **Offered only when relevant:** with SSH on, `ssh_command` is offered when the message mentions `ssh`, `server`,
+  `remote` or a ticked host name. A command with `must_use: ssh_command` offers it every turn (still only while SSH
+  is on). With SSH off it is never offered.
+- The prompt tells every model the ticked host names and never to try other hosts.
+
 ## Approvals
 
 ```mermaid
@@ -101,7 +127,7 @@ flowchart LR
 
 | Never asks | Asks only sometimes | Always asks |
 |---|---|---|
-| `use_skill`, `use_rule`, `ingle_help`, `mcp_tools`, `web_search`, `web_fetch`, `memory_search`, `memory_read`, `chat_*`, `report_*`, `delegate`, VS Code's `find_files`, `search_code`, `get_problems`, `repo_map` | `list_files`, `read_file` (and VS Code `read_document`, `view_image`): outside workspace folders. `memory_save`, `memory_rewrite`, `memory_forget`: if **Ask before saving** is on. | `write_file`, `edit_file`, `run_command`, `open_url`, `open`, `applescript`, `screenshot`, `mcp_call`, `skill_create`, `rule_create`, `command_create`, any other tool |
+| `use_skill`, `use_rule`, `ingle_help`, `mcp_tools`, `web_search`, `web_fetch`, `memory_search`, `memory_read`, `chat_*`, `report_*`, `delegate`, VS Code's `find_files`, `search_code`, `get_problems`, `repo_map` | `list_files`, `read_file` (and VS Code `read_document`, `view_image`): outside workspace folders. `memory_save`, `memory_rewrite`, `memory_forget`: if **Ask before saving** is on. | `write_file`, `edit_file`, `run_command`, `ssh_command`, `open_url`, `open`, `applescript`, `screenshot`, `mcp_call`, `skill_create`, `rule_create`, `command_create`, any other tool |
 
 **The card** shows what will happen in plain words ("Run a command", "Wants to edit a file") and the exact detail —
 the command (with `cd <cwd> &&`), the path, the AppleScript, the MCP arguments as JSON, the command file that would
@@ -125,6 +151,7 @@ with the same scope run without asking. The card says what the button covers, e.
 | `open` (Mac), `open_url` (VS Code) | exact target / URL | opening Safari again | opening Mail |
 | `applescript` | exact script | the identical script | any change to it |
 | `screenshot` | (no arguments) | further screenshots | — |
+| `ssh_command` | host + exact command + `cwd` | `df -h` on `homelab` again | `df -h` on `nas`, `rm -rf /tmp/x` on `homelab` |
 | `mcp_call` and MCP tools | `server/tool` | `github/list_issues` with any arguments | `github/create_issue` |
 | anything else | exact arguments | the identical call | any other arguments |
 
@@ -152,6 +179,7 @@ write anything, so they never use these allowances for changes.
 | **Mac control behind a per-chat switch** | Convenience | AppleScript and screenshots reach every app and everything on screen — mail, messages, banking — so they need a deliberate, visible opt-in per chat on top of approvals. |
 | **Session allowances by narrow scope** (exact command + folder, one folder for writes, `server/tool` for MCP) | Allowing a whole kind of action at once; command prefixes and wildcards; per-chat allowances | Approving every `npm test` in a long task is tiring, and approval fatigue makes people click Allow without reading — but allowing *all* commands after one meant a confused or misled model could run anything. A narrow, clearly-labelled, memory-only allowance keeps repeated steps quick without handing over the whole machine. You will still see a card for each new command. |
 | `zsh -lc` login shell | A clean, predictable environment | Your Terminal `PATH` (Homebrew, nvm, pyenv) just works; but login scripts run every time and can be slow or noisy. |
+| **SSH by ticked `~/.ssh/config` alias, keys only** | Typing an address or a password in chat | Hosts chosen in Settings can't be swapped by a misled model, and Ingle never touches a secret: your SSH setup does the authentication, exactly as in Terminal. |
 | 2-minute command timeout | Long builds and dev servers | Keeps the loop responsive; a model can't leave a server running in the background. Long jobs should be run by you in Terminal. |
 | AppleScript via a temp file and `osascript` | Running scripts in-process with `NSAppleScript` | No escaping bugs, the same behaviour you'd get in Script Editor, and permissions are attributed to Ingle. |
 | VS Code limits `run_command`'s `cwd` to the project; Mac doesn't | Consistency | VS Code is project-scoped by nature; the Mac app is a general assistant whose workspace can be anywhere. |
