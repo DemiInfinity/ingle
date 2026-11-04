@@ -25,6 +25,9 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
   coverage, compaction, suggestions) starts from what the user is working on: open/selected files, files changed in
   `git status`, files the chat mentions, and their direct neighbours (imports, callers, tests). Look wider only when the
   task needs it, and say so. Never index or read a whole project up front. Small context windows stay focused this way.
+- **Never "I can't read all of that" (the user's principle).** If a codebase, file or log is too big, give the model a
+  way in: the project guide (task 40), the repo map, code intelligence, chunked reading. It works at the right level of
+  detail instead of giving up.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
 ---
@@ -41,7 +44,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B1 | 32 (workflow: task list, plan mode, changes panel using 15's undo, commit) | 15 is merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion), 39 (previewer) | round B1 (32) is merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
-| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle) | 36 is merged |
+| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle), 40 (learn this project) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
 
 **Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
@@ -731,6 +734,52 @@ READMEs. Like Claude's and Cursor's previews, you should see them rendered next 
 **Done when.** A plan file opens rendered beside the chat, ticks update live as the run goes, and editing the file
 changes what Approve runs. An HTML page with a script and an external `<img>` renders, its script runs, and the external
 request is blocked (checked in the web inspector). Mermaid, CSV, SVG and PDF render. Everything works with Wi-Fi off.
+
+---
+
+## Wave 4g — learn the project
+
+### [ ] 40. "Learn this project": a map and a guide the model reads (both apps + CLI; round D)
+**Why.** A small model can't hold a whole codebase in 16–32K tokens, but it doesn't need to. Like a new developer,
+it needs a good **guide at several levels of detail**: what the project is, how it's laid out, what each part does, and
+where things live. Ingle builds that guide, keeps it current, and the model zooms in from it to the actual code. This is
+"knowledge in files, not weights" applied to your projects.
+**Design.**
+- **Levels of detail** (each small enough for the context window):
+  1. `OVERVIEW.md` (≤ about 800 tokens): what the project is, the stack, how to build/test/run, entry points, the
+     main folders, conventions. Seeded from the project's own README/`CLAUDE.md`/`AGENTS.md`, never overwriting them.
+  2. One **module guide** per meaningful folder: its purpose, key files, key types/functions (with `file:line`), what it
+     depends on and what depends on it, gotchas.
+  3. **File notes** for important or large files: a short summary and its symbols.
+  Plus `GLOSSARY.md` (project terms → where they live) and `HOWTO.md` (recipes found in the code, e.g. "add an
+  endpoint: route in X, handler in Y, test in Z").
+- **Facts first, prose second.** Structure, symbols, imports and dependencies, build/test commands and git history
+  hot spots come from **static analysis** (`ingle-code`, task 33): exact and instant, no model needed. The local model
+  only writes the short summaries, working **bottom-up** (files → folders → overview), so each step fits its context.
+- **Stored with the project:** `<project>/.ingle/guide/`, plain Markdown, viewable in the previewer (task 39). You
+  can edit it, and sections you edit are marked and never overwritten. Whether to commit it is your choice.
+- **Kept current cheaply:** each note records the hashes of the files it covers. After changes (on commit, or when
+  `git status` shows edits), only the affected notes, and then their parents, are rewritten, as a background job (task
+  36), on mains power, never while you're chatting. Stale notes are labelled "may be out of date" until refreshed.
+- **How the model uses it:** in Code mode, the prompt always has `OVERVIEW.md` plus the guides for the working set's
+  modules. Tools: `project_guide(path?)` (overview, or the guide for a folder or file) and `find_concept("payments")`
+  (searches the guide with the existing nomic-embed-text embeddings, and returns the right module guides and
+  `file:line`s). The model goes overview → module → code, instead of reading blindly.
+- **Kept honest:** every note cites `file:line`, and a checker flags notes whose cited symbols no longer exist, so
+  they get rebuilt. Claims are about what the code does, not guesses about intent.
+- **Starting it:** **Learn this project** on the Code mode folder chip, `/learn`, or `ingle learn` in the CLI. It shows
+  progress and an estimate (a first build of a mid-sized repo may take a while on a laptop) and can be paused.
+  Offline throughout.
+- **Measured:** the benchmark (final round) gets an ablation `--no-project-guide` and adds "understanding" tasks on a
+  larger fixture project, to show what the guide adds.
+**Files.** `Extensions/ingle-code/src/engine/guide/` (structure and fact extraction, staleness hashes, shared by
+both apps and the CLI), new `Sources/Ingle/ProjectGuide.swift` (Mac: start, show progress, prompt inclusion, tools),
+VS Code `src/tools/guide.ts`, CLI `learn` command, prompt facts, `HelpTopics`, `docs/project-guide.md` (new),
+`docs/ingle-home.md`.
+**Done when.** On this repo, Learn this project produces an overview and module guides that are accurate (spot-check 10
+claims against the code) and fit their token budgets. After editing one file, only its notes and parents are refreshed.
+Ember answers "how does the approval flow work?" correctly by going overview → module guide → code, and does better
+with the guide than without it.
 
 ---
 
