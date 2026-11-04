@@ -276,6 +276,132 @@ Everything else (assistants, models, context lengths, web, memory, workspace fol
 
 Then reload VS Code and click the orange Ingle icon at the top right of any open file.
 
+## Remote workspaces
+
+*Research note (November 2026). Nothing here is built yet.* This covers windows opened through **Remote-SSH**,
+**Dev Containers** and **WSL**. In all three, VS Code runs two extension hosts: a local one on the Mac (the "UI" side)
+and a remote one inside the server, container or WSL distro (the "workspace" side). Each extension runs in only one of
+them, picked by `extensionKind` in `package.json`.
+
+### Current behaviour
+
+`package.json` has **no `extensionKind`**, and it has a `main` entry but no `browser` entry. VS Code then infers
+`["workspace"]`, so the extension runs **on the remote machine**. The docs don't spell out this rule; it comes from
+VS Code's own manifest handling (`deduceExtensionKind`): code with `main` → workspace. In practice:
+
+- **Installed only on the Mac** (what `install.sh` does). In a remote window the Extensions view shows Ingle as
+  needing *Install in SSH: ‹host›* and it doesn't activate. There's no Ingle icon and no chat.
+- **Installed on the remote** (the user clicks that button, or copies the `.vsix` over). It activates on the remote,
+  where almost everything Ingle depends on is missing:
+
+| Dependency | Where the code looks | Result on the remote |
+|---|---|---|
+| Engine `http://localhost:11434` ([`engine/ollama.ts`](../Extensions/vscode/src/engine/ollama.ts), [`engine/server.ts`](../Extensions/vscode/src/engine/server.ts)) | `localhost` of the remote host | Nothing is listening. `enginePath` (a Mac path) doesn't exist, so `doStart` can't start it either → "offline". Ingle can't chat at all. |
+| `~/.ingle` and `settings.json` ([`shared/settings.ts`](../Extensions/vscode/src/shared/settings.ts), [`tools/stores.ts`](../Extensions/vscode/src/tools/stores.ts)) | `os.homedir()` on the remote | Empty or missing. Defaults apply; no rules, skills, commands, memory, research or MCP servers. Memory written there is lost to the Mac. |
+| Editor bridge `127.0.0.1:47123` ([`extension.ts`](../Extensions/vscode/src/extension.ts)) | `~/.ingle/bridge-token` and `127.0.0.1` on the remote | No token, so it quietly does nothing. The Mac app never hears about the project. |
+| File tools ([`tools/files.ts`](../Extensions/vscode/src/tools/files.ts), [`tools/paths.ts`](../Extensions/vscode/src/tools/paths.ts), [`tools/repomap.ts`](../Extensions/vscode/src/tools/repomap.ts)) | Node `fs` with `uri.fsPath` | **Works**: the files are local to that host. |
+| `run_command` ([`tools/command.ts`](../Extensions/vscode/src/tools/command.ts)) | `child_process.spawn` with `/bin/zsh -lc`, else `$SHELL`, else `/bin/sh` | **Works, and runs on the remote**, which is usually what the user wants. Falls back to `bash`/`sh` on Linux. |
+| Documents and images ([`tools/documents.ts`](../Extensions/vscode/src/tools/documents.ts)) | `textutil`, `sips`, JXA (macOS only) | `IS_MAC` is false: Word/RTF/PDF/OCR say "needs macOS" and images aren't resized. DOCX/PPTX/XLSX still work if `unzip` is installed on the remote. |
+| MCP servers ([`tools/mcp.ts`](../Extensions/vscode/src/tools/mcp.ts)) | Spawned on the remote from remote `~/.ingle/mcp.json` | No config, so no servers. |
+| Companion fact ([`engine/prompt.ts`](../Extensions/vscode/src/engine/prompt.ts)) | `process.platform === 'darwin'` | Says "only Ingle for VS Code is available", which is wrong. |
+| Chat history ([`engine/chatStore.ts`](../Extensions/vscode/src/engine/chatStore.ts)) | `globalStorageUri` on the remote | Separate from local chats; works. |
+| `open_url` (`vscode.env.openExternal`) | Forwarded to the Mac by VS Code | Works. |
+
+So today Ingle is either missing from remote windows or present but unable to reach its engine. The one thing that
+works better remotely is that commands and file tools act on the remote machine.
+
+**WSL** is a Windows feature, and the extension is Mac-only for now (see the
+[roadmap](roadmap.md#windows-and-linux-for-the-extension)). The same split applies once a Windows build exists:
+the engine and `~/.ingle` would be on Windows, the workspace in the distro. **Dev Containers** behave exactly like
+Remote-SSH, with the container as the remote. **Codespaces / vscode.dev** use a web extension host, which needs a
+`browser` entry we don't have, so they're out of scope.
+
+### Recommended change
+
+Run Ingle **on the Mac** (UI side), because the engine, `~/.ingle`, the Mac app and the macOS tools all live there.
+Then reach the workspace through VS Code's APIs, which route to the remote for you. File by file:
+
+1. **[`package.json`](../Extensions/vscode/package.json)**: add `"extensionKind": ["ui"]`. Not
+   `["ui", "workspace"]`: falling back to the remote host would quietly bring back every problem above. Bump
+   `engines.vscode` to `^1.93.0` for the stable terminal shell-integration API (step 4).
+2. **Workspace paths → URIs.** In a remote window, workspace URIs have the `vscode-remote` scheme, and
+   `uri.fsPath` is a remote path that Node `fs` on the Mac can't open. Keep the model-facing text as plain paths,
+   but resolve them to `vscode.Uri`s:
+   - [`tools/paths.ts`](../Extensions/vscode/src/tools/paths.ts): `baseFolder` returns the workspace folder's
+     `Uri`; `resolvePath` returns a `Uri` built with `vscode.Uri.joinPath(folder.uri, rel)` (or
+     `folder.uri.with({ path })` for absolute paths). `real`, `exists`, `isDir` and the "inside the project" check
+     use `vscode.workspace.fs.stat` and compare URIs, not paths. Under a remote authority, `~` means the remote
+     home: get it once by running `echo $HOME` through step 4, or treat `~` as out of the project and ask.
+     `tidy` must stop using `vscode.Uri.file`.
+   - [`tools/files.ts`](../Extensions/vscode/src/tools/files.ts): `read_file`, `list_files`, `search` and
+     `write_file`/`edit` use `vscode.workspace.fs.readFile`/`readDirectory`/`stat`/`writeFile`/`createDirectory`
+     (decode with `TextDecoder`). Compare open documents by `uri.toString()`, not `fsPath`. `findFiles` and
+     diagnostics already work remotely.
+   - [`tools/repomap.ts`](../Extensions/vscode/src/tools/repomap.ts): read files through `vscode.workspace.fs`.
+     Replace `execFile('git', ['status', '--porcelain'])` with the built-in Git extension's API
+     (`vscode.extensions.getExtension('vscode.git')`, `repository.state.workingTreeChanges`), which works in remote
+     windows. Or drop the git signal when `workspaceFolders[0].uri.scheme !== 'file'`.
+   - [`engine/prompt.ts`](../Extensions/vscode/src/engine/prompt.ts): the project-file read (`fs.readFileSync(path.join(root, name))`)
+     goes through `vscode.workspace.fs`. The `~/.ingle` reads (`INGLE.md`) and `companionFact` stay on Node `fs`:
+     they now correctly run on the Mac.
+   - [`engine/diff.ts`](../Extensions/vscode/src/engine/diff.ts): the left side of a diff must be the real
+     workspace `Uri`, not `vscode.Uri.file(filePath)`.
+   - [`engine/chatEngine.ts`](../Extensions/vscode/src/engine/chatEngine.ts): the chat-store key should be
+     `workspaceFolders[0].uri.toString()` (includes the remote authority), so local and remote projects with the same
+     path don't share history. Keep `fsPath`-based keys for `file:` workspaces so existing history still loads.
+   - Everything that touches **`~/.ingle`** (`shared/settings.ts`, `tools/stores.ts`, `memory.ts`, `knowledge.ts`,
+     `commands.ts`, `frontmatter.ts`, `mcp.ts`) **stays on Node `fs`**: it's Mac-side by design.
+3. **[`engine/ollama.ts`](../Extensions/vscode/src/engine/ollama.ts), [`engine/server.ts`](../Extensions/vscode/src/engine/server.ts), [`extension.ts`](../Extensions/vscode/src/extension.ts) bridge**:
+   no change. `localhost`, `os.homedir()` and the bundled engine are the Mac's again. The bridge payload should send the
+   active file as `uri.toString()` (or a flag saying it's remote), so the Mac app doesn't try to open a remote path
+   on the Mac.
+4. **[`tools/command.ts`](../Extensions/vscode/src/tools/command.ts) `run_command`**: when the workspace is local
+   (`scheme === 'file'`), keep `spawn` as now. When it's remote, run the command **on the remote**, in a hidden-ish
+   integrated terminal that's reused per chat: `vscode.window.createTerminal({ name: 'Ingle', cwd: folder.uri, hideFromUser: true })`,
+   wait for `terminal.shellIntegration` (`onDidChangeTerminalShellIntegration`), then
+   `shellIntegration.executeCommand(command)` and collect `execution.read()` until
+   `onDidEndTerminalShellExecution` gives the exit code. Strip ANSI (already done by `stripAnsi`), keep `capOutput`,
+   the 120 s timeout (send Ctrl-C with `terminal.sendText('\x03', false)`), and Stop. If shell integration
+   doesn't appear within ~3 s (unusual shell, or the user turned it off), say so and offer to run it as a visible
+   terminal command whose output the user pastes back. Don't fall back to running it on the Mac.
+5. **[`tools/documents.ts`](../Extensions/vscode/src/tools/documents.ts)**: still on the Mac, so `textutil`/`sips`
+   work. For a remote file, copy it to a temp file first (`vscode.workspace.fs.readFile` → `os.tmpdir()`), then run
+   the same code. Attachments the user drags in from Finder are already local.
+6. **[`tools/mcp.ts`](../Extensions/vscode/src/tools/mcp.ts)**: MCP servers run on the Mac. Use the Mac home as `cwd`
+   when the project is remote (a remote path isn't a valid local `cwd`). Say in the tool description that they can't
+   see remote files.
+7. **Prompt facts and help** ([`engine/prompt.ts`](../Extensions/vscode/src/engine/prompt.ts) and, to keep both
+   apps' facts in step, `Persona.systemPrompt` / `HelpTopics` in the Mac app): one short fact when the workspace is
+   remote, e.g. "This project is on ‹host› (remote). Files and commands act there; memory and settings stay on this
+   Mac." Mention the remote in the approval card title for commands ("Run on ‹host›").
+8. **[`install.sh`](../Extensions/vscode/install.sh) and this doc**: nothing to install on the remote; say so.
+
+### Trade-offs
+
+| Option | Good | Bad |
+|---|---|---|
+| **`["ui"]` + `workspace.fs` + shell-integration terminal** (recommended) | One extension. Engine, `~/.ingle`, the Mac app, macOS tools and MCP all work unchanged. Files and commands act on the remote. Nothing to install on servers. | Every file tool needs a `Uri` rewrite (the biggest job). Command output comes from a terminal: depends on shell integration (bash/zsh/fish/pwsh do it), may include prompt noise, and needs VS Code 1.93+. Each file read is a round trip over SSH; fine for the tools, slower for the repo map on big projects. |
+| **`["ui"]` + a small workspace "Ingle Remote" helper** | The helper (kind `["workspace"]`, `"api": "none"`) exposes commands such as `ingle.remote.run` and `ingle.remote.read`; the UI extension calls them with `vscode.commands.executeCommand`, which VS Code routes across hosts (arguments must be JSON). Commands get clean stdout/stderr, exit codes and real kill, like today's `spawn`. | Two extensions to build, version and install (the helper must be installed on every remote, and match). More moving parts for an early preview. A good **later** step if terminal capture proves flaky. |
+| **Stay `["workspace"]` and tunnel back** (SSH `RemoteForward 11434`, sync `~/.ingle`) | Files and commands already work. | Needs per-host SSH config, and doesn't work for containers without more setup. Shares the user's Mac engine with the server's other users. Memory and settings drift, and macOS tools are lost. Not recommended. |
+| **`["ui", "workspace"]`** | Runs locally where it can. | Hides the problem: in hosts with no local side, it silently goes back to every failure above. |
+
+**Where commands run.** In a remote window, the remote machine is almost always what the user means ("run the
+tests", "restart the service"). Running them on the Mac would act on the wrong machine. So `run_command` follows
+the workspace, while Mac control and MCP stay on the Mac. The approval card and prompt fact name the host, so the
+user always knows which machine a command touches.
+
+**Link to the planned `ssh_command` tool.** With `["ui"]`, Ingle runs on the Mac, so an `ssh_command` tool can use
+the user's own `~/.ssh/config`, keys and agent from Node `spawn('ssh', …)`, the same way the Mac app would. In a
+remote window it overlaps with `run_command` on the current host; keep `ssh_command` for *other* servers, and have
+`run_command` cover the open workspace. If the extension stayed `["workspace"]`, `ssh_command` would run from the
+server, without the Mac's keys.
+
+**Not yet confirmed by testing.** The `["workspace"]` default when `extensionKind` is absent is from VS Code's
+source, not its docs. Terminals created by a UI extension in a remote window open on the remote (that's how the
+integrated terminal behaves), but `hideFromUser` + `shellIntegration.executeCommand` over Remote-SSH and in Dev
+Containers needs a real check before relying on it. Cursor and VSCodium's remote support differs (VSCodium uses
+open-source remote extensions); test them separately.
+
 ## File-by-file map
 
 | Path | What's in it |
