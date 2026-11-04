@@ -1733,7 +1733,7 @@ export class ChatEngine implements vscode.Disposable {
       let stopped = false;
       try {
         const r = await client.chat(
-          { model, messages: [{ role: 'system', content: system }, ...history], tools: toolJSON, think: thinkParam(effort, model), numCtx: limit, keepAlive: this.settings.keepAlive },
+          { model, messages: [{ role: 'system', content: system }, ...history], tools: toolJSON, think: thinkParam(effort, model), numCtx: limit, keepAlive: this.settings.keepAlive, thinkingDecider: this.settings.thinkingDecider },
           signal,
           {
             onContent: (raw) => {

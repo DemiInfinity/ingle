@@ -41,6 +41,10 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
   Hugging Face tag. Choose *Replace Ember*, *Replace Flint*, *Replace Autocomplete* or *New model*, optionally delete
   the old one. `ModelManager.install` streams `/api/pull` with progress.
 - **Download Models** fetches any of the three configured models that are missing.
+- **Thought loop protection** can optionally run `strands-decider` on short reasoning windows. Its setting offers
+  NVFP4 (≈1.3 GB), MXFP8 (≈2.0 GB) and BF16 (≈3.8 GB) tags, custom Ollama tags, and a pull/check-for-updates action.
+  Larger decision models are also selectable (`pplx-decider-flash` 4B, ≈5.6 GB; `nimble` 9B, ≈9.4 GB).
+  Model download sizes are approximate; inference also uses working memory.
 
 ### Assistants, names and personalities
 

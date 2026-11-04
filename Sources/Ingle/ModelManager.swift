@@ -267,6 +267,32 @@ final class ModelManager {
         await refresh()
     }
 
+    /// Pull the selected thinking decider tag. Ollama refreshes mutable tags such as `strands-decider` in place.
+    func updateThinkingDecider(_ tag: String) async {
+        guard installing == nil else { return }
+        installing = tag
+        installProgress = nil
+        installStatus = "Checking (ModelNames.pretty(tag))…"
+        defer { installing = nil }
+        let label = ModelNames.pretty(tag)
+        do {
+            for try await step in client.pull(tag) {
+                installProgress = step.fraction
+                if let f = step.fraction {
+                    installStatus = "Downloading (label) · \(Int(f * 100))%"
+                } else {
+                    installStatus = "\(label): \(step.status)"
+                }
+            }
+            installProgress = 1
+            installStatus = "\(label) is ready; any available update was applied."
+            await refresh()
+        } catch {
+            installProgress = nil
+            installStatus = "Couldn’t update \(label): \(error.localizedDescription)"
+        }
+    }
+
     func delete(_ tag: String) async {
         try? await client.unload(tag)
         do {

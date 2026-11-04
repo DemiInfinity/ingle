@@ -239,6 +239,14 @@ private struct EngineUpdateSection: View {
 
 // MARK: Models
 
+private func sameOllamaTag(_ lhs: String, _ rhs: String) -> Bool {
+    func canonical(_ tag: String) -> String {
+        let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasSuffix(":latest") ? String(trimmed.dropLast(7)) : trimmed
+    }
+    return canonical(lhs) == canonical(rhs)
+}
+
 struct ModelSettings: View {
     @Environment(ModelManager.self) private var mm
     @AppStorage(Prefs.K.daily) private var daily = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS"
@@ -246,6 +254,8 @@ struct ModelSettings: View {
     @AppStorage(Prefs.K.auto) private var auto = "qwen2.5-coder:1.5b-base"
     @AppStorage(Prefs.K.ctxDaily) private var ctxDaily = Prefs.contextLength
     @AppStorage(Prefs.K.ctxHard) private var ctxHard = Prefs.contextLength
+    @AppStorage(Prefs.K.thinkingDeciderEnabled) private var thinkingDeciderEnabled = false
+    @AppStorage(Prefs.K.thinkingDeciderModel) private var thinkingDeciderModel = "strands-decider"
     @State private var pendingDelete: String?
 
     var body: some View {
@@ -258,6 +268,7 @@ struct ModelSettings: View {
                 contextPicker("\(Prefs.hardName)’s context", $ctxHard)
             }
             GetModelSection()
+            ThinkingDeciderSection(enabled: $thinkingDeciderEnabled, model: $thinkingDeciderModel)
             PersonaSection(title: "Daily coding", nameKey: Prefs.K.dailyName, personaKey: Prefs.K.dailyPersona,
                            effortKey: Prefs.K.dailyEffort,
                            defaultName: "Ember", defaultPersona: Persona.dailyDefault, defaultEffort: .medium)
@@ -267,6 +278,8 @@ struct ModelSettings: View {
             OtherModelPersonas(exclude: [daily, hard, auto])
             Section {
                 ForEach(mm.available, id: \.name) { model in
+                    let inUse = [daily, hard, auto].contains { sameOllamaTag($0, model.name) }
+                        || (thinkingDeciderEnabled && sameOllamaTag(thinkingDeciderModel, model.name))
                     HStack {
                         Text(ModelNames.pretty(model.name))
                         Spacer()
@@ -280,8 +293,8 @@ struct ModelSettings: View {
                         Button { pendingDelete = model.name } label: { Image(systemName: "trash") }
                             .buttonStyle(.plain)
                             .foregroundStyle(Ember.secondary)
-                            .disabled([daily, hard, auto].contains(model.name))
-                            .help([daily, hard, auto].contains(model.name) ? "In use — replace it first" : "Delete this model")
+                            .disabled(inUse)
+                            .help(inUse ? "In use — replace or disable it first" : "Delete this model")
                     }
                 }
                 if mm.available.isEmpty { Text("No models downloaded yet").foregroundStyle(Ember.secondary) }
@@ -331,6 +344,74 @@ struct ModelSettings: View {
     private func size(_ bytes: Int64?) -> String {
         guard let bytes else { return "" }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+/// Optional local classifier that watches for semantic repetition in long thinking streams.
+private struct ThinkingDeciderSection: View {
+    private struct Variant: Identifiable {
+        let tag: String
+        let title: String
+        var id: String { tag }
+    }
+
+    @Environment(ModelManager.self) private var mm
+    @Binding var enabled: Bool
+    @Binding var model: String
+
+    private let variants: [Variant] = [
+        Variant(tag: "strands-decider:2b-nvfp4", title: "Small · 1.3 GB · NVFP4"),
+        Variant(tag: "strands-decider", title: "Balanced · 2.0 GB · MXFP8"),
+        Variant(tag: "strands-decider:2b-mlx-bf16", title: "Largest · 3.8 GB · BF16"),
+        Variant(tag: "pplx-decider-flash", title: "Larger model · 4B · 5.6 GB"),
+        Variant(tag: "nimble", title: "Largest model · 9B · about 9.4 GB"),
+    ]
+    private var downloaded: Bool { mm.available.contains { sameOllamaTag($0.name, model) } }
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $enabled) {
+                TitleAndHint(title: "Use a thinking-loop decider",
+                             hint: "A small local classifier checks recent thoughts when they may be looping. The exact-repeat guard remains active either way.")
+            }
+            Picker(selection: $model) {
+                ForEach(variants) { variant in
+                    Text(variant.title).tag(variant.tag)
+                }
+                if !variants.contains(where: { $0.tag == model }) {
+                    Text("Custom · \(model)").tag(model)
+                }
+            } label: {
+                TitleAndHint(title: "Decider model", hint: "Choose a smaller download or a larger weight format")
+            }
+            TextField("Custom Ollama model tag", text: $model)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+            HStack {
+                if let status = mm.installStatus {
+                    Text(status).font(.system(size: 11)).foregroundStyle(Ember.secondary).lineLimit(2)
+                } else if downloaded {
+                    Text("Downloaded · \(ModelNames.pretty(model))").font(.system(size: 11)).foregroundStyle(Ember.secondary)
+                } else {
+                    Text("Not downloaded · requires Ollama 0.40.0 or later").font(.system(size: 11)).foregroundStyle(Ember.secondary)
+                }
+                Spacer()
+                Button(downloaded ? "Check for Updates" : "Download") {
+                    Task { await mm.updateThinkingDecider(model) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || mm.installing != nil)
+            }
+            if mm.installing == model {
+                if let progress = mm.installProgress { ProgressView(value: progress) }
+                else { ProgressView().controlSize(.small) }
+            }
+        } header: {
+            Text("Thought loop protection")
+        } footer: {
+            Text("Check for Updates pulls the selected Ollama tag, applying a newer version when available. Larger models use more disk and working memory. The decider only judges whether recent reasoning is looping; Ember or Flint still writes your answer.")
+                .font(.system(size: 11))
+        }
     }
 }
 

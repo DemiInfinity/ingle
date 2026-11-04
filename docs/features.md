@@ -62,7 +62,7 @@ extension) or **Both**. Where a feature exists in both but behaves differently, 
 | Sub-agents (`delegate`) | Both | Hands a self-contained job to a read-only helper with a fresh context, up to 10 steps. | [agent-loop.md](agent-loop.md#6-sub-agents) |
 | **Built for small models** | | | |
 | Per-turn tool selection | Both | Offers only the tools a message plausibly needs (keyword rules), because accuracy drops as the tool list grows. | [agent-loop.md](agent-loop.md#3-tool-selection) |
-| Repeat-call and thinking-loop guards | Both | Repeated tool calls are skipped; four copies of a phrase in the thinking stream stop that response and trigger one retry with thinking off and the partial context. | [agent-loop.md](agent-loop.md#4-the-loop-and-its-guards) |
+| Repeat-call and thinking-loop guards | Both | Repeated tool calls are skipped; repeated thoughts stop a response and trigger one direct retry. An optional, configurable local decision model can catch semantic loops. | [agent-loop.md](agent-loop.md#4-the-loop-and-its-guards) |
 | No small step cap | Both | Keeps going until done, stopped or stuck; 200 steps is only a backstop (VS Code: `ingle.maxSteps`, 0 = none). | [agent-loop.md](agent-loop.md#4-the-loop-and-its-guards) |
 | **Integration** | | | |
 | Settings mirror | Mac → VS Code | The Mac app writes `~/.ingle/settings.json` (0600) whenever a setting changes; the extension only reads it. | [architecture.md](architecture.md#the-settings-mirror) |

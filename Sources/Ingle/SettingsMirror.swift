@@ -73,6 +73,7 @@ final class SettingsMirror {
             "autocompleteModel": Prefs.autoModel,
             "keepAlive": Prefs.keepAlive,
             "serverURL": Prefs.serverURL,
+            "thinkingDecider": ["enabled": Prefs.thinkingDeciderEnabled, "model": Prefs.thinkingDeciderModel],
             "enginePath": engine,
             "web": ["onByDefault": Prefs.webOnByDefault, "provider": provider,
                     "searxngURL": Prefs.searxngURL, "braveKey": Prefs.braveKey],

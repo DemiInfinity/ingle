@@ -109,6 +109,38 @@ struct OllamaClient: Sendable {
         }
     }
 
+    /// Ask an Ollama decision model whether a short reasoning window is stuck in a loop.
+    func thinkingLoopConfidence(model: String, state: String) async throws -> Double {
+        var req = URLRequest(url: base.appendingPathComponent("v1/systemone"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model,
+            "state": state,
+            "keep_alive": "30s",
+            "questions": ["looping": [
+                "type": "noul",
+                "instructions": "Is the model's recent reasoning stuck in a repetitive loop, restating the same idea without meaningful progress toward the user's task? Be conservative: normal checking, correcting mistakes, and considering alternatives are not loops.",
+                "criteria": [
+                    "true": "The recent reasoning clearly repeats the same point or cycle without progress.",
+                    "false": "The reasoning is progressing, checking work, or the evidence is insufficient to call it a loop.",
+                ],
+            ]],
+        ])
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw OllamaError.server(Self.errorMessage(data))
+        }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let answers = root["answers"] as? [String: Any],
+              let looping = answers["looping"] as? [String: Any],
+              let confidence = (looping["noul"] as? NSNumber)?.doubleValue else {
+            throw OllamaError.server("The thinking decider returned an invalid response.")
+        }
+        return confidence
+    }
+
     /// What a model can do, e.g. ["completion", "tools", "vision", "thinking"].
     func capabilities(_ model: String) async -> [String] {
         var req = URLRequest(url: base.appendingPathComponent("api/show"))
@@ -279,6 +311,8 @@ struct OllamaClient: Sendable {
         var thought = ""
         var repeatGuard = ThinkingRepeatGuard()
         var loopStopped = false
+        var lastDecisionLength = 0
+        var deciderFailed = false
         for try await line in bytes.lines {
             try Task.checkCancellation()
             guard let obj = Self.json(line) else { continue }
@@ -302,12 +336,25 @@ struct OllamaClient: Sendable {
             chunk.evalDuration = (obj["eval_duration"] as? NSNumber)?.int64Value ?? 0
             let streamedThinking = chunk.thinking + ThinkSplitter.split(chunk.content, extra: "").thinking
             let repeated = !streamedThinking.isEmpty && repeatGuard.append(streamedThinking)
+            var semanticLoop = false
             if repeated {
                 loopStopped = true
                 chunk.toolCalls = []
+            } else if Prefs.thinkingDeciderEnabled, !deciderFailed,
+                      thought.utf8.count - lastDecisionLength >= 768 {
+                lastDecisionLength = thought.utf8.count
+                let task = (messages.last(where: { ($0["role"] as? String) == "user" })?["content"] as? String ?? "")
+                let state = "User task:\n\(String(task.suffix(1_000)))\n\nRecent reasoning:\n\(String(thought.suffix(2_500)))"
+                do {
+                    semanticLoop = try await thinkingLoopConfidence(model: Prefs.thinkingDeciderModel, state: state) >= 0.88
+                    if semanticLoop { loopStopped = true; chunk.toolCalls = [] }
+                } catch {
+                    // A missing, unsupported, or unavailable optional decider never prevents the answer.
+                    deciderFailed = true
+                }
             }
             continuation.yield(chunk)
-            if repeated {
+            if repeated || semanticLoop {
                 break
             }
             if chunk.done { break }

@@ -21,6 +21,7 @@ export interface ChatRequest {
   think: Think;
   numCtx: number;
   keepAlive: string;
+  thinkingDecider?: { enabled: boolean; model: string };
 }
 
 export interface ChatHandlers {
@@ -94,6 +95,37 @@ export class OllamaClient {
 
   private url(p: string): string {
     return `${this.base}/${p}`;
+  }
+
+  private async thinkingLoopConfidence(model: string, state: string, signal: AbortSignal): Promise<number | null> {
+    try {
+      const res = await fetch(this.url('v1/systemone'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          state,
+          keep_alive: '30s',
+          questions: {
+            looping: {
+              type: 'noul',
+              instructions: "Is the model's recent reasoning stuck in a repetitive loop, restating the same idea without meaningful progress toward the user's task? Be conservative: normal checking, correcting mistakes, and considering alternatives are not loops.",
+              criteria: {
+                true: 'The recent reasoning clearly repeats the same point or cycle without progress.',
+                false: 'The reasoning is progressing, checking work, or the evidence is insufficient to call it a loop.',
+              },
+            },
+          },
+        }),
+        signal,
+      });
+      if (!res.ok) return null;
+      const obj = await res.json() as { answers?: { looping?: { noul?: unknown } } };
+      const score = obj.answers?.looping?.noul;
+      return typeof score === 'number' ? score : null;
+    } catch {
+      return null;
+    }
   }
 
   /** The server version, or null if it doesn't answer in time. */
@@ -216,7 +248,9 @@ export class OllamaClient {
     const result: ChatResult = { content: '', thinking: '', toolCalls: [], evalCount: 0, evalDuration: 0 };
     let emitted = false;
     let finished = false;
-    const handleLine = (line: string) => {
+    let lastDecisionLength = 0;
+    let deciderFailed = false;
+    const handleLine = async (line: string) => {
       let obj: {
         error?: unknown;
         message?: { content?: string; thinking?: string; tool_calls?: RawToolCall[] };
@@ -240,8 +274,23 @@ export class OllamaClient {
           result.thinking += m.thinking;
           if (h.onThinking?.(m.thinking)) {
             result.thinkingLoopStopped = true;
+            result.toolCalls = [];
             finished = true;
             return;
+          }
+          if (req.thinkingDecider?.enabled && !deciderFailed
+            && result.thinking.length - lastDecisionLength >= 768) {
+            lastDecisionLength = result.thinking.length;
+            const task = [...req.messages].reverse().find((message) => message.role === 'user')?.content ?? '';
+            const state = `User task:\n${task.slice(-1000)}\n\nRecent reasoning:\n${result.thinking.slice(-2500)}`;
+            const score = await this.thinkingLoopConfidence(req.thinkingDecider.model, state, signal);
+            if (score === null) deciderFailed = true;
+            else if (score >= 0.88) {
+              result.thinkingLoopStopped = true;
+              result.toolCalls = [];
+              finished = true;
+              return;
+            }
           }
         }
         if (m.content) {
@@ -249,6 +298,7 @@ export class OllamaClient {
           result.content += m.content;
           if (h.onContent?.(m.content)) {
             result.thinkingLoopStopped = true;
+            result.toolCalls = [];
             finished = true;
             return;
           }
@@ -277,10 +327,10 @@ export class OllamaClient {
         while (!finished && (i = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, i).trim();
           buf = buf.slice(i + 1);
-          if (line) handleLine(line);
+          if (line) await handleLine(line);
         }
       }
-      if (!finished && buf.trim()) handleLine(buf.trim());
+      if (!finished && buf.trim()) await handleLine(buf.trim());
     } finally {
       reader.cancel().catch(() => undefined);
     }

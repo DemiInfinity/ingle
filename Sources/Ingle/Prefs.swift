@@ -44,6 +44,8 @@ enum Prefs {
         /// Default effort for new chats with each assistant ("low" | "medium" | "high" | "max"). See Effort.swift.
         static let dailyEffort = "dailyEffort"
         static let hardEffort = "hardEffort"
+        static let thinkingDeciderEnabled = "thinkingDeciderEnabled"
+        static let thinkingDeciderModel = "thinkingDeciderModel"
         /// Add a Signed-off-by line (git commit -s) when committing a run with the Commit button. Off by default.
         static let commitSignOff = "commitSignOff"
     }
@@ -70,6 +72,8 @@ enum Prefs {
         K.warnBattery: true,
         K.showName: false,
         K.server: "http://localhost:11434",
+        K.thinkingDeciderEnabled: false,
+        K.thinkingDeciderModel: "strands-decider",
         K.ctx: 32768,
         K.folders: ["~/Projects"],
         K.autoRead: true,
@@ -98,6 +102,8 @@ enum Prefs {
     static var dailyModel: String { str(K.daily) }
     static var hardModel: String { str(K.hard) }
     static var autoModel: String { str(K.auto) }
+    static var thinkingDeciderEnabled: Bool { d.object(forKey: K.thinkingDeciderEnabled) as? Bool ?? false }
+    static var thinkingDeciderModel: String { nonEmpty(str(K.thinkingDeciderModel), "strands-decider") }
     static var serverURL: String { str(K.server) }
     static var warnOnBattery: Bool { d.object(forKey: K.warnBattery) as? Bool ?? true }
     /// "smart": pause while Ember or Flint is awake, ready again when they sleep.

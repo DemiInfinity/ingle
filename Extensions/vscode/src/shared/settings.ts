@@ -22,6 +22,7 @@ export interface IngleSettings {
   keepAlive: string;                 // e.g. "15m" or "-1m"
   serverURL: string;                 // e.g. "http://localhost:11434"
   enginePath: string;                // bundled `ollama` binary inside Ingle.app
+  thinkingDecider: { enabled: boolean; model: string };
   web: { onByDefault: boolean; provider: 'duckduckgo' | 'searxng' | 'brave'; searxngURL: string; braveKey: string };
   memory: { enabled: boolean; askFirst: boolean };
   workspaceFolders: string[];        // "~/Projects" style paths
@@ -62,6 +63,7 @@ export const defaultSettings: IngleSettings = {
   keepAlive: '15m',
   serverURL: 'http://localhost:11434',
   enginePath: '/Applications/Ingle.app/Contents/Resources/OllamaRuntime/ollama',
+  thinkingDecider: { enabled: false, model: 'strands-decider' },
   web: { onByDefault: true, provider: 'duckduckgo', searxngURL: '', braveKey: '' },
   memory: { enabled: true, askFirst: false },
   workspaceFolders: ['~/Projects'],
@@ -84,6 +86,7 @@ export function loadSettings(): IngleSettings {
       assistants: raw.assistants?.length ? raw.assistants : defaultSettings.assistants,
       web: { ...defaultSettings.web, ...(raw.web ?? {}) },
       memory: { ...defaultSettings.memory, ...(raw.memory ?? {}) },
+      thinkingDecider: { ...defaultSettings.thinkingDecider, ...(raw.thinkingDecider ?? {}) },
       ssh: {
         enabled: raw.ssh?.enabled === true,
         hosts: Array.isArray(raw.ssh?.hosts) ? raw.ssh!.hosts.filter((h): h is string => typeof h === 'string') : [],
