@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+// ingle-code MCP server. Build first: npm run build (in Extensions/ingle-code).
+require('../out/mcp/main.js');

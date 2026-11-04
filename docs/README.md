@@ -50,6 +50,7 @@ commands and MCP servers follow you between the Mac app and your editor.
 | [commands.md](commands.md) | The obedience layer: concept, file format, enforcement, examples, Mac vs VS Code |
 | [ingle-home.md](ingle-home.md) | Every file format in `~/.ingle`, with examples, and other data locations |
 | [engine.md](engine.md) | Bundling and slimming Ollama (`INGLE_MLX`), auto-start, remote servers, `EngineUpdater` |
+| [ingle-code.md](ingle-code.md) | Code intelligence engine + MCP server: exact (language servers) vs approximate answers, `impact`, `read_exhaustively` |
 | [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md) | Known weaknesses, the evidence, what was done, honest status, what's left |
 | [security-and-privacy.md](security-and-privacy.md) | Data flows, approvals, web safety, secrets, bridge token, update verification, signing, threat model |
 | [building-and-releasing.md](building-and-releasing.md) | Prerequisites, `build.sh`, `local.env`, the extension, `export-release.sh`, git flow, versioning, signing plans |
