@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 struct ChatRoot: View {
     @Environment(ChatStore.self) private var store
     @Environment(\.openWindow) private var openWindow
-    /// The sidebar steps aside while the preview pane is open, so the chat keeps room for its message bar.
     @State private var columns: NavigationSplitViewVisibility = .all
+    /// Set when dragging the preview wider folded the sidebar away; it comes back when the pane closes.
+    @State private var sidebarFoldedForPreview = false
 
     var body: some View {
         @Bindable var store = store
@@ -14,7 +15,13 @@ struct ChatRoot: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 256, max: 340)
         } detail: {
             // The preview pane (⌥⌘P) sits to the right of the chat; drag the divider to resize it.
-            PreviewSplit {
+            PreviewSplit(needRoom: {
+                // Dragging past the chat's minimum folds the sidebar first, before the pane stops growing.
+                guard columns != .detailOnly else { return false }
+                withAnimation(.snappy) { columns = .detailOnly }
+                sidebarFoldedForPreview = true
+                return true
+            }) {
                 if let c = store.current {
                     ChatDetail(conversation: c).id(c.id)
                 } else {
@@ -25,8 +32,13 @@ struct ChatRoot: View {
         .searchable(text: $store.search, placement: .sidebar, prompt: "Search chats")
         .toolbarBackground(Ember.bg, for: .windowToolbar)
         .onChange(of: PreviewStore.shared.visible) { _, open in
-            withAnimation(.snappy) { columns = open ? .detailOnly : .all }
+            if !open && sidebarFoldedForPreview {
+                sidebarFoldedForPreview = false
+                withAnimation(.snappy) { columns = .all }
+            }
         }
+        // The pane remembers, per chat, whether it was open; a new chat starts with it hidden.
+        .onChange(of: store.selection, initial: true) { _, id in PreviewStore.shared.switchChat(id) }
         .tint(Ember.accent)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -149,7 +161,18 @@ struct ChatDetail: View {
     @State private var unreadable: String?
     /// Set when the message looks like it has a secret in it: Save as Secret / Send Anyway / Cancel.
     @State private var secretPrompt: SecretPromptState?
+    /// The chat column's real width (the preview pane takes space), which picks the message bar's layout.
+    @State private var columnWidth: CGFloat = 900
     @FocusState private var focused: Bool
+
+    /// How much room the message bar has. Wide: every pill with its role. Medium: names only, Web and Mac as icons.
+    /// Narrow: Model, Effort and Mode as icon + name, the rest in the ⋯ menu.
+    enum BarWidth: Int, Comparable {
+        case narrow, medium, wide
+        static func < (a: BarWidth, b: BarWidth) -> Bool { a.rawValue < b.rawValue }
+        static func of(_ width: CGFloat) -> BarWidth { width >= 780 ? .wide : width >= 580 ? .medium : .narrow }
+    }
+    private var barWidth: BarWidth { BarWidth.of(columnWidth) }
 
     private var streaming: Bool { store.streamingID == conversation.id }
     /// Plan mode: the last reply gets Approve (once it has finished).
@@ -382,6 +405,7 @@ struct ChatDetail: View {
                     .font(.system(size: 14))
                     .foregroundStyle(Ember.text)
                     .lineLimit(1...10)
+                    .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
                     .focused($focused)
                     .onSubmit(send)
                     .onKeyPress(.upArrow) {
@@ -415,10 +439,11 @@ struct ChatDetail: View {
                         slashDismissed = true
                         return .handled
                     }
-                // Full labels when there's room; icons only when the window is narrow (never wrapped text).
+                // Picked from the column's width; each step falls back to the next if it still doesn't fit.
                 ViewThatFits(in: .horizontal) {
-                    controls(compact: false)
-                    controls(compact: true)
+                    if barWidth >= .wide { controls(.wide) }
+                    if barWidth >= .medium { controls(.medium) }
+                    controls(.narrow)
                 }
                 .foregroundStyle(Ember.secondary)
             }
@@ -434,10 +459,12 @@ struct ChatDetail: View {
                     Text(unreadable).foregroundStyle(Ember.accent)
                 } else if let notice = store.notice {
                     Label(notice, systemImage: "checkmark.circle").foregroundStyle(Ember.secondary)
+                } else if barWidth == .narrow {
+                    EmptyView()   // narrow: just the meter
                 } else if streaming {
-                    Text("Return adds your message at the next step · Stop ends the run")
+                    Text("Return adds your message at the next step · Stop ends the run").lineLimit(1)
                 } else {
-                    Text("Return to send · ⌥Return for a new line · ⌘N new chat")
+                    Text("Return to send · ⌥Return for a new line · ⌘N new chat").lineLimit(1)
                 }
                 Spacer(minLength: 8)
                 ContextMeter(usage: store.contextUsage(conversation),
@@ -447,26 +474,38 @@ struct ChatDetail: View {
             .foregroundStyle(Ember.tertiary)
             .frame(maxWidth: 720)
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, barWidth == .narrow ? 12 : barWidth == .medium ? 20 : 32)
         .padding(.top, 12)
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity)
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { columnWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in columnWidth = w }
+            }
+        }
     }
 
-    /// The row under the message box: attach, model, Effort, Web, Mac, approvals badge, send.
+    /// The row under the message box: attach, model, Effort, Mode, Web, Mac, approvals badge, ⋯, send.
     @ViewBuilder
-    private func controls(compact: Bool) -> some View {
-            HStack(spacing: 8) {
+    private func controls(_ width: BarWidth) -> some View {
+        let compact: Bool = width < .wide
+        let narrow: Bool = width == .narrow
+        HStack(spacing: narrow ? 6 : 8) {
+            if !narrow {
                 Button { importing = true } label: {
                     Image(systemName: "paperclip").font(.system(size: 14))
                 }
                 .buttonStyle(IconButtonStyle())
                 .help("Attach files: code, documents (PDF, Word, Excel…) or images (including HEIC). You can also drop them here.")
+            }
 
-                ModelMenu(conversation: conversation, compact: compact)
-                EffortMenu(conversation: conversation, compact: compact)
-                ModeMenu(conversation: conversation, compact: compact)
+            ModelMenu(conversation: conversation, compact: compact)
+            EffortMenu(conversation: conversation, compact: compact)
+            ModeMenu(conversation: conversation, compact: compact)
 
+            if !narrow {
                 Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
                     Label("Web", systemImage: "globe")
                 }
@@ -481,19 +520,21 @@ struct ChatDetail: View {
                     .toggleStyle(PillToggleStyle(compact: compact))
                     .help("Mac control: let the assistant open and drive apps (AppleScript) and look at your screen — asking before each action. Terminal commands and files work without this.")
                 }
+            }
 
-                Spacer(minLength: compact ? 4 : 8)
-                if !store.sessionAllowed.isEmpty {
-                    Button { store.forgetSessionApprovals() } label: {
-                        Label("\(store.sessionAllowed.count) allowed", systemImage: "checkmark.shield")
-                            .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
-                            .font(.system(size: 11))
-                            .fixedSize()
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Ember.warn)
-                    .help("Allowed for this session without asking: \(store.sessionAllowed.values.sorted().joined(separator: "; ")). Click to ask every time again.")
+            Spacer(minLength: 4)
+            if !narrow && !store.sessionAllowed.isEmpty {
+                Button { store.forgetSessionApprovals() } label: {
+                    Label("\(store.sessionAllowed.count) allowed", systemImage: "checkmark.shield")
+                        .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
+                        .font(.system(size: 11))
+                        .fixedSize()
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(Ember.warn)
+                .help("Allowed for this session without asking: \(store.sessionAllowed.values.sorted().joined(separator: "; ")). Click to ask every time again.")
+            }
+            if !narrow {
                 Image(systemName: "hand.raised")
                     .font(.system(size: 11))
                     .help(conversation.isCode
@@ -501,21 +542,65 @@ struct ChatDetail: View {
                           : conversation.macAccess
                           ? "Terminal and Mac control are on — every command, file change and app action asks you first"
                           : "Terminal is available and asks before every command or file change. Switch on Mac to let it control apps and see your screen.")
-                Button {
-                    // While it works the button stops it; Return adds a typed message to the run instead.
-                    if streaming { store.stop() } else { send() }
-                } label: {
-                    Image(systemName: streaming ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(canSend || streaming ? Ember.onAccent : Ember.tertiary)
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(canSend || streaming ? Ember.accent : Color.white.opacity(0.1)))
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend && !streaming)
-                .help(streaming ? "Stop" : "Send")
             }
+            overflowMenu(narrow: narrow)
+            Button {
+                // While it works the button stops it; Return adds a typed message to the run instead.
+                if streaming { store.stop() } else { send() }
+            } label: {
+                Image(systemName: streaming ? "stop.fill" : "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(canSend || streaming ? Ember.onAccent : Ember.tertiary)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(canSend || streaming ? Ember.accent : Color.white.opacity(0.1)))
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend && !streaming)
+            .help(streaming ? "Stop" : "Send")
+        }
         .foregroundStyle(Ember.secondary)
+    }
+
+    /// ⋯: the preview pane always; when narrow, also attachments, Web, Mac and the "N allowed" badge.
+    private func overflowMenu(narrow: Bool) -> some View {
+        let preview = PreviewStore.shared
+        // A dot on ⋯ when something inside it is switched on, so a hidden Web or Mac is never a surprise.
+        let somethingOn: Bool = narrow && (conversation.webOn || (!conversation.isCode && conversation.macAccess) || !store.sessionAllowed.isEmpty)
+        return Menu {
+            if narrow {
+                Button { importing = true } label: { Label("Attach Files…", systemImage: "paperclip") }
+                Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
+                    Label("Web", systemImage: "globe")
+                }
+                if !conversation.isCode {
+                    Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
+                        Label("Mac Control", systemImage: "macbook")
+                    }
+                }
+                if !store.sessionAllowed.isEmpty {
+                    Button { store.forgetSessionApprovals() } label: {
+                        Label("\(store.sessionAllowed.count) Allowed This Session — Ask Every Time Again", systemImage: "checkmark.shield")
+                    }
+                }
+                Divider()
+            }
+            Button { preview.toggle() } label: {
+                Label(preview.visible ? "Hide Preview (⌥⌘P)" : "Show Preview (⌥⌘P)", systemImage: "eye")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(somethingOn ? Ember.accent : Ember.text)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.white.opacity(0.07)))
+                .contentShape(Circle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(narrow ? "More: attach files, Web, Mac control, the preview" : "More: the preview (⌥⌘P)")
+        .accessibilityLabel("More")
     }
 
     private func addFiles(_ urls: [URL]) {

@@ -475,6 +475,7 @@ final class ChatStore {
         guard steps.count >= 2 else { return nil }
         let doc: PlanFiles.Doc = PlanFiles.fromReply(body, steps: steps, request: request, chat: id.uuidString)
         guard let file = PlanFiles.save(doc, in: PlanFiles.dir(project: project)) else { return nil }
+        PreviewStore.shared.planCreated(URL(fileURLWithPath: file), chat: id)
         return PlanRef(file: file, name: (file as NSString).lastPathComponent, status: "draft")
     }
 

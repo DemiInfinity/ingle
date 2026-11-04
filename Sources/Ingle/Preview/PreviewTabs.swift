@@ -187,7 +187,37 @@ final class PreviewStore {
 
     private(set) var tabs: [PreviewTab] = []
     var selected: PreviewTab.ID?
-    var visible = false
+    /// Hidden by default; set only through open, toggle, hide and planCreated, and remembered per chat.
+    private(set) var visible = false
+    private var chat: UUID?
+    private var openChats: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "previewOpenChats") ?? [])
+
+    private func setVisible(_ on: Bool) {
+        visible = on
+        guard let chat else { return }
+        if on { openChats.insert(chat.uuidString) } else { openChats.remove(chat.uuidString) }
+        UserDefaults.standard.set(Array(openChats), forKey: "previewOpenChats")
+    }
+
+    /// The chat changed: show the pane only if it was open in that chat (a new chat starts hidden).
+    func switchChat(_ id: UUID?) {
+        chat = id
+        visible = id.map { openChats.contains($0.uuidString) } ?? false
+    }
+
+    func hide() { setVisible(false) }
+
+    /// The only time the pane opens by itself: a new plan file was written (Plan mode or Max effort).
+    func planCreated(_ url: URL, chat id: UUID) {
+        let wasVisible: Bool = visible
+        _ = open(url)
+        if id != chat {
+            // Another chat's plan: keep this chat as it was, and show the pane when you go to that chat.
+            visible = wasVisible
+            openChats.insert(id.uuidString)
+            UserDefaults.standard.set(Array(openChats), forKey: "previewOpenChats")
+        }
+    }
 
     var current: PreviewTab? { tabs.first { $0.id == selected } ?? tabs.last }
 
@@ -206,7 +236,7 @@ final class PreviewStore {
             tabs.append(tab)
             selected = tab.id
         }
-        visible = true
+        setVisible(true)
         return nil
     }
 
@@ -216,11 +246,11 @@ final class PreviewStore {
         WebPreviewCache.drop(id)
         tabs.remove(at: i)
         if selected == id { selected = tabs.indices.contains(i) ? tabs[i].id : tabs.last?.id }
-        if tabs.isEmpty { visible = false }
+        if tabs.isEmpty { setVisible(false) }
     }
 
     func toggle() {
-        visible.toggle()
+        setVisible(!visible)
     }
 
     /// Resolves a link or a path the model gave: absolute, ~, file:// or relative to `base` (a folder).

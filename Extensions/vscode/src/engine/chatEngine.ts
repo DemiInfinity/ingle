@@ -1338,6 +1338,7 @@ export class ChatEngine implements vscode.Disposable {
     if (steps.length < 2) return undefined;
     try {
       const file = savePlan(plansDir(workspaceRoot()), planFromReply(reply, steps, request, chat.id));
+      void openInPreview(file);   // the only time the preview opens by itself: a new plan
       return { file, name: path.basename(file), status: 'draft' };
     } catch {
       return undefined;

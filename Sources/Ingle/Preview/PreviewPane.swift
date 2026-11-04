@@ -17,6 +17,7 @@ struct PreviewPane: View {
             }
         }
         .background(Ember.bg)
+        .onExitCommand { store.hide() }   // Esc while the pane's controls have focus
         .overlay {
             if dropping {
                 RoundedRectangle(cornerRadius: 10).strokeBorder(Ember.accent, style: StrokeStyle(lineWidth: 2, dash: [6]))
@@ -42,12 +43,13 @@ struct PreviewPane: View {
                 }
                 .padding(.horizontal, 6)
             }
-            Button { store.visible = false } label: {
-                Image(systemName: "sidebar.right").font(.system(size: 12))
+            Button { store.hide() } label: {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(IconButtonStyle())
             .foregroundStyle(Ember.secondary)
-            .help("Hide the preview (⌥⌘P)")
+            .help("Close the preview (Esc, ⌥⌘P). Its tabs come back with ⌥⌘P.")
+            .accessibilityLabel("Close preview")
             .padding(.trailing, 4)
         }
         .frame(height: 36)
@@ -253,6 +255,8 @@ struct SourceTextView: NSViewRepresentable {
 /// The chat with the preview pane to its right and a divider to drag. (An HStack rather than HSplitView, so the chat
 /// is offered its real width and the message bar can switch to its compact row.)
 struct PreviewSplit<Chat: View>: View {
+    /// Called when a drag would squeeze the chat below its minimum: true if room was made (the sidebar folded).
+    var needRoom: () -> Bool = { false }
     @ViewBuilder let chat: () -> Chat
     @State private var store = PreviewStore.shared
     @AppStorage("previewWidth") private var width: Double = 440
@@ -260,8 +264,8 @@ struct PreviewSplit<Chat: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            // The chat keeps at least 560 points (its message bar needs about that).
-            let maxWidth: Double = max(280, Double(geo.size.width) - 560)
+            // The chat keeps at least 420 points, so the pane can't crush it.
+            let maxWidth: Double = max(280, Double(geo.size.width) - 420)
             let shown: Double = min(max(width, 280), maxWidth)
             HStack(spacing: 0) {
                 // An exact width, so the chat lays out for the room it really has.
@@ -284,7 +288,9 @@ struct PreviewSplit<Chat: View>: View {
                                     .onChanged { g in
                                         let start: Double = dragStart ?? shown
                                         dragStart = start
-                                        width = min(max(start - Double(g.translation.width), 280), maxWidth)
+                                        let wanted: Double = start - Double(g.translation.width)
+                                        if wanted > maxWidth + 24, needRoom() { dragStart = nil }
+                                        width = min(max(wanted, 280), maxWidth)
                                     }
                                     .onEnded { _ in dragStart = nil })
                         }
