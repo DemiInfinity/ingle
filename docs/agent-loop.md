@@ -86,7 +86,7 @@ Built fresh every step in `generate(in:)`:
    research and memory indexes and the notes at the bottom of `~/.ingle/INGLE.md`.
 4. `editorPrompt` and `projectInstructions`.
 5. `## Repo map`.
-6. `## Loaded for this request`.
+6. `## Loaded for this request` (memories, forced skills) and `## Possibly relevant` (suggested skills, rules, reports).
 7. `guidancePrompt` — how to work (read before editing, prefer small `edit_file` replacements, one tool at a
    time, don't retry denials, web and memory guidance).
 8. `## Summary of earlier messages` — if compacted.
@@ -96,15 +96,26 @@ Built fresh every step in `generate(in:)`:
 `SemanticMatcher` ([`../Sources/Ingle/SemanticMatcher.swift`](../Sources/Ingle/SemanticMatcher.swift)) and
 `Matcher` ([`../Extensions/vscode/src/engine/matcher.ts`](../Extensions/vscode/src/engine/matcher.ts)):
 
+- **Skipped** for short or chatty messages (fewer than 3 meaningful words), such as "thanks" or "that's clever".
 - **With `nomic-embed-text` installed:** embeds each candidate as `search_document: …` (cached by text) and the
-  query as `search_query: …`, ranks by cosine similarity, keeps the top 3 **at or above 0.58**.
+  query as `search_query: …`, ranks by cosine similarity, and keeps up to 3 that are **clear winners**: a score of
+  at least `max(0.70, mean + 2 × standard deviation)` across all candidates. (Loosely related texts often score
+  0.55–0.65 with this model, so a fixed low bar let unrelated skills through.)
 - **Without it:** keyword overlap (words over 3 letters, minus stop words), plus 2 if a word from the candidate's
-  name matches; keeps the top 3 scoring **2 or more**.
-- Off entirely when **Smart matching** is off (Settings → Extensions).
-- Attached sizes: memory 4,000 characters, reports 5,000, skills 12,000, rules in full.
+  name matches; keeps the top 3 scoring **3 or more**.
+- Off entirely when **Smart matching** is off (Settings → Extensions → "Suggest matching rules and skills").
 
-The names of everything attached appear as chips under the reply ("Rules and skills Ingle matched to your
-message").
+**What happens to a match:**
+
+| Match | What the model gets | On the reply chip? |
+|---|---|---|
+| Skill, rule, research report | One line under `## Possibly relevant`, naming the tool to open it (`use_skill`, `use_rule`, `report_read`) | Only if the model **opens** it |
+| Memory | The memory text (up to 4,000 characters) under `## Loaded for this request` | No — memories are quiet context |
+| Skill forced by `/skill-name` or required by a command | The full skill under `## Loaded for this request` | Yes |
+
+The chip under a reply therefore shows **only what the assistant actually used**: skills and rules it opened,
+research it read, skills you asked for, and ⚑ commands in force (⚠ if one wasn't followed). The Mac app tracks opened
+items in `usedNames` (`ChatStore.generate`); VS Code pushes them onto `used` after `runToolCall`.
 
 ## 2. The tool catalogue
 

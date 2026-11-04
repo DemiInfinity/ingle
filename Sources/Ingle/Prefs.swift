@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// All user settings live in UserDefaults. Views use @AppStorage with the same keys.
 enum Prefs {
@@ -303,8 +304,11 @@ enum Companion {
     }
 
     static var vscodeInstalled: Bool {
-        ["/Applications/Visual Studio Code.app", "/Applications/Cursor.app"].contains { FileManager.default.fileExists(atPath: $0) }
-            || FileManager.default.fileExists(atPath: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Visual Studio Code.app").path)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let places = ["/Applications", "/Applications/Development", home + "/Applications"]
+        let apps = ["Visual Studio Code.app", "Cursor.app"]
+        if places.contains(where: { place in apps.contains { FileManager.default.fileExists(atPath: place + "/" + $0) } }) { return true }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode") != nil
     }
 
     static var vscodeFact: String {

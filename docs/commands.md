@@ -80,7 +80,7 @@ flowchart TD
    you must not use Y. Use Z instead."
 5. **Recording.** Successful (approved) calls are recorded. An `mcp:` requirement is only met by an actual
    `mcp_call` to that server (and tool), not by just looking with `mcp_tools`. `skill:` requirements count as met
-   because the skill is attached automatically.
+   because Ingle loads that skill into the prompt itself.
 6. **`then_run`.** Any approved file change (Mac: `write_file`; VS Code: `edit_file`, `write_file`) makes the
    `then_run` command **owed**; a later `run_command` whose text contains it clears the debt.
 7. **Completion check.** When the model tries to finish (a turn with no tool calls), anything still owed produces a

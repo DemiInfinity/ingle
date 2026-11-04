@@ -103,8 +103,8 @@ Use function components and hooks. Keep components under 150 lines. Co-locate te
 ```
 
 - `always: true` → included in full in every chat ("Rules you always follow").
-- `always: false` → listed in the rules index by name and description; matched automatically when relevant, or
-  loaded by the model with `use_rule`.
+- `always: false` → listed in the rules index by name and description; suggested to the model when a request clearly matches,
+  and loaded only if the model opens it with `use_rule`.
 - A file with **no frontmatter** is an always-on rule.
 - `name:` is optional (defaults to the file name).
 - Settings → Extensions → Rules (Mac) can create, open and toggle them. An older single `~/.ingle/rules.md` is
@@ -132,7 +132,7 @@ description: Review a change for bugs, security issues and readability. Use when
 - The skills index (name and the first ~110 characters of the description) is in every prompt; `use_skill` loads
   the full text (up to 30,000 characters on Mac), followed by a list of other files in the skill folder, which the
   model can open with `read_file` (VS Code reads them freely).
-- `/skill-name your request` forces a skill; matched skills are attached automatically.
+- `/skill-name your request` forces a skill; clearly matching skills are suggested, and the model opens one with `use_skill` only if it applies.
 - `skill_create` writes `~/.ingle/skills/<slug>/SKILL.md` after you approve; `replace: true` overwrites.
 - `/skill-reload` re-reads skills, rules and MCP servers.
 
@@ -160,7 +160,7 @@ description: How they like to work
   (`MemoryStore.slug`, `slug()`).
 - `INDEX.md` is regenerated after every change for browsing in Finder; it's never read as a memory.
 - The memory index (file names, descriptions, fact counts) is in every prompt; `memory_search` scores lines by word
-  overlap; matching files are attached automatically (up to 4,000 characters).
+  overlap; clearly matching files are included quietly (up to 4,000 characters).
 - `memory_save` appends one fact (skipping exact duplicates); `memory_rewrite` replaces a file; `memory_forget`
   removes lines containing some text.
 - **Secret filter:** saves and rewrites are refused if the text contains "password", "passcode", "pin code",
@@ -187,8 +187,8 @@ date: 2026-11-03
 https://example.com/paper
 ```
 
-The research index (newest 15) is in every prompt; `report_search` and `report_read` recall them; matching reports
-are attached automatically (up to 5,000 characters). `INDEX.md` is regenerated for browsing.
+The research index (newest 15) is in every prompt; `report_search` and `report_read` recall them; clearly matching
+reports are suggested and opened with `report_read` if they apply. `INDEX.md` is regenerated for browsing.
 
 ## `mcp.json`
 

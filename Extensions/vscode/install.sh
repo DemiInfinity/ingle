@@ -24,8 +24,19 @@ if [[ -n "${VSCODE_PUBLISHER:-}" ]]; then
 fi
 npx --yes @vscode/vsce package --allow-missing-repository --skip-license -o ingle.vsix >/dev/null
 
-CODE="$(command -v code || true)"
-[[ -z "$CODE" ]] && CODE="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+# Find VS Code's `code` command: on the PATH, in /Applications/Development, /Applications, ~/Applications,
+# or wherever Spotlight finds VS Code. Set VSCODE_APP in local.env to point at a specific copy.
+find_code() {
+  command -v code && return
+  local apps=()
+  [[ -n "${VSCODE_APP:-}" ]] && apps+=("$VSCODE_APP")
+  apps+=("/Applications/Development/Visual Studio Code.app" "/Applications/Visual Studio Code.app" "$HOME/Applications/Visual Studio Code.app")
+  while IFS= read -r found; do apps+=("$found"); done < <(mdfind "kMDItemCFBundleIdentifier == 'com.microsoft.VSCode'" 2>/dev/null)
+  for app in "${apps[@]}"; do
+    [[ -x "$app/Contents/Resources/app/bin/code" ]] && { echo "$app/Contents/Resources/app/bin/code"; return; }
+  done
+}
+CODE="$(find_code || true)"
 if [[ -x "$CODE" ]]; then
   # Remove the old Ingle Bridge extension if it's still installed.
   "$CODE" --list-extensions | grep -i '\.ingle-bridge$' | while read -r old; do "$CODE" --uninstall-extension "$old" >/dev/null 2>&1 || true; done
