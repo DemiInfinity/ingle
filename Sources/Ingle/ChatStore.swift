@@ -603,7 +603,7 @@ final class ChatStore {
                     lastToolImages = []
                     if allowed {
                         activity = info.title + "…"
-                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess)
+                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess, commands: tracker.commands)
                         activity = nil
                     }
                     tracker.record(call, succeeded: allowed)
@@ -650,7 +650,7 @@ final class ChatStore {
 
     // MARK: Tools that need the chat store
 
-    private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool) async -> String {
+    private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool, commands: [IngleCommand] = []) async -> String {
         if ["open", "applescript", "screenshot"].contains(call.name) && !mac {
             return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Think and Web) if they want you to control apps or see the screen."
         }
@@ -684,7 +684,7 @@ final class ChatStore {
         case "chat_list", "chat_search", "chat_read":
             return chatTool(call, excluding: id)
         case "delegate":
-            return await runSubAgent(task: call.arg("task"), model: model, web: web, mac: mac, parent: id)
+            return await runSubAgent(task: call.arg("task"), model: model, web: web, mac: mac, parent: id, commands: commands)
         default:
             return await MacTools.run(call)
         }
@@ -734,7 +734,8 @@ final class ChatStore {
     }
 
     /// A helper with a fresh context and read-only tools. Runs on the same model, one at a time.
-    private func runSubAgent(task: String, model: String, web: Bool, mac: Bool, parent: Conversation.ID) async -> String {
+    /// The request's active commands apply to it too: never_use tools are hidden and blocked.
+    private func runSubAgent(task: String, model: String, web: Bool, mac: Bool, parent: Conversation.ID, commands: [IngleCommand] = []) async -> String {
         let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.isEmpty else { return "The helper needs a task." }
         var system = ["You are a helper sub-agent working for \(ModelNames.display(model)) inside Ingle, on the user's Mac. Do only the task below, using your tools where useful, then reply with a concise result: key findings, facts, and sources (URLs or file paths). No small talk and no questions — make sensible assumptions and say what they were."]
@@ -751,9 +752,12 @@ final class ChatStore {
         pool.append(MacTools.helpTool)
         pool.append(SkillStore.toolDefinition)
         pool.append(RuleStore.toolDefinition)
+        let commandCheck = CommandTracker(commands)
+        let banned: Set<String> = commandCheck.blocked
         let tools = pool.filter { def in
             guard let fn = def["function"] as? [String: Any], let name = fn["name"] as? String,
                   KnowledgeTools.subAgentAllowed.contains(name) else { return false }
+            if banned.contains(name.lowercased()) { return false }
             if name.hasPrefix("web_") { return web }
             if name == "list_files" || name == "read_file" { return mac }
             return true
@@ -792,7 +796,9 @@ final class ChatStore {
             }
             for c in calls {
                 let result: String
-                if !KnowledgeTools.subAgentAllowed.contains(c.name) {
+                if let cmd = commandCheck.blockingCommand(for: c.name) {
+                    result = "Blocked by the command \"\(cmd.name)\": you must not use \(c.name)."
+                } else if !KnowledgeTools.subAgentAllowed.contains(c.name) {
                     result = "Helpers can only read, so that tool isn't available."
                 } else if (c.name == "list_files" || c.name == "read_file") && (!mac || !Prefs.inWorkspace(c.arg("path"))) {
                     result = "Helpers can only read inside the workspace folders."

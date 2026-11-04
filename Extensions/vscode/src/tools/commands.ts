@@ -76,13 +76,11 @@ function loadCommands(folder: string, prefix: string): CommandEntry[] {
   });
 }
 
-/** ~/.ingle/commands, plus `<workspace>/.ingle/commands` with names prefixed `project/`. */
+/** ~/.ingle/commands, plus `<workspace>/.ingle/commands` with names prefixed `project/` (so both are kept,
+ *  as on the Mac — CommandStore.all). */
 export function listCommands(workspaceRoot?: string): CommandEntry[] {
   const out = loadCommands(COMMANDS_DIR, '');
-  if (workspaceRoot) {
-    const names = new Set(out.map((c) => c.name));
-    out.push(...loadCommands(path.join(workspaceRoot, '.ingle', 'commands'), 'project/').filter((c) => !names.has(c.name)));
-  }
+  if (workspaceRoot) out.push(...loadCommands(path.join(workspaceRoot, '.ingle', 'commands'), 'project/'));
   return out;
 }
 

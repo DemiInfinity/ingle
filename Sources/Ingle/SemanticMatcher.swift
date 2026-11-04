@@ -47,13 +47,22 @@ final class SemanticMatcher {
             guard let v = cache[c.text] else { return nil }
             return (c.id, Self.cosine(q, v))
         }.sorted { $0.1 > $1.1 }
-        // Only clear winners: well above an absolute bar AND standing out from the rest of the candidates
-        // (with nomic-embed-text, loosely related texts often score 0.55–0.65).
-        let values = scored.map(\.1)
-        let mean: Double = values.reduce(0, +) / Double(max(1, values.count))
-        let variance: Double = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(max(1, values.count))
-        let bar: Double = max(0.70, mean + 2 * variance.squareRoot())
+        let values: [Double] = scored.map(\.1)
+        let bar: Double = Self.semanticBar(values) - 1e-9
         return scored.prefix(limit).filter { $0.1 >= bar }.map { $0.0 }
+    }
+
+    /// The score a semantic match needs: well above an absolute bar AND standing out from the rest of the
+    /// candidates (with nomic-embed-text, loosely related texts often score 0.55–0.65). With n scores one
+    /// outlier is at most (n-1)/√n SDs above the mean, so "2 SD" can never be met below 6 candidates; there
+    /// it's 1 SD with a higher absolute bar. Same as semanticBar in the VS Code extension (matcher.ts).
+    static func semanticBar(_ values: [Double]) -> Double {
+        let n: Double = Double(max(1, values.count))
+        let mean: Double = values.reduce(0, +) / n
+        let variance: Double = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / n
+        let sd: Double = variance.squareRoot()
+        if values.count < 6 { return max(0.75, mean + sd) }
+        return max(0.70, mean + 2 * sd)
     }
 
     private func embed(_ texts: [String]) async -> [[Double]]? {

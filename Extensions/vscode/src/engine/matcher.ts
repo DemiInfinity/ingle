@@ -50,6 +50,22 @@ function cosine(a: number[], b: number[]): number {
   return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
+/** Below this many candidates the spread test is relaxed (see semanticBar). */
+export const FEW_CANDIDATES = 6;
+
+/**
+ * The score a semantic match needs: above an absolute bar AND standing out from the rest
+ * (with nomic-embed-text, loosely related texts often score 0.55–0.65). With n scores one outlier is at
+ * most (n-1)/√n SDs above the mean, so "2 SD" can never be met below 6 candidates; there it's 1 SD
+ * with a higher absolute bar. Same as SemanticMatcher.semanticBar on the Mac.
+ */
+export function semanticBar(scores: number[]): number {
+  const n = Math.max(1, scores.length);
+  const mean = scores.reduce((t, s) => t + s, 0) / n;
+  const sd = Math.sqrt(scores.reduce((t, s) => t + (s - mean) ** 2, 0) / n);
+  return scores.length < FEW_CANDIDATES ? Math.max(0.75, mean + sd) : Math.max(0.7, mean + 2 * sd);
+}
+
 export class Matcher {
   private cache = new Map<string, number[]>();
 
@@ -81,11 +97,7 @@ export class Matcher {
     const scored = candidates
       .map((c) => ({ id: c.id, score: this.cache.has(c.text) ? cosine(q, this.cache.get(c.text)!) : 0 }))
       .sort((a, b) => b.score - a.score);
-    // Only clear winners: above an absolute bar AND standing out from the rest
-    // (with nomic-embed-text, loosely related texts often score 0.55–0.65).
-    const mean = scored.reduce((t, s) => t + s.score, 0) / Math.max(1, scored.length);
-    const sd = Math.sqrt(scored.reduce((t, s) => t + (s.score - mean) ** 2, 0) / Math.max(1, scored.length));
-    const bar = Math.max(0.7, mean + 2 * sd);
-    return scored.slice(0, limit).filter((s) => s.score >= bar).map((s) => s.id);
+    const bar = semanticBar(scored.map((s) => s.score));
+    return scored.slice(0, limit).filter((s) => s.score >= bar - 1e-9).map((s) => s.id);
   }
 }

@@ -73,7 +73,7 @@ Why first: phase 2 claims "it gets better with use". Without a baseline there's 
 
 ### Consistency between the apps
 Unify the differences listed in [commands.md](commands.md) (`when: always`, `never_use` with `mcp:`, missing
-required tools, nudges, `command_create`, helpers obeying bans, duplicate names). Long term, move shared behaviour
+required tools, nudges, `command_create`). Long term, move shared behaviour
 into one spec with tests both apps run against.
 
 ### Tests

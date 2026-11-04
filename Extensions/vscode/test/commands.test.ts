@@ -157,6 +157,15 @@ test('commandText writes frontmatter that listCommands reads back', () => {
 test('project commands are kept even when a user command has the same file name', () => {
   const dir = path.join(home, 'dupe');
   writeCommand(path.join(dir, '.ingle', 'commands'), 'lint.md', '---\nwhen: never\n---\n');
-  // listCommands' duplicate check compares prefixed project names with user names, so it never drops one.
+  // Project names are prefixed, so they can't clash with user ones; both are kept (as on the Mac).
   assert.deepEqual(cmds.listCommands(dir).filter((c) => c.name.endsWith('lint')).map((c) => c.name).sort(), ['lint', 'project/lint']);
+});
+
+test('listRules keeps a user rule and a project rule with the same file name', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const stores: typeof import('../src/tools/stores') = require('../src/tools/stores');
+  const dir = path.join(home, 'rules-project');
+  writeCommand(path.join(home, '.ingle', 'rules'), 'style.md', '---\ndescription: user style\n---\nUse tabs.');
+  writeCommand(path.join(dir, '.ingle', 'rules'), 'style.md', '---\ndescription: project style\n---\nUse spaces.');
+  assert.deepEqual(stores.listRules(dir).map((r) => r.name).sort(), ['project/style', 'style']);
 });

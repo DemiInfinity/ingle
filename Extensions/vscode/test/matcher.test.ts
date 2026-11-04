@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { keywordMatches, Matcher, words } from '../src/engine/matcher';
+import { keywordMatches, Matcher, semanticBar, words } from '../src/engine/matcher';
 import type { OllamaClient } from '../src/engine/ollama';
 
 test('words drops short words and stop words', () => {
@@ -67,9 +67,18 @@ test('Matcher returns a clear semantic winner among many candidates', async () =
   assert.deepEqual(got, ['skill:s3']);
 });
 
-test('Matcher finds nothing semantically with only a few candidates (known limitation)', async () => {
-  // With n candidates one perfect outlier is at most (n-1)/sqrt(n) SDs above the mean, so the
-  // "mean + 2 SD" bar can't be met when n <= 5 — and the keyword fallback isn't tried either.
+test('Matcher finds a clear semantic winner among only a few candidates', async () => {
+  // Used to return nothing: one outlier among n <= 5 can't be 2 SD above the mean.
   const got = await new Matcher().matches(fakeClient(candidates, 'skill:swift-release'), ['nomic-embed-text'], 'archive and upload the swift build', candidates);
-  assert.deepEqual(got, []);
+  assert.deepEqual(got, ['skill:swift-release']);
+});
+
+test('semanticBar: few candidates need 1 SD and 0.75, many need 2 SD and 0.7', () => {
+  assert.equal(semanticBar([0.8]), 0.8, 'one candidate: its own score, if at least 0.75');
+  assert.equal(semanticBar([0.72]), 0.75);
+  assert.ok(Math.abs(semanticBar([0.9, 0.5]) - 0.9) < 1e-9, 'two candidates: the top one only');
+  assert.equal(semanticBar([0.72, 0.7, 0.68]), 0.75, 'middling scores, no winner');
+  const many = [0.95, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3];
+  assert.ok(semanticBar(many) < 0.95 && semanticBar(many) > 0.7);
+  assert.equal(semanticBar([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]), 0.7);
 });

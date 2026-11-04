@@ -100,7 +100,8 @@ Built fresh every step in `generate(in:)`:
 - **With `nomic-embed-text` installed:** embeds each candidate as `search_document: …` (cached by text) and the
   query as `search_query: …`, ranks by cosine similarity, and keeps up to 3 that are **clear winners**: a score of
   at least `max(0.70, mean + 2 × standard deviation)` across all candidates. (Loosely related texts often score
-  0.55–0.65 with this model, so a fixed low bar let unrelated skills through.)
+  0.55–0.65 with this model, so a fixed low bar let unrelated skills through.) With **fewer than 6 candidates** a
+  single winner can't be 2 standard deviations out, so the bar there is `max(0.75, mean + 1 × standard deviation)`.
 - **Without it:** keyword overlap (words over 3 letters, minus stop words), plus 2 if a word from the candidate's
   name matches; keeps the top 3 scoring **3 or more**.
 - Off entirely when **Smart matching** is off (Settings → Extensions → "Suggest matching rules and skills").
