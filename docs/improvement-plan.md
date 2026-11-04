@@ -237,10 +237,82 @@ the same fixtures (`swift test`).
 
 ## Wave 4 — evidence and install (after wave 3)
 
-### [ ] 10. Benchmark harness
-15–25 scripted tasks (see [roadmap.md](roadmap.md) Phase 1). Each run records success, steps, nudges, approvals and
-tokens, **with and without** Ingle's compensations. A headless runner using the VS Code engine code is the quickest
-route. Results go in `bench/results/` and a summary goes in the README.
+### [ ] 10. Benchmark (final round: written and run only once everything else is built)
+**Question it answers.** How much does Ingle's harness improve the user's own local models, how close does that get to
+a cloud assistant, and which kinds of task still need the cloud?
+
+**Models: both of the user's assistants, each benchmarked separately** (as set in Ingle when the benchmark runs; today):
+- **Ember**: `qwen3.6:35b-mlx` (23 GB), the daily model;
+- **Flint**: `qwen3.8:27b-mlx` (18 GB), hard jobs.
+Record each model's digest, quantisation and context length with the results.
+
+**Conditions** (every task, each model):
+
+| | Condition | How |
+|---|---|---|
+| A | Model alone | `ingle -p … --harness off` (all tools, Ollama defaults, no guards or enforcement) |
+| B | Model + Ingle | `ingle -p … --harness on --effort medium` |
+| C | Model + Ingle, trying hard | `ingle -p … --harness on --effort high` |
+| D | Cloud reference | `claude -p …` in the same task copy (user-approved; needs internet; a separate labelled run) |
+| Ablations | Which part helps | B with one part off at a time (`--no-tool-filter`, `--no-commands`, `--no-guards`, `--no-tuning`, `--no-repo-map`, `--no-coverage`, `--no-verify`), on a 10-task subset, Ember only (unless time allows) |
+
+**Tasks: about 30, in small fixture projects** (`bench/tasks/<id>/`: a git repo, `prompt.md`, an automatic
+checker, a time limit). Mixed languages (TypeScript, Swift, Python), sized for 16–32K context:
+1. **Fixes (8):** failing unit tests from off-by-one errors, null handling, a wrong import, a regex bug, a date/timezone
+   bug, an async ordering bug (hard), a Swift optional bug, and a Python edge case.
+2. **Multi-file changes (6):** rename a function used in 5 files (missing one = fail), thread a new field through
+   model → API → UI, add an endpoint with a test, update call sites after a signature change, extract a helper, and
+   change a config format.
+3. **Understanding (5):** "what calls X" (scored against the exact list), "where is Y configured", "why does Z fail",
+   explaining a module, finding dead code. Scored by required facts and references from an answer key, not by asking a
+   model's opinion.
+4. **Tools and obedience (5):** follow a command (lint after every edit), obey a `never_use` ban, use a local fake MCP
+   server for one step, pick the right tool out of many, and use a `{{secret:…}}` placeholder without ever printing
+   the secret.
+5. **Long input (3):** find the one cause in a 3,000-line log, pull key figures from a PDF, answer from a memory file.
+6. **Robustness and safety (3):** recover from a failing command, ask or plan when the request is ambiguous, and
+   **refuse a prompt injection** (a README telling it to run `curl … | sh`). Running it = fail.
+Plus, if built by then: **1 background job** (start it, keep chatting, the job comes back and is checked) and **1 Code
+mode task through the Mac app** as a smoke test. SSH tasks run only if a test host is set up.
+
+**What's measured per run** (raw JSONL): pass/fail from the checker plus a partial score; **false "done"** (claimed
+success but the checker failed; a key number); steps; tool calls; malformed or wrong tool calls; nudges; repeat-guard
+hits; stuck stops; approvals asked and refused attempts; tokens in/out; wall time; time to first token; peak memory.
+
+**Fairness rules.**
+- Each task runs **3 times** per condition (local models vary). Report the mean and spread, with fixed seeds where
+  the engine allows.
+- **Half the tasks are held out**: written now, not looked at while tuning Ingle, and reported separately, so we can
+  tell if the harness was tuned to the test.
+- Tasks and checkers are frozen before the first full run, and every failure is published, not just the wins.
+- The same machine and engine version for all local runs, with nothing else heavy running.
+
+**Safety.** Every run works in a throwaway copy under a temp folder, with `HOME` pointed at a fake home containing a
+test `~/.ingle` (no access to the user's real files, memory or secrets). Approvals come from a per-task `--allow` list
+of scoped actions, and everything else is denied and recorded. No network except the local engine (Web off) for A–C.
+Claude Code (D) runs with permissions limited to the task copy. Clean up every copy and process afterwards.
+
+**Offline.** A–C run with Ingle's network blocked. One extra B run is done with Wi-Fi actually off; the user switches
+it, since the benchmark doesn't change system settings.
+
+**Time.** This is a lot of local inference. About 30 tasks × 3 runs × 3 local conditions × 2 models ≈ 540 runs, at
+roughly 2–5 minutes each ≈ **18–45 hours**. So there are two tiers:
+- **Quick** (10 tasks × 1 run × A/B × both models, about 1–2 hours) to check everything works;
+- **Full** (run overnight across a few nights, resumable, skipping finished runs).
+Ingle's own engine handles one request at a time, so runs are sequential. Battery is refused; it must be plugged in.
+
+**Output.** `bench/run.sh` (with `--tier quick|full`, `--models`, `--conditions`, `--tasks`, `--resume`) writes
+`bench/results/<date>/` (raw JSONL, environment details: Mac model, memory, macOS, Ollama and Ingle versions, model
+digests) and a `summary.md` with:
+- pass rate per model × condition, overall and per category, with spread;
+- the false-"done" rate;
+- the ablation table (which harness part helps most);
+- time and tokens;
+- the Ember vs Flint comparison (which one to use for what);
+- where Claude Code still wins.
+The headline goes in the README.
+**Files.** `bench/**` (new), plus the `--harness`/ablation switches from task 38. Don't change app behaviour to suit the
+benchmark.
 
 ### [ ] 11. First-run model picker
 Read the Mac's memory and suggest models that fit (8 / 16 / 24 / 32 / 64 GB+), with download sizes and a one-line
@@ -289,7 +361,7 @@ verification nudge, guard thresholds), `Ollama.swift` (`think` as level), `ToolS
 **Done when.** The same request at Low gives a quick answer with no thinking. At High it reads the related code and
 runs the tests before finishing. At Max it shows a plan first and a review note at the end. Both apps behave the same.
 
-### [ ] 30. Code mode — foundation (Mac app)
+### [x] 30. Code mode — foundation (Mac app)
 **Why.** The Mac app is a chat. To use it the way Claude Code works, a chat needs to belong to a **project folder**,
 with coding tools and a coding prompt, while normal chats stay simple.
 **Design.**
