@@ -40,8 +40,10 @@ struct IngleApp: App {
         .defaultSize(width: 1120, height: 760)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Chat") { chats.newChat() }
+                Button("New Chat") { chats.newChatSameKind() }
                     .keyboardShortcut("n")
+                Button("Switch Chat / Code") { chats.switchMode(code: !(chats.current?.isCode ?? false)) }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
                 Button("Compact Chat") { chats.compactNow() }
                     .keyboardShortcut("k", modifiers: [.command, .shift])
             }

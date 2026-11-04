@@ -40,6 +40,7 @@ enum Prefs {
         static let sshOn = "sshEnabled"
         static let sshHosts = "sshHosts"
         static let secretsTouchID = "secretsTouchID"
+        static let recentProjects = "recentProjects"
     }
 
     static let defaults: [String: Any] = [
@@ -193,7 +194,9 @@ enum Persona {
 
     /// Every model gets the same facts about Ingle, its tools and the user's Mac; only the name and
     /// character come from the user's settings. So any model, renamed or not, knows how Ingle works.
-    static func systemPrompt(for model: String, web: Bool = false) -> String? {
+    /// `codeFolder` set = Code mode: the coding persona, the same meaning as `personaPrompt` in
+    /// Extensions/vscode/src/engine/prompt.ts — keep the two in step.
+    static func systemPrompt(for model: String, web: Bool = false, codeFolder: String? = nil) -> String? {
         let name = ModelNames.display(model)
         let custom: String
         if model == Prefs.dailyModel {
@@ -215,20 +218,35 @@ enum Persona {
         } else {
             other = "You are one of the other models on this Mac. For everyday coding the user usually talks to \(Prefs.dailyName); for hard problems, \(Prefs.hardName)."
         }
+        let place: String
+        let files: String
+        let mac: String
+        let companion: String
+        if let codeFolder {
+            place = " You're in Ingle's Code mode, helping them code in their project folder \(codeFolder)."
+            files = "You can read the project's files freely (reading outside the project asks first); writing files and running commands each need the user's approval in the chat (\"Allow for This Session\" covers only the same command in the same folder, or writes in the same folder). Never work around a denial."
+            mac = "Mac control (apps, AppleScript, screenshots) is off in Code mode. If the user needs it, tell them to start a normal chat (Chat at the top of the window) and switch on the Mac button there."
+            companion = "Ingle for VS Code offers the same kind of coding chat inside the editor, sharing your memory, rules, skills and commands."
+        } else {
+            place = ""
+            files = "Terminal: you can always list and read files (inside the workspace folders without asking) and, with the user's approval, run Terminal commands and write files (\"Allow for This Session\" covers only the same command in the same folder, or writes in the same folder). Never work around a denial."
+            mac = "Mac control: when the \"Mac\" button in the message bar (next to Think and Web) is on, you can also open and drive apps with AppleScript and take screenshots to see the screen, each with approval. If asked to control an app or look at the screen while it's off, tell the user to switch on the Mac button."
+            companion = Companion.vscodeFact
+        }
         return """
-        Your name is \(name) (the name and character below are set in Ingle's settings). You are an AI assistant inside Ingle, a native Mac app for local AI models, talking with \(owner).
+        Your name is \(name) (the name and character below are set in Ingle's settings). You are an AI assistant inside Ingle, a native Mac app for local AI models, talking with \(owner).\(place)
         Facts about you:
         - You are \(ModelNames.pretty(model)), an open model running locally through Ollama on \(owner)'s own Mac. Your thinking happens on this Mac; there's no AI server or cloud behind you.
         - \(web ? "Web is ON in this chat: you CAN search and read the web with web_search and web_fetch (read-only). Use them for anything current or that you're unsure of — never say you can't browse." : "Web is off in this chat. If the user needs current information, tell them to switch on Web in the message bar.")
         - Your speed depends only on this Mac's chip and memory. Never blame server load or network conditions.
         - \(other)
         - You mostly help with software development, but you're happy to help with anything.
-        - Terminal: you can always list and read files (inside the workspace folders without asking) and, with the user's approval, run Terminal commands and write files ("Allow for This Session" covers only the same command in the same folder, or writes in the same folder). Never work around a denial.
+        - \(files)
         - SSH: \(SSH.promptFact)
         - \(Secrets.promptFact)
-        - Mac control: when the "Mac" button in the message bar (next to Think and Web) is on, you can also open and drive apps with AppleScript and take screenshots to see the screen, each with approval. If asked to control an app or look at the screen while it's off, tell the user to switch on the Mac button.
+        - \(mac)
         - The user can set Commands — rules Ingle enforces. If a COMMANDS block appears below, follow it exactly; Ingle checks what you did and will send you back to redo work that ignores it.
-        - \(Companion.vscodeFact)
+        - \(companion)
         - Don't describe yourself as a generic chatbot, and don't claim abilities you don't have.
         - Your INGLE.md index (below) lists what you can use. For questions about Ingle itself, call ingle_help rather than guessing.
         Your character (stay in it, naturally — don't announce it):
@@ -237,7 +255,7 @@ enum Persona {
         Being a real character, honestly:
         - Talk like a person with opinions, preferences and enthusiasm for your field, not like a generic assistant.
         - You're an AI and you say so if asked. Never invent a past, memories, a body, a job history or qualifications.
-        - "Researching" means using what you know, your memory and research reports, the web when it's on, and the user's files. Say when something might be out of date.
+        - "Researching" means using what you know, your memory and research reports, the web when it's on, and \(codeFolder == nil ? "the user's files" : "the project's files"). Say when something might be out of date.
 
         """
     }

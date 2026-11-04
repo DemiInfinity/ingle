@@ -56,6 +56,15 @@ struct Conversation: Identifiable, Codable, Equatable {
     var webOn: Bool { webAccess ?? Prefs.webOnByDefault }
     var messages: [ChatMessage] = []
     var updated = Date()
+    /// "code" for a Code chat; nil = a normal chat. Optional so older chats.json still decodes.
+    var mode: String?
+    /// The Code chat's project folder (nil until one is chosen).
+    var projectPath: String?
+
+    var isCode: Bool { mode == Project.codeMode }
+    /// The one place that says "this chat is Code mode on folder X": the project folder, or nil for a normal chat
+    /// (or a Code chat still waiting for its folder). Approvals, the prompt and the tools all go by this.
+    var codeFolder: String? { isCode ? projectPath : nil }
 }
 
 struct Attachment: Identifiable, Equatable {
@@ -86,9 +95,11 @@ struct IncomingDraft: Equatable {
 }
 
 struct ChatSection: Identifiable {
-    var id: String { title }
+    var id: String { path ?? title }
     let title: String
     let items: [Conversation]
+    /// Set for a Code project's group: its folder.
+    var path: String? = nil
 }
 
 @MainActor @Observable
@@ -168,13 +179,33 @@ final class ChatStore {
 
     func index(_ id: Conversation.ID) -> Int? { conversations.firstIndex { $0.id == id } }
 
-    var sections: [ChatSection] {
-        // A new chat appears in the list once it has a message.
+    /// Started chats matching the search. A new chat appears in the list once it has a message.
+    private var listed: [Conversation] {
         let started: [Conversation] = conversations.filter { !$0.messages.isEmpty }
-        let list = search.isEmpty ? started : started.filter { c in
+        return search.isEmpty ? started : started.filter { c in
             c.title.localizedCaseInsensitiveContains(search) ||
             c.messages.contains { $0.content.localizedCaseInsensitiveContains(search) }
         }
+    }
+
+    /// The sidebar in Code mode: Code chats grouped by project, most recently used project first.
+    var codeSections: [ChatSection] {
+        let code: [Conversation] = listed.filter(\.isCode).sorted { $0.updated > $1.updated }
+        var order: [String] = []
+        var groups: [String: [Conversation]] = [:]
+        for c in code {
+            let path: String = c.projectPath ?? ""
+            if groups[path] == nil { order.append(path) }
+            groups[path, default: []].append(c)
+        }
+        return order.map { path in
+            ChatSection(title: path.isEmpty ? "No folder" : Project.name(path), items: groups[path] ?? [], path: path)
+        }
+    }
+
+    /// The sidebar in Chat mode: normal chats, by date.
+    var sections: [ChatSection] {
+        let list: [Conversation] = listed.filter { !$0.isCode }
         let cal = Calendar.current
         var today: [Conversation] = [], yesterday: [Conversation] = [], week: [Conversation] = [], older: [Conversation] = []
         for c in list.sorted(by: { $0.updated > $1.updated }) {
@@ -202,12 +233,50 @@ final class ChatStore {
 
     // MARK: Chats
 
+    /// A blank normal chat. An empty current chat is reused (it isn't listed or saved until its first message).
     func newChat(model: String? = nil) {
+        startChat(mode: nil, project: nil, model: model)
+    }
+
+    /// A blank Code chat on `project` (nil: it asks for a folder first).
+    func newCodeChat(project: String? = nil) {
+        startChat(mode: Project.codeMode, project: project, model: nil)
+    }
+
+    /// ⌘N: a new chat of the same kind as the current one (a Code chat stays on its project).
+    func newChatSameKind() {
+        if let c = current, c.isCode { newCodeChat(project: c.projectPath) } else { newChat() }
+    }
+
+    /// The Chat / Code switch and ⌘⇧C.
+    func switchMode(code: Bool) {
+        guard current?.isCode != code else { return }
+        if code { newCodeChat() } else { newChat() }
+    }
+
+    /// Choose (or change, before the first message) the current Code chat's folder.
+    func setProject(_ path: String) {
+        let folder: String = Project.standard(path)
+        guard Project.isFolder(folder), let id = selection, let i = index(id) else { return }
+        if !conversations[i].messages.isEmpty, conversations[i].projectPath != nil { return }
+        conversations[i].mode = Project.codeMode
+        conversations[i].projectPath = folder
+        conversations[i].macAccess = false
+        Project.remember(folder)
+        save()
+    }
+
+    private func startChat(mode: String?, project: String?, model: String?) {
         if let c = current, c.messages.isEmpty, let i = index(c.id) {
             if let model { conversations[i].model = model }
+            conversations[i].mode = mode
+            conversations[i].projectPath = project
+            if mode != nil { conversations[i].macAccess = false }
             return
         }
-        let c = Conversation(model: model ?? Prefs.dailyModel)
+        var c = Conversation(model: model ?? Prefs.dailyModel)
+        c.mode = mode
+        c.projectPath = project
         conversations.insert(c, at: 0)
         selection = c.id
         save()
@@ -228,7 +297,7 @@ final class ChatStore {
     }
 
     func setMacAccess(_ on: Bool) {
-        guard let id = selection, let i = index(id) else { return }
+        guard let id = selection, let i = index(id), !conversations[i].isCode else { return }
         conversations[i].macAccess = on
         save()
     }
@@ -243,6 +312,8 @@ final class ChatStore {
         body = body.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = attachments.compactMap(\.imageFile)
         guard !body.isEmpty || !images.isEmpty, streamingID == nil, let id = selection, let i = index(id) else { return }
+        // A Code chat needs its folder first (the chat view asks for one).
+        if conversations[i].isCode && conversations[i].projectPath == nil { return }
         var message = ChatMessage(role: .user, content: body)
         if !images.isEmpty { message.imageFiles = images }
         conversations[i].messages.append(message)
@@ -263,7 +334,7 @@ final class ChatStore {
         case "/secret", "/secrets": showAddSecret = true
         case "/skill-reload", "/skills-reload", "/reload": reloadSkills()
         case "/commands":
-            let list = CommandStore.all(project: EditorBridge.shared.freshContext?.workspace).filter(\.enabled)
+            let list = CommandStore.all(project: currentProject).filter(\.enabled)
             notice = list.isEmpty ? "No commands yet — ask: “write a command to always …”"
                 : "Commands: " + list.map { $0.name + ($0.always ? " (always)" : "") }.joined(separator: " · ")
             Task { [weak self] in
@@ -275,11 +346,14 @@ final class ChatStore {
         return true
     }
 
+    /// The project whose .ingle rules and commands apply: the Code chat's folder, else the editor's workspace.
+    private var currentProject: String? { current?.codeFolder ?? EditorBridge.shared.freshContext?.workspace }
+
     func reloadSkills() {
         skills = SkillStore.all()
         MCPManager.shared.reload()
         SemanticMatcher.shared.clearCache()
-        let rules = RuleStore.all(project: EditorBridge.shared.freshContext?.workspace).count
+        let rules = RuleStore.all(project: currentProject).count
         let servers = MCPManager.shared.servers.count
         notice = "Reloaded · \(skills.count) skill\(skills.count == 1 ? "" : "s") · \(rules) rule\(rules == 1 ? "" : "s") · \(servers) MCP server\(servers == 1 ? "" : "s")"
         Task { [weak self] in
@@ -367,8 +441,12 @@ final class ChatStore {
             }
             // What you're working on, and rules/skills that clearly match this message, attached up front.
             let startConv = index(id).map { conversations[$0] }
-            let editor = (startConv?.useEditor ?? true) ? EditorBridge.shared.freshContext : nil
-            let project = editor?.workspace
+            // Code mode: the chat's folder is the project; the editor's context isn't used.
+            let codeFolder: String? = startConv?.codeFolder
+            let editor = (codeFolder == nil && (startConv?.useEditor ?? true)) ? EditorBridge.shared.freshContext : nil
+            let project: String? = codeFolder ?? editor?.workspace
+            var git: Project.Git? = nil
+            if let codeFolder { git = await Project.git(codeFolder) }
             var attachedNames: [String] = []     // shown on the reply's chip: things actually in use
             var attachedText = ""
             var suggestions: [String] = []       // matched, offered, not loaded
@@ -458,10 +536,13 @@ final class ChatStore {
                     system.append("## Summary of the earlier conversation (compacted — older messages aren't shown to you)\n" + summary)
                 }
                 var tools: [[String: Any]] = []
-                if let persona = Persona.systemPrompt(for: model, web: conv.webOn) { system.append(persona) }
+                // Mac control is off in Code mode, whatever the chat's Mac switch says.
+                let mac: Bool = conv.macAccess && codeFolder == nil
+                if let persona = Persona.systemPrompt(for: model, web: conv.webOn, codeFolder: codeFolder) { system.append(persona) }
                 if let block = CommandStore.promptBlock(tracker.commands) { system.append(block) }
                 // Only the short INGLE.md index goes in; details load on demand through tools.
-                system.append(IngleManifest.refresh(macAccess: conv.macAccess, project: project, web: conv.webOn, currentChat: id))
+                system.append(IngleManifest.refresh(macAccess: mac, project: project, web: conv.webOn, currentChat: id, code: codeFolder != nil))
+                if let codeFolder { system.append(Project.promptSection(codeFolder, git: git)) }
                 if let editor {
                     system.append(editor.promptSection)
                     if let projectRules = editor.projectInstructions { system.append(projectRules) }
@@ -495,10 +576,10 @@ final class ChatStore {
                 if !Secrets.all().isEmpty { tools.append(Secrets.listDefinition) }
                 if RuleStore.all(project: project).contains(where: { !$0.always }) { tools.append(RuleStore.toolDefinition) }
                 // Terminal (files, commands) is always available and asks first; controlling the Mac needs the Mac button.
-                system.append(MacTools.systemPrompt)
+                system.append(codeFolder == nil ? MacTools.systemPrompt : MacTools.codePrompt)
                 tools += MacTools.definitions
                 if !MCPManager.shared.servers.isEmpty { tools += MacTools.mcpTools }
-                if conv.macAccess {
+                if mac {
                     system.append(MacTools.controlPrompt)
                     tools += MacTools.controlDefinitions
                 }
@@ -618,8 +699,10 @@ final class ChatStore {
                     break
                 }
 
-                for call in calls {
+                for modelCall in calls {
                     if Task.isCancelled { break }
+                    // Code mode: relative paths and missing working folders mean the project folder.
+                    let call: ToolCall = Project.prepare(modelCall, folder: codeFolder)
                     let signature = call.name + "|" + call.arguments.sorted { $0.key < $1.key }.map { $0.key + "=" + $0.value }.joined(separator: "&")
                     let repeats = (callCounts[signature] ?? 0) + 1
                     callCounts[signature] = repeats
@@ -656,18 +739,18 @@ final class ChatStore {
                         output = why
                         ran = false
                     case .use(let use):
-                        if let result = await runWithSecrets(call, use, info: info, chat: id, model: model, web: conv.webOn, mac: conv.macAccess, commands: tracker.commands) {
+                        if let result = await runWithSecrets(call, use, info: info, chat: id, model: model, web: conv.webOn, mac: mac, commands: tracker.commands) {
                             output = result
                         } else {
                             allowed = false
                         }
                     case .none, .passThrough:
-                        if MacTools.needsApproval(call) {
+                        if MacTools.needsApproval(call, codeFolder: codeFolder) {
                             allowed = await requestApproval(id, call, info)
                         }
                         if allowed {
                             activity = info.title + "…"
-                            output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess, commands: tracker.commands)
+                            output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: mac, commands: tracker.commands)
                             activity = nil
                         }
                     }
@@ -722,6 +805,9 @@ final class ChatStore {
 
     private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool, commands: [IngleCommand] = [], env: [String: String] = [:]) async -> String {
         if ["open", "applescript", "screenshot"].contains(call.name) && !mac {
+            if index(id).flatMap({ conversations[$0].codeFolder }) != nil {
+                return "Mac control is off in Code mode. If the user needs it, they can start a normal chat (Chat at the top of the window) and switch on the Mac button there."
+            }
             return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Think and Web) if they want you to control apps or see the screen."
         }
         if call.name == "screenshot" {
@@ -754,7 +840,11 @@ final class ChatStore {
         case "chat_list", "chat_search", "chat_read":
             return chatTool(call, excluding: id)
         case "delegate":
-            return await runSubAgent(task: call.arg("task"), model: model, web: web, mac: mac, parent: id, commands: commands)
+            return await runSubAgent(task: call.arg("task"), model: model, web: web, parent: id, commands: commands)
+        case "use_rule":
+            // A Code chat's project rules come from its folder, not from the editor.
+            guard let folder = index(id).flatMap({ conversations[$0].codeFolder }) else { return await MacTools.run(call, env: env) }
+            return RuleStore.read(call.arg("name"), project: folder)
         default:
             return await MacTools.run(call, env: env)
         }
@@ -805,13 +895,16 @@ final class ChatStore {
 
     /// A helper with a fresh context and read-only tools. Runs on the same model, one at a time.
     /// The request's active commands apply to it too: never_use tools are hidden and blocked.
-    private func runSubAgent(task: String, model: String, web: Bool, mac: Bool, parent: Conversation.ID, commands: [IngleCommand] = []) async -> String {
+    private func runSubAgent(task: String, model: String, web: Bool, parent: Conversation.ID, commands: [IngleCommand] = []) async -> String {
         let task = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.isEmpty else { return "The helper needs a task." }
+        // Helpers read without asking, so only where reading is free: the Code chat's project, else the workspace folders.
+        let codeFolder: String? = index(parent).flatMap { conversations[$0].codeFolder }
         var system = ["You are a helper sub-agent working for \(ModelNames.display(model)) inside Ingle, on the user's Mac. Do only the task below, using your tools where useful, then reply with a concise result: key findings, facts, and sources (URLs or file paths). No small talk and no questions — make sensible assumptions and say what they were."]
         if web { system.append(WebTools.systemPrompt) }
         if let memory = MemoryStore.indexSection() { system.append(memory) }
         if let reports = ReportStore.indexSection() { system.append(reports) }
+        if let codeFolder { system.append("The project folder is \(codeFolder); relative paths are inside it.") }
 
         var pool: [[String: Any]] = []
         pool.append(contentsOf: MacTools.definitions)
@@ -829,7 +922,6 @@ final class ChatStore {
                   KnowledgeTools.subAgentAllowed.contains(name) else { return false }
             if banned.contains(name.lowercased()) { return false }
             if name.hasPrefix("web_") { return web }
-            if name == "list_files" || name == "read_file" { return mac }
             return true
         }
 
@@ -865,7 +957,8 @@ final class ChatStore {
                 let result = ThinkSplitter.split(content, extra: "").body
                 return result.isEmpty ? "(The helper finished without a result.)" : result
             }
-            for c in calls {
+            for modelCall in calls {
+                let c: ToolCall = Project.prepare(modelCall, folder: codeFolder)
                 let result: String
                 if let ban = commandCheck.blockingCommand(for: c) {
                     result = CommandTracker.blockedMessage(ban.command, ban.item)
@@ -873,8 +966,8 @@ final class ChatStore {
                     result = "Helpers can only read, so that tool isn't available."
                 } else if !Secrets.names(in: c).isEmpty {
                     result = "Helpers can’t use secrets. " + Secrets.refused
-                } else if (c.name == "list_files" || c.name == "read_file") && (!mac || !Prefs.inWorkspace(c.arg("path"))) {
-                    result = "Helpers can only read inside the workspace folders."
+                } else if (c.name == "list_files" || c.name == "read_file") && MacTools.needsApproval(c, codeFolder: codeFolder) {
+                    result = codeFolder == nil ? "Helpers can only read inside the workspace folders." : "Helpers can only read inside the project folder."
                 } else if c.name.hasPrefix("chat_") {
                     result = chatTool(c, excluding: parent)
                 } else {

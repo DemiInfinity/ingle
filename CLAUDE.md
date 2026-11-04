@@ -43,6 +43,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `ChatViews.swift` / `MessageViews.swift` | Chat UI: sidebar, composer (pills: model, Think, Web, **Mac** = Mac control), slash menu, attachments, context meter, approval card, message rows (tool rows, nudges, compaction divider, images) |
 | `Tools.swift` | `MacTools`: Terminal tools (`list_files`, `read_file`, `write_file`, `run_command` — always available) and **Mac control** (`controlDefinitions`: `open`, `applescript`, `screenshot` — only when the Mac button is on); `describe`, `needsApproval`, `run`, prompts |
 | `ToolSelection.swift` | Per-turn tool filtering by keywords (fewer tools → better accuracy for small models) |
+| `Project.swift` / `CodeViews.swift` | **Code mode**: `Conversation.codeFolder` is the one switch; project folder, path resolving (`prepare`), git info, rules files, prompt section, recent projects; `ModeSwitch` (Chat / Code, ⇧⌘C), `ProjectPicker`, `ProjectChip` |
 | `Commands.swift` | **Commands** (obedience layer): `CommandStore` (files in `~/.ingle/commands`), `CommandTracker` (requirements, blocking, nudges) |
 | `Prefs.swift` | UserDefaults keys/defaults, `Persona` (default characters + `systemPrompt(for:web:)` with the built-in facts every model gets), `ModelNames`, `ModelProfiles` (names/personas for any model), `Companion` (does the other app exist?) |
 | `Manifest.swift` | `IngleManifest.refresh` builds the `INGLE.md` index; `HelpTopics` = in-app help the model reads via `ingle_help` — **keep it accurate** |
@@ -85,6 +86,8 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 - **Secrets:** values only in the Keychain; the model sees `{{secret:name}}`. Calls using one always ask (no session
   allowance, Touch ID if on), values are put in after approval, and tool output is scrubbed back to placeholders.
 - **Terminal vs Mac control:** Terminal tools always on; the Mac button only gates `open`/`applescript`/`screenshot`.
+- **Code mode (Mac app):** a chat on a project folder. Reads inside it are free, outside ask; writes/commands ask. Coding
+  persona = the extension's `personaPrompt` + `guidancePrompt` meaning (keep in step). Mac control off.
 - **Commands:** `~/.ingle/commands/*.md` with `when`, `must_use` (tool | `mcp:server[/tool]` | `skill:name`), `never_use`,
   `then_run`, `enabled`. Enforced: required tools offered, banned blocked, ≤2 nudges before finishing, ⚑/⚠ chips.
 - **Small-model tuning:** per-turn tool filtering; Qwen sampling settings; repeat-call guard (3rd identical call skipped);

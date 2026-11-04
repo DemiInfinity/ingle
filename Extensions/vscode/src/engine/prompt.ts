@@ -26,6 +26,8 @@ export function sshFact(hosts: string[]): string {
   return `SSH is on: you can run commands on the user’s own servers with ssh_command, using only these host names: ${hosts.join(', ')}. Each call needs approval. Never try to reach other hosts.`;
 }
 
+// Keep personaPrompt and guidancePrompt in step with the Mac app's Code mode prompt:
+// Persona.systemPrompt(…, codeFolder:) in Sources/Ingle/Prefs.swift and MacTools.codePrompt in Sources/Ingle/Tools.swift.
 export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web: boolean, sshHosts: string[] = [], secretNames: string[] = []): string {
   const owner = settings.userName?.trim() || 'the user';
   const daily = settings.assistants.find((x) => x.id === 'daily');

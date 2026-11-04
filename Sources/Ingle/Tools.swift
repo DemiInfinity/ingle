@@ -83,6 +83,17 @@ enum MacTools {
         """
     }
 
+    /// Code mode's "how to work" guidance, used instead of `systemPrompt`. Same meaning as `guidancePrompt` in
+    /// Extensions/vscode/src/engine/prompt.ts — keep the two in step. (edit_file and search_code arrive with task 31.)
+    static let codePrompt = """
+    ## How to work
+    - Read files before changing them. Keep changes small and targeted; write_file replaces a whole file, so read it first and keep everything you aren't changing.
+    - Run tests or builds with run_command when it helps confirm a change works.
+    - Use one tool at a time. If the user denies an action, don't retry it; ask what they'd like instead.
+    - Never delete files, run sudo, or change system settings unless the user clearly asked.
+    - When done, explain what you changed briefly, in plain words.
+    """
+
     static let controlPrompt = """
     Mac control is ON in this chat: you can open apps, files and links (open), drive apps with AppleScript (applescript — including System Events to click, choose menus and type), and look at the screen (screenshot). Each action asks the user first.
     - Prefer an app's own AppleScript commands over clicking through its interface.
@@ -221,9 +232,12 @@ enum MacTools {
         return flat.count > 80 ? String(flat.prefix(79)) + "…" : flat
     }
 
-    static func needsApproval(_ call: ToolCall) -> Bool {
+    /// Whether a call asks the user first. `codeFolder` is the Code-mode project: reading inside it is free and
+    /// reading outside it asks (the workspace folders setting doesn't apply there). Writes and commands always ask.
+    static func needsApproval(_ call: ToolCall, codeFolder: String? = nil) -> Bool {
         switch call.name {
         case "list_files", "read_file":
+            if let codeFolder { return !Project.contains(codeFolder, call.arg("path")) }
             return !(Prefs.autoReadWorkspace && Prefs.inWorkspace(call.arg("path")))
         case "use_skill", "use_rule", "ingle_help", "mcp_tools", "secret_list", "web_search", "web_fetch", "memory_search", "memory_read",
              "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate":

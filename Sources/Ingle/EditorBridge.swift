@@ -45,17 +45,7 @@ struct EditorContext: Codable, Equatable {
     }
 
     /// AGENTS.md / CLAUDE.md in the project root, the convention Claude Code and Cursor use.
-    var projectInstructions: String? {
-        guard let workspace else { return nil }
-        var parts: [String] = []
-        for name in ["AGENTS.md", "CLAUDE.md", ".cursorrules"] {
-            let url = URL(fileURLWithPath: workspace).appendingPathComponent(name)
-            if let text = try? String(contentsOf: url, encoding: .utf8), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                parts.append("### From \(name)\n" + String(text.prefix(8000)))
-            }
-        }
-        return parts.isEmpty ? nil : "## This project's own rules — follow them\n" + parts.joined(separator: "\n\n")
-    }
+    var projectInstructions: String? { workspace.flatMap(Project.instructions) }
 }
 
 struct AskRequest: Codable {

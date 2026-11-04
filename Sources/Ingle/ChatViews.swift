@@ -18,6 +18,9 @@ struct ChatRoot: View {
             }
         }
         .searchable(text: $store.search, placement: .sidebar, prompt: "Search chats")
+        .toolbar {
+            ToolbarItem(placement: .principal) { ModeSwitch() }
+        }
         .toolbarBackground(Ember.bg, for: .windowToolbar)
         .tint(Ember.accent)
         .preferredColorScheme(.dark)
@@ -33,22 +36,31 @@ struct ChatRoot: View {
 
 struct Sidebar: View {
     @Environment(ChatStore.self) private var store
+    /// Code projects folded up in the sidebar (by folder).
+    @State private var collapsed: Set<String> = []
 
     var body: some View {
         @Bindable var store = store
+        // The sidebar follows the mode: Code chats grouped by project in Code mode, normal chats by date in Chat mode.
+        let codeMode: Bool = store.current?.isCode ?? false
+        let groups: [ChatSection] = codeMode ? store.codeSections : store.sections
         List(selection: $store.selection) {
-            ForEach(store.sections) { section in
-                Section(section.title) {
-                    ForEach(section.items) { c in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(c.title).lineLimit(1).foregroundStyle(Ember.text)
-                            Text(store.meta(for: c)).font(.system(size: 11)).foregroundStyle(Ember.secondary)
-                        }
-                        .padding(.vertical, 3)
-                        .tag(c.id)
-                        .contextMenu {
-                            Button("Delete Chat", role: .destructive) { store.delete(c.id) }
-                        }
+            if groups.isEmpty {
+                Text(codeMode ? "No Code chats yet" : (store.search.isEmpty ? "No chats yet" : "No matches"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Ember.tertiary)
+            }
+            ForEach(groups) { group in
+                if codeMode {
+                    Section(isExpanded: Binding(get: { !collapsed.contains(group.id) },
+                                                set: { open in if open { collapsed.remove(group.id) } else { collapsed.insert(group.id) } })) {
+                        ForEach(group.items) { c in row(c) }
+                    } header: {
+                        Label(group.title, systemImage: "folder").help(group.path ?? "")
+                    }
+                } else {
+                    Section(group.title) {
+                        ForEach(group.items) { c in row(c) }
                     }
                 }
             }
@@ -65,9 +77,21 @@ struct Sidebar: View {
         }
         .toolbar {
             ToolbarItem {
-                Button { store.newChat() } label: { Label("New Chat", systemImage: "square.and.pencil") }
+                Button { store.newChatSameKind() } label: { Label("New Chat", systemImage: "square.and.pencil") }
                     .help("New chat (⌘N)")
             }
+        }
+    }
+
+    private func row(_ c: Conversation) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(c.title).lineLimit(1).foregroundStyle(Ember.text)
+            Text(store.meta(for: c)).font(.system(size: 11)).foregroundStyle(Ember.secondary)
+        }
+        .padding(.vertical, 3)
+        .tag(c.id)
+        .contextMenu {
+            Button("Delete Chat", role: .destructive) { store.delete(c.id) }
         }
     }
 }
@@ -135,15 +159,19 @@ struct ChatDetail: View {
         focused = true
     }
     private var isHard: Bool { conversation.model == Prefs.hardModel }
+    /// A Code chat still waiting for its folder.
+    private var needsFolder: Bool { conversation.isCode && conversation.projectPath == nil }
     private var canSend: Bool {
-        !streaming && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        !streaming && !needsFolder && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             banners
-            if conversation.messages.isEmpty {
-                EmptyChat(model: conversation.model) { text in
+            if needsFolder {
+                ProjectPicker()
+            } else if conversation.messages.isEmpty {
+                EmptyChat(model: conversation.model, code: conversation.isCode) { text in
                     draft = text
                     focused = true
                 }
@@ -162,6 +190,12 @@ struct ChatDetail: View {
             addFiles(urls)
         }
         .dropDestination(for: URL.self) { urls, _ in
+            // A new Code chat takes a dropped folder as its project.
+            if needsFolder || (conversation.isCode && conversation.messages.isEmpty),
+               let folder = urls.first(where: { Project.isFolder($0.path) }) {
+                store.setProject(folder.path)
+                return true
+            }
             addFiles(urls)
             return true
         } isTargeted: { dropping = $0 }
@@ -246,7 +280,10 @@ struct ChatDetail: View {
                 }
                 .frame(maxWidth: 720, alignment: .leading)
             }
-            if let ctx = EditorBridge.shared.freshContext {
+            if let folder = conversation.codeFolder {
+                ProjectChip(path: folder, canChange: conversation.messages.isEmpty)
+                    .frame(maxWidth: 720, alignment: .leading)
+            } else if !conversation.isCode, let ctx = EditorBridge.shared.freshContext {
                 EditorChip(context: ctx, on: conversation.useEditor ?? true) { store.setUseEditor($0) }
                     .frame(maxWidth: 720, alignment: .leading)
             }
@@ -372,11 +409,14 @@ struct ChatDetail: View {
                 .toggleStyle(PillToggleStyle(compact: compact))
                 .help("Let the assistant search and read web pages (read-only: no logins, forms or your local network)")
 
-                Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
-                    Label("Mac", systemImage: "macbook")
+                // Mac control is off in Code mode, so its pill is hidden there.
+                if !conversation.isCode {
+                    Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
+                        Label("Mac", systemImage: "macbook")
+                    }
+                    .toggleStyle(PillToggleStyle(compact: compact))
+                    .help("Mac control: let the assistant open and drive apps (AppleScript) and look at your screen — asking before each action. Terminal commands and files work without this.")
                 }
-                .toggleStyle(PillToggleStyle(compact: compact))
-                .help("Mac control: let the assistant open and drive apps (AppleScript) and look at your screen — asking before each action. Terminal commands and files work without this.")
 
                 Spacer(minLength: compact ? 4 : 8)
                 if !store.sessionAllowed.isEmpty {
@@ -392,7 +432,9 @@ struct ChatDetail: View {
                 }
                 Image(systemName: "hand.raised")
                     .font(.system(size: 11))
-                    .help(conversation.macAccess
+                    .help(conversation.isCode
+                          ? "Code mode: reading the project needs no approval; every command and file change asks you first"
+                          : conversation.macAccess
                           ? "Terminal and Mac control are on — every command, file change and app action asks you first"
                           : "Terminal is available and asks before every command or file change. Switch on Mac to let it control apps and see your screen.")
                 Button {
@@ -683,6 +725,7 @@ private func sentenceCase(_ title: String) -> String {
 
 struct EmptyChat: View {
     let model: String
+    var code = false
     let pick: (String) -> Void
 
     private struct Prompt: Hashable {
@@ -696,6 +739,13 @@ struct EmptyChat: View {
         Prompt(title: "Write tests for a function", sub: "xUnit, Jest or pytest", text: "Write unit tests for this function:\n\n"),
         Prompt(title: "Review my SQL query", sub: "Spot slow joins and missing indexes", text: "Review this SQL query for performance:\n\n"),
         Prompt(title: "Tidy my Downloads folder", sub: "Asks before changing anything", text: "Look in ~/Downloads and suggest how to organise it. Don't move anything yet."),
+    ]
+
+    private let codePrompts: [Prompt] = [
+        Prompt(title: "What does this project do?", sub: "Reads the code, no approvals", text: "What does this project do?"),
+        Prompt(title: "Find where something happens", sub: "Points to the files and lines", text: "Where in this project does "),
+        Prompt(title: "Review my changes", sub: "Looks at git status and diff", text: "Review my uncommitted changes and point out problems."),
+        Prompt(title: "Run the tests", sub: "Asks before running anything", text: "Find how this project runs its tests, then run them and summarise the results."),
     ]
 
     var body: some View {
@@ -715,7 +765,7 @@ struct EmptyChat: View {
                     .foregroundStyle(Ember.secondary)
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                ForEach(prompts, id: \.title) { p in
+                ForEach(code ? codePrompts : prompts, id: \.title) { p in
                     Button { pick(p.text) } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(p.title).font(.system(size: 13, weight: .medium)).foregroundStyle(Ember.text)
