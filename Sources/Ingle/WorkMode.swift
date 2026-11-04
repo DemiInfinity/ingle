@@ -80,7 +80,9 @@ enum WorkMode: String, CaseIterable, Identifiable {
     /// Why a command must still ask in Auto mode ("" = safe to run without asking). Same as riskyCommand in modes.ts.
     static func riskyCommand(_ command: String, cwd: String, root: String?) -> String {
         let squeezed: String = command.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        let c: String = " " + squeezed + " "
+        // Commands inside `backticks` or $( … ) count as separate commands, so they're checked too.
+        let split: String = squeezed.replacingOccurrences(of: "`", with: " ; ").replacingOccurrences(of: "$(", with: " ; ")
+        let c: String = " " + split + " "
         guard let root, inside(root, cwd) else { return "it runs outside the project" }
         if has(c, #"\{\{\s*secret:"#) { return "it uses a secret" }
         if has(c, #"[ ;&|(]sudo "#) { return "it uses sudo" }
@@ -95,7 +97,10 @@ enum WorkMode: String, CaseIterable, Identifiable {
         if has(c, #"[ ;&|(](npm (install|i|add|ci)|yarn add|pnpm (add|install)|pip3? install|brew install|gem install|cargo install|go install|npx) "#) {
             return "it downloads packages"
         }
-        if has(c, #"\|\s*(ba|z)?sh\b"#) || has(c, #"[ ;&|(](eval|bash -c|sh -c|zsh -c) "#) { return "it runs code it builds on the fly" }
+        if has(c, #"\|\s*(ba|z)?sh\b"#) || has(c, #"[ ;&|(](eval|bash -c|sh -c|zsh -c) "#)
+            || has(c, #"[ ;&|(](python3?|node|perl|ruby|php) (-c|-e|--eval) "#) {
+            return "it runs code it builds on the fly"
+        }
         if has(c, #"[ ;&|(](kill|killall|pkill|shutdown|reboot|launchctl|osascript|diskutil|defaults write|chown) "#) { return "it changes the system" }
         let writes: Bool = has(c, #"(>>?|[ ;&|(](cp|mv|tee|touch|mkdir|ln|chmod|rm|rmdir|dd|install|truncate|unlink) )"#)
         if writes, let re = try? NSRegularExpression(pattern: #"(?:^|[\s=>"'])((?:~|\.\.|/)[^\s"';|&<>()]*)"#) {

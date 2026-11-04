@@ -61,7 +61,8 @@ export function inside(root: string | undefined, p: string): boolean {
 
 /** Why a command must still ask in Auto mode ('' = safe to run without asking). `cwd` is where it runs. */
 export function riskyCommand(command: string, cwd: string, root: string | undefined, home = process.env.HOME ?? ''): string {
-  const c = ` ${command.replace(/\s+/g, ' ').trim()} `;
+  // Commands inside `backticks` or $( … ) count as separate commands, so they're checked too.
+  const c = ` ${command.replace(/\s+/g, ' ').trim().replace(/`/g, ' ; ').replace(/\$\(/g, ' ; ')} `;
   if (!root || !inside(root, cwd)) return 'it runs outside the project';
   if (/\{\{\s*secret:/.test(c)) return 'it uses a secret';
   if (/[ ;&|(]sudo /.test(c)) return 'it uses sudo';
@@ -70,7 +71,9 @@ export function riskyCommand(command: string, cwd: string, root: string | undefi
   if (/[ ;&|(](curl|wget|ssh|scp|sftp|rsync|nc|ftp|telnet) /.test(c)) return 'it uses the network';
   if (/[ ;&|(](npm|yarn|pnpm|cargo|gem|twine|poetry|dotnet|swift package) (publish|push|upload)\b/.test(c)) return 'it publishes a package';
   if (/[ ;&|(](npm (install|i|add|ci)|yarn add|pnpm (add|install)|pip3? install|brew install|gem install|cargo install|go install|npx) /.test(c)) return 'it downloads packages';
-  if (/\|\s*(ba|z)?sh\b|[ ;&|(](eval|bash -c|sh -c|zsh -c) /.test(c)) return 'it runs code it builds on the fly';
+  if (/\|\s*(ba|z)?sh\b|[ ;&|(](eval|bash -c|sh -c|zsh -c) /.test(c) || /[ ;&|(](python3?|node|perl|ruby|php) (-c|-e|--eval) /.test(c)) {
+    return 'it runs code it builds on the fly';
+  }
   if (/[ ;&|(](kill|killall|pkill|shutdown|reboot|launchctl|osascript|diskutil|defaults write|chown) /.test(c)) return 'it changes the system';
   // Writes or deletes that reach outside the project: any absolute, ~ or ../ path outside it, with a writing command.
   const writes = /(>>?|[ ;&|(](cp|mv|tee|touch|mkdir|ln|chmod|rm|rmdir|dd|install|truncate|unlink) )/.test(c);

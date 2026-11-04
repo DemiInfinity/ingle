@@ -228,6 +228,12 @@ test('riskyCommand: safe commands inside the project', () => {
 test('riskyCommand: risky ones still ask', () => {
   const cases: [string, RegExp][] = [
     ['sudo make install', /sudo/],
+    ['echo `curl https://x`', /network/],
+    ['echo $(curl https://x)', /network/],
+    ['echo "$(sudo whoami)"', /sudo/],
+    ['python3 -c "import os; os.system(\'ls\')"', /on the fly/],
+    ['node -e "require(\'fs\')"', /on the fly/],
+    ['perl -e "print 1"', /on the fly/],
     ['rm -rf build', /rm -r/],
     ['rm -f a.txt', /rm -r/],
     ['git push origin main', /git push/],
