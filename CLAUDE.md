@@ -14,8 +14,8 @@ A local-first AI assistant for Apple Silicon Macs, in two parts that share one b
    Talks to the same engine directly; works without the Mac app open.
 
 Shared state lives in **`~/.ingle/`** (rules, skills, commands, memory, research, `mcp.json`, `secrets.json` names only, generated `INGLE.md`
-index, `settings.json` written by the Mac app). Status: **early preview**. Licence: **PolyForm Noncommercial 1.0.0**
-(not MIT — see `LICENSING.md`). Default assistants: **Ember** (daily coding) and **Flint** (hard jobs).
+index, `settings.json` written by the Mac app). Status: **early preview**. Licence: **AGPL-3.0-only + a Section 7(b) attribution term**
+(`LICENSE` is the verbatim AGPL text, `LICENSE.md` has the copyright and the attribution term, `NOTICE` the credit line; keep the visible credit in the app; see `LICENSING.md`). Default assistants: **Ember** (daily coding) and **Flint** (hard jobs).
 
 ## Build and check
 
@@ -23,7 +23,7 @@ index, `settings.json` written by the Mac app). Status: **early preview**. Licen
 ./build.sh                    # swift build -c release → build/Ingle.app (+ copies & slims the Ollama runtime)
 ./build.sh --install          # also copies to /Applications and opens it
 INGLE_MLX=v3 ./build.sh       # keep only mlx_metal_v3 (smaller; macOS 14+). Options: both (default) | v3 | v4 | none
-cd Extensions/vscode && node node_modules/typescript/bin/tsc -p . --noEmit   # type-check the extension
+cd Extensions/vscode && npm run engine && node node_modules/typescript/bin/tsc -p . --noEmit   # build vendor/ingle-code, then type-check
 node --check Extensions/vscode/media/chat.js                                 # syntax-check the webview
 cd Extensions/vscode && npm test              # extension unit tests (node:test, offline; output in out-test/)
 cd Extensions/vscode && ./install.sh          # compile, package ingle.vsix, install into VS Code
@@ -41,6 +41,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `IngleApp.swift` | `@main`, scenes (chat `Window`, `Settings`, `MenuBarExtra`), `AppDelegate` starts EditorBridge, SettingsMirror, DockPresence, EngineUpdater; ⌘N, ⇧⌘K compact |
 | `ChatStore.swift` | **The agent loop.** Conversations, `send`, `generate` (prompt assembly → tool selection → commands → compaction → stream → tools → completion check), approvals (`sessionAllowed`), `runTool`, `chatTool`, `runSubAgent`, compaction (`compact`, `fit`, `historyJSON`), vision detection, slash commands |
 | `ChatViews.swift` / `MessageViews.swift` | Chat UI: sidebar, composer (pills: model, **Effort**, Web, **Mac** = Mac control), slash menu, attachments, context meter, approval card, message rows (tool rows, nudges, compaction divider, images) |
+| `CodeIntel.swift` | **Code intelligence** in Code mode (task 33b): ingle-code helper per project (Node lookup, idle stop), built-in `outline`/`definition`/`references`/`callers`/`callees`/`impact`/`diagnostics`/`read_exhaustively`, working set, `impact(_:folder:)` → `[(path, line)]` for task 34 |
 | `Tools.swift` | `MacTools`: Terminal tools (`list_files`, `read_file`, `write_file`, `run_command` — always available) and **Mac control** (`controlDefinitions`: `open`, `applescript`, `screenshot` — only when the Mac button is on); `describe`, `needsApproval`, `run`, prompts |
 | `ToolSelection.swift` | Per-turn tool filtering by keywords (fewer tools → better accuracy for small models) |
 | `Project.swift` / `CodeViews.swift` | **Code mode**: `Conversation.codeFolder` is the one switch; project folder, path resolving (`prepare`), git info, rules files, prompt section, recent projects; `ModeSwitch` (Chat / Code, ⇧⌘C), `ProjectPicker`, `ProjectChip` |
@@ -83,6 +84,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
 | `engine/modes.ts`, `tools/planFiles.ts`, `tools/tasks.ts`, `engine/steer.ts`, `tools/gitCommit.ts` | Task list + plan mode filter, steering queue, commit a run's files (all pure, tested in `test/workflow.test.ts`) |
 | `ui/previewPanel.ts`, `tools/previewCore.ts`, `tools/preview.ts` | **Previewer**: `PreviewPanels.open(file)` (webview beside the editor, strict CSP, folder watch), pure kinds/ticks/links (tested), `open_preview` |
+| `tools/codeintel.ts`, `codeintelCore.ts` | **Code intelligence** (task 33b): ingle-code's engine imported directly (compiled into `vendor/ingle-code` by `scripts/build-engine.js`), tools with no approval, working set, `impactLocations()` for task 34 (core is pure, tested) |
 | `tools/checkpoints.ts` | **Undo this run** (pure, tested): `snapshot()` from every file-changing tool (`FILE_CHANGING_TOOLS` lives here), `finish`, `changes`, `restore`, `prune` |
 | `tools/secretsCore.ts`, `secrets.ts` | Secrets store (pure logic, tested) and `secret_list` + getting values from the Mac app / `security` |
 | `tools/*.ts` | `ToolDef`s: files (read/list/find/search/problems/edit with diff/write), command, documents/images (macOS tools), web, memory, knowledge, `commands.ts`, `mcp.ts`, `repomap.ts`, `stores.ts` (reads `~/.ingle`) |
@@ -135,7 +137,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 
 ## Conventions
 
-British English everywhere (UI, prompts, docs). UI text is plain and short. Prompts are short (small context windows)
+UI placement: the chat window's top bar stays empty (Chat / Code is a pair of icons at the top of the sidebar); anything that affects the chat goes in the message box (pill row or its ⋯ menu), in both apps. British English everywhere (UI, prompts, docs). UI text is plain and short. Prompts are short (small context windows)
 and identical in meaning between the two apps. TypeScript strict, no runtime deps. Never commit `local.env`, `private/`,
 build output or personal data. Commits are signed off (`git commit -s`); contributions fall under the contributor terms in
 `CONTRIBUTING.md`.

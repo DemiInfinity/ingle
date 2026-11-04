@@ -70,5 +70,5 @@ commands and MCP servers follow you between the Mac app and your editor.
 
 ## Legal
 
-[Licence (PolyForm Noncommercial 1.0.0)](../LICENSE.md) · [Licensing in plain words](../LICENSING.md) ·
+[Licence (AGPL-3.0 + attribution)](../LICENSE.md) · [Licensing in plain words](../LICENSING.md) ·
 [Terms of Use](../TERMS.md) · [Privacy Policy](../PRIVACY.md) · [Code of Conduct](../CODE_OF_CONDUCT.md)

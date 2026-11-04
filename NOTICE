@@ -1,0 +1,9 @@
+Based on Ingle by DemiInfinity — https://github.com/DemiInfinity/ingle
+
+Copyright (C) 2026 the copyright holder named in LICENSE.md (DemiInfinity).
+Licensed under the GNU Affero General Public License, version 3 (AGPL-3.0-only), with an additional attribution
+term under Section 7(b): see LICENSE.md. This notice must be kept in every copy and work based on Ingle, and shown
+where users can see it in the running program. Commercial licences: see LICENSE.md.
+
+Ingle bundles the Ollama engine and other components under their own licences (MIT, BSD, Apache-2.0); see
+LICENSING.md.

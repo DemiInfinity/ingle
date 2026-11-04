@@ -191,6 +191,14 @@ other chunks (not relevant):
 finished: every chunk has been read.
 ```
 
+## In Ingle's apps (task 33b)
+
+The apps offer every tool above except `code_status` as built-in tools, without `format` (the model gets text). Their
+`symbol` is optional there, and so are `outline`'s `file` and `diagnostics`' `paths`: left out, they default to the
+user's working set (selection, then the symbols the uncommitted changes touch; the open file; the open, changed and
+mentioned files), and the output starts with a line in brackets saying what was used. See
+[docs/ingle-code.md](../../docs/ingle-code.md#in-ingle-task-33b).
+
 ## Library use (task 33b)
 
 ```ts

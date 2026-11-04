@@ -3,7 +3,11 @@
 A working to-do list for the next round of work, written so each task can be handed to an agent (or a contributor)
 on its own. [roadmap.md](roadmap.md) is the long-term direction; this file is the next concrete steps.
 
-**The goal (the user's words): be the best local assistant possible, not a cloud copy.** Judge every task by
+**The mission (the user's words): give people the full AI-assistant experience at the local level, without losing out
+at any stage. Not trying to be Claude or ChatGPT.** In practice: no missing step in the workflow, never losing your work,
+never losing privacy or control, and never stuck (when the model can't, say so and offer a way forward).
+
+**The goal: be the best local assistant possible, not a cloud copy.** Judge every task by
 whether it makes the user's own model, on their own Mac, more reliable, more honest about its results, more efficient
 (memory, battery, heat) and fully usable offline. Spending local time to get more out of the same model is good. Pretending
 to be a frontier model is not. When a job is truly beyond the local model, say so and hand over a clean brief (task 35).
@@ -33,6 +37,10 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
 - **Never "I can't read all of that" (the user's principle).** If a codebase, file or log is too big, give the model a
   way in: the project map in `.ingle/map/` (task 40), the repo map, code intelligence, chunked reading. It works at the right level of
   detail instead of giving up.
+- **Where controls go (the user's rule).** The window's top bar stays **empty** (the Chat / Code switch is a pair of
+  icons at the top of the sidebar); never add badges, buttons or indicators to the top bar. **Anything that affects the chat goes in the message box**: its pill row
+  (Model, Effort, Mode, Web, Mac, …) or its ⋯ menu, styled like the existing pills. In VS Code, the same: chat controls
+  live in the composer, not the tab's header.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
 ---
@@ -50,9 +58,11 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion), 39 (previewer) | round B1 (32) is merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle), 40 (learn this project), 41 (better local reasoning) | 36 is merged |
-| **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged |
+| **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged; **run all day on Sunday 8 November 2026** (the user's date) |
 
-**Benchmark (final round).** Written and run only after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
+**Schedule (the user's decision, 4 November 2026).** Round B2 (34, 35, 39) finishes and merges now, then work pauses. **Saturday 7 November:** round C, round D and writing the benchmark, ending with its quick tier. **Sunday 8 November: the benchmark runs all day**, from morning to night, on mains power.
+
+**Benchmark (final round), run all day on Sunday 8 November 2026.** Written and quick-checked on Saturday, after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
@@ -317,6 +327,10 @@ else. So:
 - **Quick** (10 tasks × A/B × both models × 1 run ≈ **1–2 hours**) checks everything works first, and **measures real
   minutes per run** so the runner can give an honest estimate before the standard run.
 - **Full** (all ~30 tasks × 3 runs × A/B/C) is optional, for later, e.g. on a desktop Mac or a home server.
+- **Sunday plan (about 14 hours available):** quick tier first thing (about 1–2 h) to confirm everything works, then
+  **Standard** (about 5–8 h), then, with the time left, condition C (High effort) on **both** models, the ablations on
+  both models, and the Claude Code reference run. The runner orders work so the most important numbers finish first
+  (A vs B for both models), and stops cleanly at bedtime with everything resumable.
 - **Runs in chunks, whenever it suits you.** `bench/run.sh --for 60m` runs for about an hour, then stops at the end of
   the current task. It resumes exactly where it left off and never repeats a finished run.
 - **Grouped by model.** All Ember runs, then all Flint runs, so each model loads once per chunk instead of swapping
@@ -392,7 +406,7 @@ runs the tests before finishing. At Max it shows a plan first and a review note 
 **Why.** The Mac app is a chat. To use it the way Claude Code works, a chat needs to belong to a **project folder**,
 with coding tools and a coding prompt, while normal chats stay simple.
 **Design.**
-- A **Chat / Code** switch at the top of the chat window (and ⌘⇧C). New Code chats ask for a folder (picker, drag a
+- A **Chat / Code** switch, two icons at the top of the sidebar (and ⌘⇧C). New Code chats ask for a folder (picker, drag a
   folder in, or a recent project). The folder is shown as a chip with the git branch.
 - The sidebar gets two sections: **Chats** and **Code**. Code chats are grouped by project. Storage is ready for roadmap
   Phase 3's `~/.ingle/coding/<project>/` but can stay in the current store for now.
@@ -619,12 +633,19 @@ its turn. The engine serving one request at a time is fine: jobs simply queue.
 - **Power and offline.** Runs only while Ingle is open and the Mac is awake. On battery, big-model jobs wait unless
   allowed. Jobs that need the network wait while offline and resume when it's back.
 - Tears down cleanly. Stopping a job stops its commands and any processes it started.
+- **Resume interrupted runs (the user's decision: "pick up where it left off").** If Ingle quits, the Mac sleeps or the
+  lid closes mid-run, the run is saved as interrupted (its chat, plan file, task list and checkpoint). Next time the chat
+  is opened (or at launch, for background jobs), Ingle shows **Resume · Discard**. Resume first checks the files the run
+  touched against their checkpoints (and says if something changed since), then carries on from the first unticked
+  step of the plan or task list, with a short "where we were" summary for the model. Discard can also **Undo** the
+  partial run. Works for foreground chats as well as jobs, and in the CLI (`ingle --resume`).
 **Files.** `ChatStore.swift` (the run refactor, the biggest part; split into a new `Sources/Ingle/Run.swift` +
 `RunQueue.swift`), new `Sources/Ingle/Jobs.swift`, `JobsViews.swift`, `RunNotifications.swift`, `ChatViews.swift`
 (sidebar section, composer menu), new `EngineQueue.swift`, `SettingsViews.swift`, `EditorBridge.swift`
 (list/start jobs for VS Code), VS Code: a read-only Jobs view in the webview and a "Run in background" command that
 sends the job to the Mac app. Docs: `docs/agent-loop.md`, `docs/mac-app.md`, `HelpTopics`.
-**Done when.** You can start "run the tests and fix failures" in the background and keep chatting normally,
+**Done when.** Quitting Ingle mid-run and reopening it offers Resume, which carries on from the next unticked step.
+You can start "run the tests and fix failures" in the background and keep chatting normally,
 including in the same chat. You can approve its command from a notification. When it finishes, a job event appears in
 the chat that started it, and the assistant checks the result (e.g. reruns the tests) before reporting what's confirmed.
 An event that arrives mid-reply waits until the reply ends. Stopping a job leaves nothing running.
@@ -694,6 +715,8 @@ in scripts, and offline. The benchmark also needs a headless way to run tasks, a
   into `/usr/local/bin` or `~/.local/bin`, plus `Extensions/cli/install.sh`. Node 18+ is required; say so clearly
   if it's missing.
 - Works on Linux too (it's plain Node), which is a first step towards roadmap Phase 4.
+- **The licence credit.** `ingle --version` and the interactive banner show "Based on Ingle by DemiInfinity —
+  https://github.com/DemiInfinity/ingle" (required by the AGPL Section 7(b) attribution term in `LICENSE.md`).
 **Files.** The core extraction (`Extensions/vscode/src/engine/chatEngine.ts` → core + `VSCodeHost`,
 `tools/files.ts`, `repomap.ts`, `paths.ts`, `engine/diff.ts`), new `Extensions/cli/**` (entry point, terminal UI
 with no npm deps, `TerminalHost`, tests), `SettingsViews.swift` (install button), `build.sh` (copy the CLI into

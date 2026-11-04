@@ -15,6 +15,11 @@ export function codeMask(text: string, lang: Language): string {
     if (!hashComment && c === '/' && text[i + 1] === '/') { const e = text.indexOf('\n', i); const end = e < 0 ? n : e; blank(i, end); i = end; continue; }
     if (hashComment && c === '#') { const e = text.indexOf('\n', i); const end = e < 0 ? n : e; blank(i, end); i = end; continue; }
     if (!hashComment && c === '/' && text[i + 1] === '*') { const e = text.indexOf('*/', i + 2); const end = e < 0 ? n : e + 2; blank(i, end); i = end; continue; }
+    if (lang.id === 'typescript' && c === '/' && regexCanStart(text, i)) {
+      // A regex literal (/["']…/g): blank its body so quotes and names in it aren't read as strings or code.
+      const end = regexEnd(text, i);
+      if (end > 0) { blank(i + 1, end); i = end + 1; continue; }
+    }
     if ((lang.id === 'swift' || lang.id === 'python') && c === '"' && text.startsWith('"""', i)) {
       const e = text.indexOf('"""', i + 3); const end = e < 0 ? n : e + 3; blank(i + 1, end - 1); i = end; continue;
     }
@@ -48,6 +53,34 @@ export function codeMask(text: string, lang: Language): string {
   return out.join('');
 }
 
+/** Whether a "/" at `i` starts a regex literal rather than a division: it follows an operator, an opening
+ *  bracket, a comma, the start of a line, or return/typeof/case/in/of/yield/await. */
+function regexCanStart(text: string, i: number): boolean {
+  const next = text[i + 1];
+  if (next === '/' || next === '*' || next === undefined) return false;
+  let k = i - 1;
+  while (k >= 0 && (text[k] === ' ' || text[k] === '\t')) k--;
+  if (k < 0 || text[k] === '\n') return true;
+  if ('(,=:[!&|?{};+-*%<>~^'.includes(text[k])) return true;
+  const word = /([A-Za-z]+)$/.exec(text.slice(Math.max(0, k - 8), k + 1));
+  return !!word && ['return', 'typeof', 'case', 'in', 'of', 'yield', 'await', 'void', 'delete'].includes(word[1]);
+}
+
+/** Index of the "/" that ends the regex literal starting at `i` (classes and escapes respected), or -1 if the line
+ *  ends first (then it was a division after all). */
+function regexEnd(text: string, i: number): number {
+  let inClass = false;
+  for (let k = i + 1; k < text.length; k++) {
+    const ch = text[k];
+    if (ch === '\n') return -1;
+    if (ch === '\\') { k++; continue; }
+    if (ch === '[') inClass = true;
+    else if (ch === ']') inClass = false;
+    else if (ch === '/' && !inClass) return k;
+  }
+  return -1;
+}
+
 /** Index just past the bracket that closes the one at `open`. */
 function skipBalanced(text: string, open: number, a: string, b: string): number {
   let depth = 0;
@@ -70,7 +103,15 @@ export function scanOutline(text: string, lang: Language): OutlineSymbol[] {
   for (let i = 0; i < lines.length; i++) {
     if (!masked[i].trim()) continue;
     const m = matchDefinition(lang, lines[i]);
-    if (m) found.push({ name: m.name, kind: m.kind, startLine: i + 1, endLine: i + 1, depth: 0, col: m.col });
+    if (!m) continue;
+    found.push({ name: m.name, kind: m.kind, startLine: i + 1, endLine: i + 1, depth: 0, col: m.col });
+    // A parameter list that goes on over the next lines: those lines are parameters, not definitions
+    // (`signal: AbortSignal): Promise<void> {` would otherwise read as a property).
+    let open = parenBalance(masked[i]);
+    for (let guard = 0; open > 0 && i + 1 < lines.length && guard < 40; guard++) {
+      i++;
+      open += parenBalance(masked[i]);
+    }
   }
   if (lang.blocks === 'braces') {
     for (let k = 0; k < found.length; k++) {
@@ -103,6 +144,15 @@ export function scanOutline(text: string, lang: Language): OutlineSymbol[] {
     if (s.endLine > s.startLine) stack.push(sym);
   }
   return out;
+}
+
+function parenBalance(line: string): number {
+  let n = 0;
+  for (const c of line) {
+    if (c === '(') n++;
+    else if (c === ')') n--;
+  }
+  return n;
 }
 
 function indentOf(line: string): number {

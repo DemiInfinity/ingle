@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             MCPManager.shared.stopAll()
+            CodeIntel.shared.stopAll()
             OllamaServer.shared.stop()
         }
     }

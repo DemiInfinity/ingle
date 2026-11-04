@@ -23,9 +23,6 @@ struct ChatRoot: View {
             }
         }
         .searchable(text: $store.search, placement: .sidebar, prompt: "Search chats")
-        .toolbar {
-            ToolbarItem(placement: .principal) { ModeSwitch() }
-        }
         .toolbarBackground(Ember.bg, for: .windowToolbar)
         .onChange(of: PreviewStore.shared.visible) { _, open in
             withAnimation(.snappy) { columns = open ? .detailOnly : .all }
@@ -76,6 +73,13 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(Ember.sidebar.ignoresSafeArea())
+        // Chat / Code, as icons at the top of the sidebar.
+        .safeAreaInset(edge: .top) {
+            ModeSwitch()
+                .padding(.horizontal, 10)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) {
                 SystemCard()

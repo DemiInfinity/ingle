@@ -1171,8 +1171,6 @@ body.vscode-light .dot-connected { background: #1a7f37; }
 .queued-label { flex: none; color: var(--muted); }
 .queued-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.mode-badge { flex: none; padding: 1px 7px; border-radius: 9px; font-size: 0.82em; background: var(--ember-soft); color: var(--ember);
-  border: 1px solid var(--ember-line); }
 .pill-role { color: var(--muted); }
 .pill.mode-pill .chev { width: 10px; height: 10px; }
 .tool-auto { flex: none; padding: 0 6px; border-radius: 8px; font-size: 0.82em; background: var(--raised); color: var(--muted); }

@@ -111,7 +111,7 @@ A chat can belong to a project folder, the way Claude Code works, while normal c
 [`Project.swift`](../Sources/Ingle/Project.swift) has the folder logic; views are in
 [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift).
 
-- **Switch:** **Chat / Code** at the top of the window (`ModeSwitch`), or ⇧⌘C. A new Code chat asks for a folder
+- **Switch:** **Chat / Code** icons at the top of the sidebar (`ModeSwitch`), or ⇧⌘C. A new Code chat asks for a folder
   (`ProjectPicker`: Choose Folder…, drop a folder in, or a recent project — the last eight, `Prefs.K.recentProjects`).
   The folder shows as a chip with its git branch; it can be changed until the first message. A Code chat is blank
   and unsaved until its first message, like any new chat.
@@ -155,6 +155,20 @@ A chat can belong to a project folder, the way Claude Code works, while normal c
     `run_command`** and shares its session scope. `CodeTools.prepare` fills in the command before the card is shown;
     it is never taken from the model. Running it counts as running a `then_run`.
   - Read-only ones (`repo_map`, `find_files`, `search_code`) need no approval and are given to helpers too.
+- **Code intelligence** ([`CodeIntel.swift`](../Sources/Ingle/CodeIntel.swift), task 33b, Code mode only): `outline`,
+  `definition`, `references`, `callers`, `callees`, `impact`, `diagnostics`, `read_exhaustively` from
+  [ingle-code](ingle-code.md). `build.sh` compiles `Extensions/ingle-code` into
+  `Ingle.app/Contents/Resources/ingle-code`; on first use Ingle finds Node 18+ (PATH, `/opt/homebrew/bin`,
+  `/usr/local/bin`, `/opt/local/bin`, nvm, Volta, asdf, fnm) and starts `bin/ingle-code --root <project>` as one
+  helper per project, spoken to with `MCPConnection` (300 s per request, for sourcekit-lsp's first index). The tools
+  are **built-in tools** with the same names: no `mcp_call`, no approval (read-only; the engine refuses paths outside
+  the project), given to helpers and offered in Plan mode; `ToolSelection.codeIntelWants` offers them when the request
+  needs them. The helper stops after 10 minutes unused, when the project's last Code chat is deleted, and when Ingle
+  quits (SIGTERM; it stops its language servers). Without Node the tools fall back to `search_code` / the repo map
+  and say once per chat that results are approximate until Node is installed. Missing `symbol` / `file` / `paths`
+  default to the **working set**: VS Code's selection and file (when it's this project, via the editor bridge), files
+  changed in git, files the chat names; `impact` with no symbol covers the functions the uncommitted changes touch.
+  `CodeIntel.shared.impact(_:folder:)` returns `[(path, line)]` for coverage checks (task 34).
 - **Modes:** the **Mode** pill in the message bar (`ModeMenu` in [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift),
   ⇧Tab cycles; `Conversation.workMode`), for every chat: Ask, Edit, Auto, Plan, Debug (see
   [agent-loop.md](agent-loop.md#4b-task-list-plan-mode-and-steering)). `ModeBadge` next to Chat / Code shows it when
@@ -278,7 +292,7 @@ servers and the engine Ingle started are stopped.
 | [`Prefs.swift`](../Sources/Ingle/Prefs.swift) | 320 | `Prefs` keys and defaults, `Persona` (defaults and `systemPrompt`), `ModelNames`, `ModelProfiles`, `Companion` |
 | [`Manifest.swift`](../Sources/Ingle/Manifest.swift) | 170 | `IngleManifest` (`INGLE.md`), `HelpTopics` |
 | [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
-| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (with the mode badge), `ProjectPicker`, `ProjectChip` |
+| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (the Chat / Code icons at the top of the sidebar), `ProjectPicker`, `ProjectChip` |
 | [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift) | 260 | `WorkMode` (Ask · Edit · Auto · Plan · Debug: labels, prompt lines, `riskyCommand`, `autoApproval`), `DebugState`, `ModeMenu`, `ModeBadge` — in step with `modes.ts` |
 | [`PlanFiles.swift`](../Sources/Ingle/PlanFiles.swift) | 260 | `PlanFiles` (plan Markdown files: path, render, parse, tick, `open` → the previewer), `PlanRef`, `PlanCard` — in step with `planFiles.ts` |
 | [`Preview/PreviewTabs.swift`](../Sources/Ingle/Preview/PreviewTabs.swift) | 330 | `PreviewKind`, `PreviewTab` (file, Source draft, saving, watcher), `PreviewTasks`, `PreviewStore`, `Preview.open` and the `open_preview` tool, `/preview` |
@@ -287,6 +301,7 @@ servers and the engine Ingle started are stopped.
 | [`Preview/FileWatcher.swift`](../Sources/Ingle/Preview/FileWatcher.swift) | 70 | kqueue file + folder watcher |
 | [`TaskList.swift`](../Sources/Ingle/TaskList.swift) | 250 | `TaskItem`, `TaskList` (update_tasks parsing, prompt, plan → tasks, plan mode tools and wording, steering text), `TaskListView`, `PlanApproveBar` |
 | [`ChangesPanel.swift`](../Sources/Ingle/ChangesPanel.swift) | 420 | `GitCommit` (repo, diff, commit exactly a run's files), the `ChatStore` commit extension (`draftCommit`, `commitRun`), `ChangesPanel` (diffs, Open in editor, Undo, Commit) |
+| [`CodeIntel.swift`](../Sources/Ingle/CodeIntel.swift) | 480 | Code intelligence in Code mode: the ingle-code helper per project (Node lookup, start/stop/idle), built-in tool definitions, working set, fallback, `impact(_:folder:)` for task 34 |
 | [`CodeTools.swift`](../Sources/Ingle/CodeTools.swift) | 450 | Code mode tools: `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map`; `Diagnostics` (error parsing), `CodeFiles` (project file list), `Glob` |
 | [`RepoMap.swift`](../Sources/Ingle/RepoMap.swift) | 230 | Repo map: symbol extraction, ranking, budgeted outline (port of `repomap.ts`) |
 | [`EditMatch.swift`](../Sources/Ingle/EditMatch.swift) | 290 | `EditMatch` (edit_file matching, port of `editmatch.ts`), `LineDiff` (unified diff and stats, port of `diff.ts`) |

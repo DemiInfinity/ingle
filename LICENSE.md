@@ -1,133 +1,47 @@
-Required Notice: Copyright 2026 Demi Taylor-Nimmo (https://github.com/DemiInfinity/ingle)
+Copyright (C) 2026 Demi Taylor-Nimmo (https://github.com/DemiInfinity/ingle)
 
-# PolyForm Noncommercial License 1.0.0
+# Ingle's licence
 
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+Ingle is free software: you can redistribute it and/or modify it under the terms of the
+**GNU Affero General Public License, version 3** (AGPL-3.0-only), as published by the Free Software Foundation,
+**with the additional terms below**, which are made under Section 7(b) of that licence.
 
-## Acceptance
+The full licence text is in [LICENSE](LICENSE). [LICENSING.md](LICENSING.md) explains it in plain words.
 
-In order to get any license under these terms, you must agree
-to them as both strict obligations and conditions to all
-your licenses.
+Ingle is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+details.
 
-## Copyright License
+## Additional terms (Section 7(b): preservation of author attribution)
 
-The licensor grants you a copyright license for the
-software to do everything you might do with the software
-that would otherwise infringe the licensor's copyright
-in it for any permitted purpose.  However, you may
-only distribute the software according to [Distribution
-License](#distribution-license) and make changes or new works
-based on the software according to [Changes and New Works
-License](#changes-and-new-works-license).
+1. **Attribution.** Every copy of Ingle, and every work based on Ingle (a modified version, a fork, or a product or
+   service that includes or is derived from it), must keep this notice:
 
-## Distribution License
+   > Based on Ingle by DemiInfinity — https://github.com/DemiInfinity/ingle
 
-The licensor grants you an additional copyright license
-to distribute copies of the software.  Your license
-to distribute covers distributing the software with
-changes and new works permitted by [Changes and New Works
-License](#changes-and-new-works-license).
+   (a) in the source code, in a `NOTICE` or `README` file at the top level; and
 
-## Notices
+   (b) where users can see it in the running program, for example in an About screen, a credits or licences page, a
+   settings page, or the output of a `--version` or help command, whichever the program has. For a network service,
+   it must be shown in the service's user interface in the same way. This notice is part of the program's
+   "Appropriate Legal Notices".
 
-You must ensure that anyone who gets a copy of any part of
-the software from you also gets a copy of these terms or the
-URL for them above, as well as copies of any plain-text lines
-beginning with `Required Notice:` that the licensor provided
-with the software.  For example:
+2. You may add to the notice (for example "Based on Ingle by DemiInfinity, modified by …"), but you may not
+   remove it, hide it, or make it misleading.
 
-> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+These additional terms apply to Ingle and to every work based on it, and must be passed on with them.
 
-## Changes and New Works License
+## Commercial licences
 
-The licensor grants you an additional copyright license to
-make changes and new works based on the software for any
-permitted purpose.
+Ingle may be used for any purpose, including commercially, under the terms above: credit the author, and share
+your changes under the AGPL.
 
-## Patent License
+To do anything these terms don't allow, for example to **remove or change the attribution notice**, or to **keep
+your changes private** instead of publishing them under the AGPL, you need a separate **commercial licence** from
+the copyright holder. To ask for one, open an issue titled "Commercial licence" at
+https://github.com/DemiInfinity/ingle.
 
-The licensor grants you a patent license for the software that
-covers patent claims the licensor can license, or becomes able
-to license, that you would infringe by using the software.
+## Earlier versions
 
-## Noncommercial Purposes
-
-Any noncommercial purpose is a permitted purpose.
-
-## Personal Uses
-
-Personal use for research, experiment, and testing for
-the benefit of public knowledge, personal study, private
-entertainment, hobby projects, amateur pursuits, or religious
-observance, without any anticipated commercial application,
-is use for a permitted purpose.
-
-## Noncommercial Organizations
-
-Use by any charitable organization, educational institution,
-public research organization, public safety or health
-organization, environmental protection organization,
-or government institution is use for a permitted purpose
-regardless of the source of funding or obligations resulting
-from the funding.
-
-## Fair Use
-
-You may have "fair use" rights for the software under the
-law. These terms do not limit them.
-
-## No Other Rights
-
-These terms do not allow you to sublicense or transfer any of
-your licenses to anyone else, or prevent the licensor from
-granting licenses to anyone else.  These terms do not imply
-any other licenses.
-
-## Patent Defense
-
-If you make any written claim that the software infringes or
-contributes to infringement of any patent, your patent license
-for the software granted under these terms ends immediately. If
-your company makes such a claim, your patent license ends
-immediately for work on behalf of your company.
-
-## Violations
-
-The first time you are notified in writing that you have
-violated any of these terms, or done anything with the software
-not covered by your licenses, your licenses can nonetheless
-continue if you come into full compliance with these terms,
-and take practical steps to correct past violations, within
-32 days of receiving notice.  Otherwise, all your licenses
-end immediately.
-
-## No Liability
-
-***As far as the law allows, the software comes as is, without
-any warranty or condition, and the licensor will not be liable
-to you for any damages arising out of these terms or the use
-or nature of the software, under any kind of legal claim.***
-
-## Definitions
-
-The **licensor** is the individual or entity offering these
-terms, and the **software** is the software the licensor makes
-available under these terms.
-
-**You** refers to the individual or entity agreeing to these
-terms.
-
-**Your company** is any legal entity, sole proprietorship,
-or other kind of organization that you work for, plus all
-organizations that have control over, are under the control of,
-or are under common control with that organization.  **Control**
-means ownership of substantially all the assets of an entity,
-or the power to direct its management and policies by vote,
-contract, or otherwise.  Control can be direct or indirect.
-
-**Your licenses** are all the licenses granted to you for the
-software under these terms.
-
-**Use** means anything you do with the software requiring one
-of your licenses.
+Versions of Ingle published before 4 November 2026 were released under the PolyForm Noncommercial License 1.0.0.
+Copies of those versions remain under that licence.

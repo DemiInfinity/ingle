@@ -6,8 +6,27 @@ import { bannedToolNames, requiredTools, type CommandEntry } from '../tools/comm
 import { PREVIEW_WANTS } from '../tools/previewCore';
 import { wantsSSH } from '../tools/sshConfig';
 
+/** Code intelligence (task 33b): offered in coding requests that need it — a named symbol (`backticks`, foo(),
+ *  snake_case) or words about uses, callers, definitions, changes, errors or big files. Same patterns as
+ *  ToolSelection.codeIntelWants in Swift. Patterns run on the lower-cased message. */
+export const NAMES_SYMBOL = /`[^`\n]+`|\b[a-z_$][\w$]*\(\)|\b[a-z][a-z0-9]*_[a-z0-9_]+\b/;
+const USES = /\bcall(s|ed|ers?|ing)?\b|\buse[sd]\b|\busages?\b|\breferences?\b|\brefs\b|\bdefin|\bdeclar|\bwhere is\b|\bimpact|\baffect|\bdepend|\brename|\brefactor|\bsignature|\bshared\b/;
+const CHANGES = /\bchang|\bmodif|\bupdat|\bremov|\bdelet|\breplac|\bbreak|\bsafe to\b/;
+const either = (...res: RegExp[]): RegExp => new RegExp(res.map((r) => r.source).join('|'));
+export const CODE_INTEL_WANTS: Record<string, RegExp> = {
+  definition: either(USES, NAMES_SYMBOL),
+  references: either(USES, NAMES_SYMBOL),
+  callers: either(USES, NAMES_SYMBOL),
+  impact: either(USES, CHANGES, NAMES_SYMBOL),
+  callees: /\bcallees?\b|what (does|do) .{0,60}\bcall|\bcalls? (into|out)|call (graph|tree|chain)|\bdepend/,
+  outline: /\boutline|\bstructure|\bsymbols?\b|what'?s in|\b(functions|methods|classes|types) in\b|\bskim/,
+  diagnostics: /\berrors?\b|\bdiagnos|type[- ]?(check|error)|\bcompil|\bwarnings?\b|\bbroken\b|\bproblems?\b|squiggl|does it build|\blint/,
+  read_exhaustively: /\blogs?\b|\bhuge\b|\bbig file|\blarge file|\bwhole file|\bentire file|\bevery line|exhaustiv|too (big|long|large)|all of (it|the file|this file)/,
+};
+
 /** Optional tools and the words in the user's message that make them worth offering. */
 export const TOOL_WANTS: Record<string, RegExp> = {
+  ...CODE_INTEL_WANTS,
   // Builder tools only when the user is talking about skills, rules or commands.
   skill_create: /skill|rule/,
   rule_create: /skill|rule/,

@@ -164,6 +164,7 @@ throws. The list is in [`src/tools/index.ts`](../Extensions/vscode/src/tools/ind
 | `repo_map` | [`repomap.ts`](../Extensions/vscode/src/tools/repomap.ts) | yes | no |
 | `read_file`, `list_files` | [`files.ts`](../Extensions/vscode/src/tools/files.ts) | yes | outside the project |
 | `find_files`, `search_code`, `get_problems` | `files.ts` | yes | no |
+| `outline`, `definition`, `references`, `callers`, `callees`, `impact`, `diagnostics`, `read_exhaustively` | [`codeintel.ts`](../Extensions/vscode/src/tools/codeintel.ts) | yes | no |
 | `edit_file`, `write_file` | `files.ts` | no | always, with diff |
 | `read_document`, `view_image` | [`documents.ts`](../Extensions/vscode/src/tools/documents.ts) | yes | outside the project |
 | `run_command`, `open_url` | [`command.ts`](../Extensions/vscode/src/tools/command.ts) | no | always |
@@ -337,7 +338,9 @@ Everything else (assistants, models, context lengths, web, memory, workspace fol
 [`install.sh`](../Extensions/vscode/install.sh):
 
 1. `npm install` (build tools only: TypeScript, `@vscode/vsce`, type definitions).
-2. `npm run compile` (`tsc -p ./` into `out/`).
+2. `npm run compile` (`tsc -p ./` into `out/`). First, and after `npm install`, `scripts/build-engine.js` compiles
+   [ingle-code](ingle-code.md)'s engine from `../ingle-code/src` into `vendor/ingle-code` (git-ignored) with the same
+   TypeScript; `codeintel.ts` loads it from there at run time, and the `.vsix` carries it. No runtime npm deps.
 3. Copy `TERMS.md`, `PRIVACY.md`, `LICENSE.md`, `LICENSING.md` into `legal/` (and `LICENSE.md` beside
    `package.json`).
 4. If `VSCODE_PUBLISHER` is set in `../../local.env`, temporarily rewrite the publisher in `package.json` (restored on
@@ -510,6 +513,8 @@ open-source remote extensions); test them separately.
 | [`src/tools/knowledge.ts`](../Extensions/vscode/src/tools/knowledge.ts) | Skills, rules, reports, builders |
 | [`src/tools/commands.ts`](../Extensions/vscode/src/tools/commands.ts) | Commands store, wording, checks, `command_create` |
 | [`src/tools/mcp.ts`](../Extensions/vscode/src/tools/mcp.ts) | `McpConnection`, `McpManager`, `mcp_tools`, `mcp_call` |
+| [`src/tools/codeintel.ts`](../Extensions/vscode/src/tools/codeintel.ts) | Code intelligence tools (task 33b): ingle-code's tools as `ToolDef`s, no approval, the working set from VS Code (selection, open tabs, git, files the chat names) |
+| [`src/tools/codeintelCore.ts`](../Extensions/vscode/src/tools/codeintelCore.ts) | Pure part (tested): loads the engine from `vendor/ingle-code`, one `CodeEngine` per workspace (disposed on deactivate), working-set defaults, `impactLocations()` for coverage (task 34) |
 | [`src/tools/repomap.ts`](../Extensions/vscode/src/tools/repomap.ts) | Symbol extraction, ranking, `buildRepoMap`, `repo_map` |
 | [`src/tools/stores.ts`](../Extensions/vscode/src/tools/stores.ts) | Reading and writing `~/.ingle`: rules, skills, memory, reports, MCP config, notes |
 | [`src/tools/frontmatter.ts`](../Extensions/vscode/src/tools/frontmatter.ts) | Frontmatter, slugs, `looksSecret`, atomic writes (ports of the Swift helpers) |

@@ -5,6 +5,7 @@ build/
 Extensions/vscode/node_modules/
 Extensions/vscode/out/
 Extensions/vscode/out-test/
+Extensions/vscode/vendor/
 Extensions/ingle-code/node_modules/
 Extensions/ingle-code/out/
 Extensions/ingle-code/out-test/
@@ -21,3 +22,5 @@ Extensions/vscode/legal/
 Extensions/vscode/LICENSE.md
 # Copied from Support/preview by `npm run compile`
 Extensions/vscode/media/preview/
+Extensions/vscode/LICENSE
+Extensions/vscode/NOTICE

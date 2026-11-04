@@ -731,10 +731,8 @@
   const histBtn = h('button', {
     class: 'icon-btn', type: 'button', 'aria-label': 'Chat history', title: 'Chat history', 'aria-expanded': 'false',
   }, icon('history'));
-  // The chat's mode when it isn't Ask, so it's visible at a glance.
-  const modeBadge = h('span', { class: 'mode-badge', hidden: true });
   const header = h('header', { class: 'top' },
-    h('div', { class: 'picker' }, asstBtn, asstMenu), modeBadge,
+    h('div', { class: 'picker' }, asstBtn, asstMenu),
     h('span', { class: 'grow' }),
     newBtn, histBtn);
 
@@ -1805,9 +1803,6 @@
       setText(item.firstChild, info.label);
       setText(item.lastChild, (info.help || '').replace(/^[A-Za-z]+: /, ''));
     }
-    modeBadge.hidden = S.workMode === 'ask';
-    setText(modeBadge, m.label);
-    modeBadge.title = m.help || '';
     renderSend();
   }
 

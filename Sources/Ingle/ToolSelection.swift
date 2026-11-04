@@ -34,6 +34,26 @@ enum ToolSelection {
         return names.contains { t.contains($0) }
     }
 
+    /// Code intelligence (task 33b): offered in coding requests that need it — a named symbol (`backticks`, foo(),
+    /// snake_case) or words about uses, callers, definitions, changes, errors or big files. Same patterns as
+    /// CODE_INTEL_WANTS in toolSelection.ts. `t` is lower-cased.
+    private static let namesSymbol = #"`[^`\n]+`|\b[a-z_$][\w$]*\(\)|\b[a-z][a-z0-9]*_[a-z0-9_]+\b"#
+    private static let uses = #"\bcall(s|ed|ers?|ing)?\b|\buse[sd]\b|\busages?\b|\breferences?\b|\brefs\b|\bdefin|\bdeclar|\bwhere is\b|\bimpact|\baffect|\bdepend|\brename|\brefactor|\bsignature|\bshared\b"#
+    private static let changes = #"\bchang|\bmodif|\bupdat|\bremov|\bdelet|\breplac|\bbreak|\bsafe to\b"#
+    static func codeIntelWants(_ name: String, _ t: String) -> Bool {
+        let pattern: String
+        switch name {
+        case "definition", "references", "callers": pattern = uses + "|" + namesSymbol
+        case "impact": pattern = uses + "|" + changes + "|" + namesSymbol
+        case "callees": pattern = #"\bcallees?\b|what (does|do) .{0,60}\bcall|\bcalls? (into|out)|call (graph|tree|chain)|\bdepend"#
+        case "outline": pattern = #"\boutline|\bstructure|\bsymbols?\b|what'?s in|\b(functions|methods|classes|types) in\b|\bskim"#
+        case "diagnostics": pattern = #"\berrors?\b|\bdiagnos|type[- ]?(check|error)|\bcompil|\bwarnings?\b|\bbroken\b|\bproblems?\b|squiggl|does it build|\blint"#
+        case "read_exhaustively": pattern = #"\blogs?\b|\bhuge\b|\bbig file|\blarge file|\bwhole file|\bentire file|\bevery line|exhaustiv|too (big|long|large)|all of (it|the file|this file)"#
+        default: return true
+        }
+        return t.range(of: pattern, options: .regularExpression) != nil
+    }
+
     /// Under strict filtering (Low effort): tools that are normally offered whenever they're usable need asking for.
     static func strictWants(_ name: String, _ t: String) -> Bool {
         switch name {
@@ -69,6 +89,8 @@ enum ToolSelection {
             case "ssh_command": return SSH.mentioned(in: t)
             case "open_preview": return Preview.wanted(t)
             case "secret_list": return wantsSecrets(t) && !Secrets.all().isEmpty
+            case "outline", "definition", "references", "callers", "callees", "impact", "diagnostics", "read_exhaustively":
+                return codeIntelWants(n, t)
             default: return true
             }
         }

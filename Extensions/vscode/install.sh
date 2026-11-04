@@ -14,6 +14,7 @@ npm run --silent compile
 mkdir -p legal
 for f in TERMS PRIVACY LICENSE LICENSING; do [[ -f "../../$f.md" ]] && cp "../../$f.md" legal/; done
 [[ -f ../../LICENSE.md ]] && cp ../../LICENSE.md LICENSE.md
+for f in LICENSE NOTICE; do [[ -f "../../$f" ]] && cp "../../$f" "$f"; done
 
 echo "▸ Packaging…"
 # A personal publisher name (local.env) keeps VS Code treating it as the same extension, with the same chat history.

@@ -2,7 +2,7 @@
   "name": "ingle-code",
   "version": "0.1.0",
   "description": "Read-only code intelligence for small local models: outline, definition, references, callers, callees, impact, diagnostics and exhaustive reading. A typed library and an MCP stdio server. Drives installed language servers; falls back to an approximate scan.",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "SEE LICENSE IN LICENSE.md",
   "main": "out/index.js",
   "types": "out/index.d.ts",
   "bin": {

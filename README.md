@@ -9,7 +9,7 @@
 **A native Mac app and VS Code extension for local AI models.**
 Private by design. Free per message. Yours to shape.
 
-[![Licence: PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-ff9f6b)](LICENSE.md)
+[![Licence: AGPL-3.0 with attribution](https://img.shields.io/badge/licence-AGPL--3.0%20%2B%20attribution-ff9f6b)](LICENSE.md)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-2d2327)
 ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-native-2d2327)
 ![Swift](https://img.shields.io/badge/Swift-SwiftUI-f05138)
@@ -39,6 +39,22 @@ in your menu bar and your editor, lets them read your files, edit your code, sea
 and makes sure a 20 GB model isn't sitting on your memory when you're not using it.
 
 Everything runs on your Mac. No accounts, no tracking, no subscription.
+
+## 🎯 Our mission
+
+**Give people the full AI-assistant experience at the local level, without losing out at any stage.**
+Ingle isn't trying to be Claude or ChatGPT. It's trying to be the best *local* assistant there is:
+
+- **No missing step.** Chat, plan, edit, test, review and commit, all on your own machine.
+- **Never lose your work.** Plans are files you can read, every run can be undone, and everything lives in folders you
+  own.
+- **Never lose privacy or control.** Nothing leaves your Mac unless you choose, and every action asks first unless you
+  say otherwise.
+- **On demand.** It runs only when you need it: ask and it wakes, leave it and it sleeps, and it picks up where you left
+  off.
+- **Never stuck.** A local model has limits. When a job is beyond it, Ingle should say so plainly and help you take it
+  further (with a bigger local model, or a ready-made brief you can take to a cloud assistant) instead of failing
+  quietly. *This part is being built now.*
 
 ## ✨ What it does
 
@@ -85,6 +101,19 @@ and its tools work, so nothing breaks when you make it yours.
 - **Skills and rules** in Claude's `SKILL.md` format, plus **MCP servers** — indexed in a tiny `INGLE.md`, so the
   model loads details only when needed.
 - **Helpers** — hand a self-contained job to a read-only sub-agent.
+
+### 💻 Laptop-friendly by design
+
+Most local AI tools are model servers you happen to run on a laptop. Ingle is built the other way round: for a
+laptop you also use for everything else.
+
+- **On demand.** Nothing to start. Open a chat or just ask, and the engine wakes and the model loads by itself.
+- **Gets out of the way.** Models go to sleep after a timer (or with one click), so a 20 GB model isn't sitting in your
+  memory all day, and autocomplete steps aside when it would compete with the chat.
+- **Knows what it costs.** CPU, GPU and memory are always a glance away in the menu bar, and Ingle warns before
+  loading a big model on battery.
+- **Picks up where you left off.** The model forgets between sessions, but Ingle doesn't: chats, plans, memory and
+  rules live in files, so it's back up to speed in seconds.
 
 ### 🧩 Built for small models
 
@@ -167,10 +196,12 @@ Ingle wouldn't exist without them. Thank you.
 
 ## 📜 Licence
 
-**Free for personal and other non-commercial use** under the
-[PolyForm Noncommercial License 1.0.0](LICENSE.md). Want to use Ingle commercially? Get in touch for a
-commercial licence. [LICENSING.md](LICENSING.md) explains it in plain words, including the licences of the
-bundled engine.
+**Open source under the [AGPL-3.0](LICENSE), with one extra term: credit the author.** Use it for anything,
+commercial work included, change it and build on it. Just keep the credit *"Based on Ingle by DemiInfinity"*
+visible to your users, and share your changes under the same licence. Want to remove the credit or keep your changes
+private? That needs a commercial licence: open an issue titled "Commercial licence". [LICENSE.md](LICENSE.md) has the
+exact terms, and [LICENSING.md](LICENSING.md) explains them in plain words, including the licences of the bundled
+engine.
 
 <div align="center">
 <br>

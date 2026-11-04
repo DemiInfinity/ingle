@@ -29,6 +29,7 @@ cp Support/Info.plist "$OUT/Contents/Info.plist"
 # Terms, privacy and licence, opened from Settings → About.
 mkdir -p "$OUT/Contents/Resources/Legal"
 for f in TERMS PRIVACY LICENSE LICENSING; do [[ -f "$f.md" ]] && cp "$f.md" "$OUT/Contents/Resources/Legal/"; done
+for f in LICENSE NOTICE; do [[ -f "$f" ]] && cp "$f" "$OUT/Contents/Resources/Legal/"; done
 # The previewer's page (Markdown, Mermaid, maths, tables…): static files, nothing fetched at runtime.
 ditto Support/preview "$OUT/Contents/Resources/Preview"
 if [[ -n "${INGLE_BUNDLE_ID:-}" ]]; then
@@ -98,6 +99,30 @@ if "$RUNTIME/ollama" -v >/dev/null 2>&1; then
 else
   echo "✗ The slimmed engine doesn't start — restoring the full one."
   rm -rf "$RUNTIME" && ditto "$HOME/.local/share/ingle-runtime" "$RUNTIME"
+fi
+
+# ---------------------------------------------------------------- code intelligence (ingle-code)
+# Code mode's outline/definition/references/callers/callees/impact/diagnostics run Extensions/ingle-code as a
+# helper with the user's own Node (found at run time). Compiled here with whichever TypeScript is installed.
+echo "▸ Adding code intelligence (ingle-code)…"
+IC_SRC="Extensions/ingle-code"
+IC_OUT="$OUT/Contents/Resources/ingle-code"
+TSC=""
+for t in "$IC_SRC/node_modules/typescript/bin/tsc" "Extensions/vscode/node_modules/typescript/bin/tsc"; do
+  [[ -f "$t" ]] && { TSC="$t"; break; }
+done
+if [[ -z "$TSC" ]] && command -v npm >/dev/null; then
+  (cd "$IC_SRC" && npm ci --no-audit --no-fund --silent) && TSC="$IC_SRC/node_modules/typescript/bin/tsc"
+fi
+if command -v node >/dev/null && [[ -n "$TSC" ]]; then
+  MODULES="$(cd "$(dirname "$TSC")/../.." && pwd)"
+  mkdir -p "$IC_OUT/bin"
+  node "$TSC" -p "$IC_SRC/tsconfig.json" --outDir "$IC_OUT/out" --declaration false --typeRoots "$MODULES/@types"
+  cp "$IC_SRC/bin/ingle-code" "$IC_OUT/bin/" && chmod +x "$IC_OUT/bin/ingle-code"
+  cp "$IC_SRC/README.md" "$IC_SRC/TOOLS.md" "$IC_OUT/"
+  echo "  Code intelligence: $(node "$IC_OUT/bin/ingle-code" --version 2>/dev/null || echo '?')"
+else
+  echo "  ⚠ Node.js or TypeScript not found: Code mode will use text search instead of code intelligence."
 fi
 
 codesign --force --sign - "$OUT" >/dev/null 2>&1 || true

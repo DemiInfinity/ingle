@@ -149,7 +149,8 @@ struct DebugState {
     var confirmed = false
     var nudges = 0
 
-    private static let looking: Set<String> = ["read_file", "list_files", "find_files", "search_code", "repo_map", "get_problems", "run_command", "delegate"]
+    private static let looking: Set<String> = ["read_file", "list_files", "find_files", "search_code", "repo_map", "get_problems", "run_command", "delegate",
+                                               "outline", "definition", "references", "callers", "callees", "impact", "diagnostics", "read_exhaustively"]
     private static let runs: Set<String> = ["run_command", "get_problems"]
     private static let edits: Set<String> = ["edit_file", "write_file"]
 
@@ -247,23 +248,5 @@ struct ModeMenu: View {
         .fixedSize()
         .help("Mode: \(mode.help) Click to change; ⇧Tab cycles.")
         .accessibilityLabel("Mode: \(mode.label)")
-    }
-}
-
-/// A small badge in the toolbar when the chat's mode isn't Ask.
-struct ModeBadge: View {
-    @Environment(ChatStore.self) private var store
-
-    var body: some View {
-        if let c = store.current, c.workModeValue != .ask {
-            let m: WorkMode = c.workModeValue
-            Label(m.label, systemImage: m.icon)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Ember.accent)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .background(Capsule().fill(Ember.accent.opacity(0.12)))
-                .help(m.help)
-        }
     }
 }

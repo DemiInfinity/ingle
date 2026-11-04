@@ -111,4 +111,4 @@ or give `node` as a full path.
 
 ## Licence
 
-PolyForm Noncommercial 1.0.0, like the rest of Ingle. See [../../LICENSING.md](../../LICENSING.md).
+AGPL-3.0-only with an attribution term, like the rest of Ingle. See [../../LICENSING.md](../../LICENSING.md).

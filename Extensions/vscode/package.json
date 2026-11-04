@@ -4,7 +4,7 @@
   "description": "Chat with your local Ollama models (Ember and Flint) right in VS Code. They can read your project, edit files with your approval, run commands, search the web and remember things — all on your Mac.",
   "version": "0.2.0",
   "publisher": "ingle",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "SEE LICENSE IN LICENSE.md",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -181,10 +181,13 @@
     }
   },
   "scripts": {
+    "engine": "node scripts/build-engine.js",
+    "postinstall": "node scripts/build-engine.js",
+    "precompile": "node scripts/build-engine.js",
     "compile": "npm run --silent copy-preview && tsc -p ./",
     "copy-preview": "node -e \"const fs=require('fs');fs.rmSync('media/preview',{recursive:true,force:true});fs.cpSync('../../Support/preview','media/preview',{recursive:true})\"",
     "package": "vsce package --allow-missing-repository --skip-license",
-    "pretest": "rm -rf out-test && tsc -p tsconfig.test.json",
+    "pretest": "node scripts/build-engine.js && rm -rf out-test && tsc -p tsconfig.test.json",
     "test": "node --test out-test/test/*.test.js"
   },
   "devDependencies": {
