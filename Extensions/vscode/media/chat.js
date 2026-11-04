@@ -1348,7 +1348,8 @@
     e.model.hidden = !m.model;
 
     // Thinking toggle
-    const hasThinking = !!p.thinking;
+    // No thinking tag for replies made with Reasoning off.
+    const hasThinking = !!p.thinking && m.reasoned !== false;
     e.thinkBtn.hidden = !hasThinking;
     if (hasThinking) {
       const open = openThinking.has(m.id);

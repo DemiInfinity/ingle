@@ -152,7 +152,8 @@ struct MessageRow: View {
                 Text(ModelNames.display(message.model ?? ""))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Ember.text.opacity(0.85))
-                if !p.thinking.isEmpty || message.thinkingPhases != nil || live {
+                // No thinking tag for replies made with Reasoning off: there was no thinking.
+                if message.reasoned != false && (!p.thinking.isEmpty || message.thinkingPhases != nil || live) {
                     Button {
                         withAnimation(.snappy) { showThinking.toggle() }
                     } label: {
@@ -196,7 +197,7 @@ struct MessageRow: View {
                     .help("What the assistant used for this reply: skills and rules it opened, research it read, and commands in force (⚑)")
                 }
             }
-            if showThinking && (!p.thinking.isEmpty || message.thinkingPhases != nil) {
+            if showThinking && message.reasoned != false && (!p.thinking.isEmpty || message.thinkingPhases != nil) {
                 if let phases = message.thinkingPhases {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(phases) { phase in

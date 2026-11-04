@@ -1736,7 +1736,7 @@ export class ChatEngine implements vscode.Disposable {
         continue;
       }
 
-      const reply: Stored = { id: uid(), role: 'assistant', content: '', assistantName: a.name, model: pretty };
+      const reply: Stored = { id: uid(), role: 'assistant', content: '', assistantName: a.name, model: pretty, reasoned: !!chat.reasoning };
       if (used.length) reply.usedContext = used;
       chat.messages.push(reply);
       chat.updated = Date.now();

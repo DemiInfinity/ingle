@@ -23,6 +23,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var thoughtSeconds: Double?
     /// True when the optional semantic thinking decider stopped this response and triggered a no-thinking retry.
     var deciderIntervened: Bool?
+    /// Whether Reasoning was on for the reply (false: no thinking, so no thinking tag). nil in older chats.
+    var reasoned: Bool?
     var usedContext: [String]?
     /// Images on this message, stored as JPEGs in Application Support/Ingle/images.
     var imageFiles: [String]?
@@ -1089,6 +1091,7 @@ final class ChatStore {
                     break
                 }
                 var reply = ChatMessage(role: .assistant, content: "", model: model)
+                reply.reasoned = reasoning
                 reply.workflowHidden = true
                 reply.thinkingPhases = phaseRows(thinking: "", pending: true)
                 conversations[i].messages.append(reply)

@@ -27,6 +27,8 @@ export interface ChatMessage {
   stats?: { tokensPerSecond: number; seconds: number };
   failed?: boolean;
   thoughtSeconds?: number;
+  /** Whether Reasoning was on for this reply (false: no thinking, so no thinking tag). */
+  reasoned?: boolean;
   /** Images attached to a user message (thumbnails shown in the bubble). */
   attachments?: Attachment[];
   /** A compaction marker: content is the summary of everything before it. The UI shows a divider
