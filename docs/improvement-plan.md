@@ -462,8 +462,9 @@ the relevant code with no secrets or private paths. Ordinary chats never show it
 You should be able to hand Ingle a job ("watch PR 42 and tell me when CI passes", "run the full test suite and fix
 what breaks") and **keep chatting** while it works. Roadmap Phase 3's scheduled tasks are folded in here.
 
-**Today's limits** (what these tasks change): the Mac app runs one thing at a time across all chats (a single
-`streamingID`, `task` and `approval` in `ChatStore.swift`), and the engine serves one request at a time (`-np 1`).
+**Today's limit** (what these tasks change): the Mac app can only hold one run at a time across all chats (a single
+`streamingID`, `task` and `approval` in `ChatStore.swift`), so there's nowhere to keep a second run while it waits
+its turn. The engine serving one request at a time is fine: jobs simply queue.
 
 ### [ ] 36. Background runs (Mac app first; VS Code can view and start them; round C)
 **Design.**
@@ -474,10 +475,11 @@ what breaks") and **keep chatting** while it works. Roadmap Phase 3's scheduled 
   `job_start` tool (with approval showing the task). A background run gets its own entry in a new sidebar section,
   **Jobs**, with its status (working · waiting for you · done · failed · paused) and a live log. **Open as chat**
   turns it into a normal chat so you can continue it.
-- **Sharing the engine fairly.** Your foreground chat always comes first. Background runs work between your turns
-  and pause their next model step while you're chatting. If the Mac has spare memory, Settings → General offers
-  "Run background jobs at the same time" (`OLLAMA_NUM_PARALLEL=2`), with the context cost explained (each slot needs
-  its own context). Background runs can use a smaller model (choose per job, default the daily model).
+- **One engine, one queue (the user's decision).** No second model or parallel engine slots: a background job is
+  just another stream **queued behind** your chat on the same engine and model. One `EngineQueue` hands out model
+  steps one at a time. Your chat always goes to the front, and background jobs take the next free step between your
+  turns. Their tool calls (commands, checks, file reads) run while the model is busy elsewhere, so a job spends most of
+  its time not needing the model at all. Jobs use the chat's model by default, so nothing extra is loaded into memory.
 - **Approvals never block your chat.** A background run that needs approval pauses and shows **waiting for you**,
   with a notification (with Allow / Deny actions; this absorbs task 19) and a badge on Jobs. When starting a job you
   can **pre-approve** specific scoped actions for that job only (e.g. "`gh pr view`, `gh pr checks` in this repo"),
@@ -488,7 +490,7 @@ what breaks") and **keep chatting** while it works. Roadmap Phase 3's scheduled 
 - Tears down cleanly. Stopping a job stops its commands and any processes it started.
 **Files.** `ChatStore.swift` (the run refactor, the biggest part; split into a new `Sources/Ingle/Run.swift` +
 `RunQueue.swift`), new `Sources/Ingle/Jobs.swift`, `JobsViews.swift`, `RunNotifications.swift`, `ChatViews.swift`
-(sidebar section, composer menu), `OllamaServer.swift` (parallel option), `SettingsViews.swift`, `EditorBridge.swift`
+(sidebar section, composer menu), new `EngineQueue.swift`, `SettingsViews.swift`, `EditorBridge.swift`
 (list/start jobs for VS Code), VS Code: a read-only Jobs view in the webview and a "Run in background" command that
 sends the job to the Mac app. Docs: `docs/agent-loop.md`, `docs/mac-app.md`, `HelpTopics`.
 **Done when.** You can start "run the tests and fix failures" in the background, keep chatting normally in another
