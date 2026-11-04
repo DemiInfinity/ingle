@@ -4,21 +4,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { DENIED, baseFolder, isDir, isInProject, resolvePath, tidy } from './paths';
+import { capOutput, MAX_OUT } from './output';
 import { str, type ToolDef } from './types';
 
+export { capOutput };
+
 const TIMEOUT_MS = 120_000;
-const MAX_OUT = 20_000;
 
 function shell(): string {
   if (fs.existsSync('/bin/zsh')) return '/bin/zsh';
   return process.env.SHELL && fs.existsSync(process.env.SHELL) ? process.env.SHELL : '/bin/sh';
-}
-
-/** Keep the start and (mostly) the end — build errors are usually at the bottom. */
-export function capOutput(s: string, max = MAX_OUT): string {
-  if (s.length <= max) return s;
-  const head = Math.floor(max * 0.4), tail = max - head;
-  return s.slice(0, head) + '\n…(trimmed)…\n' + s.slice(s.length - tail);
 }
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[()][A-Z0-9]/g, '');

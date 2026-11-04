@@ -6,8 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { paths } from '../shared/settings';
 import { cmp, frontmatter, listDir, readText, slug, stripFrontmatter, writeAtomic } from './frontmatter';
-import { DENIED } from './paths';
-import { str, type ToolArgs, type ToolDef } from './types';
+import { DENIED, str, type ToolArgs, type ToolDef } from './types';
 
 export const COMMANDS_DIR = path.join(paths.home, 'commands');
 

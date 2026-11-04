@@ -60,6 +60,7 @@ Checks without installing:
 ```zsh
 cd Extensions/vscode && node node_modules/typescript/bin/tsc -p . --noEmit   # type-check
 node --check Extensions/vscode/media/chat.js                                 # webview syntax
+cd Extensions/vscode && npm test                                            # unit tests (offline)
 ```
 
 The extension has **no runtime dependencies**; keep it that way.

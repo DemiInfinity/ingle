@@ -4,6 +4,9 @@ import type { ApprovalRequest } from '../shared/protocol';
 
 export type ToolArgs = Record<string, unknown>;
 
+/** What a tool returns when the user says no. Lives here (not paths.ts) so pure modules needn't load vscode. */
+export const DENIED = "The user denied this action. Don't retry it; ask them what they'd like instead.";
+
 export interface ToolContext {
   settings: IngleSettings;
   workspaceRoot?: string;          // the open folder in VS Code, if any

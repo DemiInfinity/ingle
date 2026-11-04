@@ -29,6 +29,7 @@ import { str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../to
 import { ChatStore, NEW_TITLE, StoredChat, StoredMessage, uid } from './chatStore';
 import { DIFF_SCHEME, DiffProvider } from './diff';
 import { Candidate, Matcher } from './matcher';
+import { selectTools } from './toolSelection';
 import { prettyModel, roleName } from './names';
 import { OllamaClient, OllamaMessage, RawToolCall } from './ollama';
 import {
@@ -824,45 +825,13 @@ export class ChatEngine implements vscode.Disposable {
     } catch {
       defs = [];
     }
-    let list = defs.filter((t) => {
+    const available = defs.filter((t) => {
       try { return t.available(ctx); } catch { return false; }
     });
-    if (ctx.isSubAgent) return list.filter((t) => t.readOnly);
-    // Builder tools only when the user is talking about skills or rules (fewer tools for small models).
-    // Local models pick tools far less reliably as the list grows (≈85% right with 5 tools, ≈45% with 20),
-    // so optional tools are only offered when the message plausibly needs them.
-    const t = lastUser.toLowerCase();
-    const wants: Record<string, RegExp> = {
-      skill_create: /skill|rule/,
-      rule_create: /skill|rule/,
-      command_create: /command/,
-      read_document: /pdf|docx?\b|word doc|xlsx|excel|spreadsheet|document|\.pages|keynote|numbers file|rtf/,
-      view_image: /image|screenshot|png|jpe?g|heic|gif|webp|picture|photo|diagram|mock-?up|icon/,
-      open_url: /\bopen\b.*(url|link|browser|http|site|page)|https?:\/\//,
-      memory_read: /remember|memory|memories|forget|about me|preference/,
-      memory_rewrite: /remember|memory|memories|forget|about me|preference/,
-      memory_forget: /remember|memory|memories|forget|about me|preference/,
-    };
-    // Commands: tools a must_use needs are always offered; never_use tools are removed.
-    const forced = new Set<string>();
-    const banned = new Set<string>();
-    for (const c of active) {
-      for (const r of c.mustUse) {
-        if (r.kind === 'tool') forced.add(r.tool.toLowerCase());
-        else if (r.kind === 'mcp') MCP_TOOL_NAMES.forEach((n) => forced.add(n));
-      }
-      for (const n of c.neverUse) if (!n.toLowerCase().startsWith('mcp:')) banned.add(n.trim().toLowerCase());
-    }
-    const mcpWanted = wantsMCP(t);
-    list = list.filter((tool) => {
-      if (forced.has(tool.name)) return true;
-      if (MCP_TOOL_NAMES.includes(tool.name)) return mcpWanted;
-      return !wants[tool.name] || wants[tool.name].test(t);
+    return selectTools({
+      available, lastUser, isSubAgent: ctx.isSubAgent, active, delegate,
+      mcpToolNames: MCP_TOOL_NAMES, mcpWanted: !ctx.isSubAgent && wantsMCP(lastUser.toLowerCase()),
     });
-    if (delegate && (forced.has('delegate') || /research|compare|look into|investigate|summari[sz]e|find out|dig into|go through|sub-?agent|helper|in parallel|across (the|all)/.test(t))) {
-      list.push(delegate);
-    }
-    return list.filter((tool) => !banned.has(tool.name.toLowerCase()));
   }
 
   private delegateTool(run: (task: string) => Promise<string>): ToolDef {

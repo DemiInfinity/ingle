@@ -5,9 +5,9 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { expandHome, paths as inglePaths } from '../shared/settings';
-import type { ToolContext } from './types';
+import { DENIED, type ToolContext } from './types';
 
-export const DENIED = "The user denied this action. Don't retry it; ask them what they'd like instead.";
+export { DENIED };
 
 /** The folder relative paths are resolved against: the open project, else the home folder. */
 export function baseFolder(workspaceRoot?: string): string {
