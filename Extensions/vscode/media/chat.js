@@ -154,7 +154,7 @@
   };
 
   const ICON_ALIASES = {
-    console: 'terminal', 'debug-console': 'terminal', run: 'terminal', play: 'terminal', command: 'terminal',
+    console: 'terminal', 'debug-console': 'terminal', run: 'terminal', play: 'terminal', command: 'terminal', remote: 'terminal', ssh: 'terminal',
     'file-code': 'file', 'new-file': 'file', files: 'file', 'file-text': 'file', 'go-to-file': 'file', save: 'file', write: 'file', read: 'file',
     'folder-opened': 'folder', 'folder-library': 'folder', 'root-folder': 'folder',
     web: 'globe', 'cloud-download': 'globe', 'globe-search': 'globe',
@@ -1064,7 +1064,7 @@
 
   const APPROVAL_ICONS = {
     command: 'terminal', write: 'file', edit: 'edit', open: 'link', mcp: 'plug', memory: 'memory',
-    skill: 'sparkle', rule: 'book', read: 'eye',
+    skill: 'sparkle', rule: 'book', read: 'eye', ssh: 'remote',
   };
 
   function renderApproval() {
