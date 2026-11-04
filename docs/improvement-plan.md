@@ -419,8 +419,14 @@ approve, edits the files and runs the tests, with the same results as the VS Cod
 **Do.**
 - **Task list.** An `update_tasks` tool. The model keeps a short to-do list for bigger jobs, shown pinned under the
   latest reply with ticks as it goes (Mac: under the message; VS Code: in the webview). Max effort uses it for its plan.
-- **Plan mode.** A per-chat switch: the assistant can only read and search. It ends with a plan you **Approve** or
-  edit; approving switches back and starts the work with the plan as its task list.
+- **Modes in the message box (the user's decision, 4 November 2026).** A **Mode** pill next to Model and Effort, set
+  per chat, with ⇧Tab cycling it, like Claude Code: **Ask** (default: changes and commands ask), **Edit** (file changes
+  inside the project are approved automatically), **Auto** (also commands inside the project, except risky ones,
+  which still ask: sudo, recursive or outside deletes, git push/reset/clean, network fetches, writes outside the
+  project, secrets, SSH, Mac control, side-effect MCP calls), **Plan** (read only, ends with a plan to Approve, which then
+  starts the work with it as the task list) and **Debug** (no edits until it has reproduced the bug and stated the
+  cause with evidence; after the fix it must rerun the reproduction). Auto-approved actions are listed in the run log,
+  so nothing is silent.
 - **Changes panel.** A list of every file changed in this run with its diff, plus **Undo this run** (task 15) and
   **Open in editor** (VS Code, or the default app).
 - **Commit.** A **Commit** button when the run changed files in a git repo. It drafts a message from the diff that you
