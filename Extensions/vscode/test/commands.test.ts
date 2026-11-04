@@ -169,3 +169,128 @@ test('listRules keeps a user rule and a project rule with the same file name', (
   writeCommand(path.join(dir, '.ingle', 'rules'), 'style.md', '---\ndescription: project style\n---\nUse spaces.');
   assert.deepEqual(stores.listRules(dir).map((r) => r.name).sort(), ['project/style', 'style']);
 });
+
+// MARK: unified rules (task 8) — the Mac app (Commands.swift) follows the same rules.
+
+test('rule: when means every request only when it is empty or exactly "always"', () => {
+  assert.deepEqual(cmds.parseWhen(''), { when: [], always: true });
+  assert.deepEqual(cmds.parseWhen(undefined), { when: [], always: true });
+  assert.deepEqual(cmds.parseWhen(' ALWAYS '), { when: [], always: true });
+  assert.deepEqual(cmds.parseWhen('always, deploy'), { when: ['always', 'deploy'], always: false });
+  const dir = path.join(home, 'when-mixed');
+  writeCommand(path.join(dir, '.ingle', 'commands'), 'mixed.md', '---\nwhen: always, deploy\nnever_use: open_url\n---\n');
+  const mixed = cmds.listCommands(dir).find((c) => c.name === 'project/mixed');
+  assert.ok(mixed);
+  assert.equal(mixed.always, false);
+  assert.equal(cmds.activeCommands([mixed], 'hello').length, 0);
+  assert.equal(cmds.activeCommands([mixed], 'deploy it').length, 1);
+});
+
+test('rule: never_use accepts mcp:server and mcp:server/tool', () => {
+  const c: CommandEntry = { ...byName('figma'), neverUse: ['mcp:tracker/delete_issue'] };
+  assert.equal(cmds.bannedBy([c], 'mcp_call', { server: 'tracker', tool: 'delete_issue' })?.item, 'mcp:tracker/delete_issue');
+  assert.equal(cmds.bannedBy([c], 'mcp_call', { server: 'tracker', tool: 'create_issue' }), undefined);
+  assert.equal(cmds.bannedBy([byName('figma')], 'mcp_call', { server: 'github', tool: 'anything' })?.item, 'mcp:github');
+  // mcp: bans are blocked per call, not removed by name.
+  assert.deepEqual([...cmds.bannedToolNames([byName('figma')])], ['write_file']);
+});
+
+test('rule: required tools (and run_command for then_run) are offered from everything available', () => {
+  assert.deepEqual([...cmds.requiredTools([byName('figma')])].sort(), ['mcp_call', 'mcp_tools', 'run_command', 'search_code']);
+  assert.deepEqual([...cmds.requiredTools([byName('lint')])], ['run_command']);
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const sel: typeof import('../src/engine/toolSelection') = require('../src/engine/toolSelection');
+  const available = [{ name: 'read_file', readOnly: true }, { name: 'view_image', readOnly: true }];
+  const need = { mustUse: [cmds.parseRequirement('view_image')!], neverUse: [], thenRun: '' };
+  const picked = sel.selectTools({ available, lastUser: 'hello', isSubAgent: false, active: [need], mcpToolNames: [], mcpWanted: false });
+  assert.ok(picked.some((t) => t.name === 'view_image'), 'added although the filter would drop it');
+});
+
+test('rule: a required tool that cannot be offered gives ⚠ straight away with a reason, and no nudges', () => {
+  const research: CommandEntry = { ...byName('lint'), name: 'research', thenRun: '', mustUse: [cmds.parseRequirement('web_search')!] };
+  assert.equal(cmds.unavailableReason(research, ['read_file', 'run_command']), 'web_search isn’t available');
+  assert.equal(cmds.unavailableReason(research, ['WEB_SEARCH']), undefined);
+  assert.equal(cmds.unavailableReason(byName('lint'), ['read_file']), 'run_command isn’t available');
+  assert.equal(cmds.unavailableReason(byName('figma'), ['search_code', 'run_command']), 'mcp_call isn’t available');
+  const skillOnly: CommandEntry = { ...byName('lint'), thenRun: '', mustUse: [cmds.parseRequirement('skill:x')!] };
+  assert.equal(cmds.unavailableReason(skillOnly, []), undefined, 'skills are attached, not offered');
+  const givenUp = new Map([['research', 'web_search isn’t available']]);
+  assert.equal(cmds.completionCheck([research], [], new Map(), givenUp), undefined, 'no nudge');
+  assert.equal(cmds.ignoredChip('research', givenUp.get('research')!), '⚠ didn’t follow research (web_search isn’t available)');
+  assert.equal(cmds.ignoredChip('lint', ''), '⚠ didn’t follow lint');
+});
+
+test('rule: every file-changing tool makes then_run owed', () => {
+  assert.deepEqual(cmds.FILE_CHANGING_TOOLS.slice().sort(), ['edit_file', 'write_file']);
+  for (const name of cmds.FILE_CHANGING_TOOLS) {
+    assert.equal(cmds.thenRunOwed('npm test', [{ name, args: {}, denied: false }]), true, name);
+  }
+  assert.equal(cmds.thenRunOwed('npm test', [{ name: 'read_file', args: {}, denied: false }]), false);
+});
+
+test('rule: all owed commands go in one nudge, at most two per command, then ⚠', () => {
+  const active = [byName('figma'), byName('lint')];
+  const calls: CallRecord[] = [{ name: 'write_file', args: {}, denied: false }];
+  const nudges = new Map<string, number>();
+  const givenUp = new Map<string, string>();
+  const first = cmds.completionCheck(active, calls, nudges, givenUp);
+  assert.ok(first);
+  assert.ok(first.startsWith(cmds.NUDGE_PREFIX));
+  assert.ok(cmds.isNudgeText(first));
+  assert.match(first, /the command "figma": use the figma MCP's get_file tool .*, and use search_code, and run `npm run lint`/);
+  assert.match(first, /\n- the command "lint": run `npm test` with run_command/);
+  assert.match(first, /Do that now, then finish your answer\.$/);
+  assert.ok(cmds.completionCheck(active, calls, nudges, givenUp));
+  assert.equal(cmds.completionCheck(active, calls, nudges, givenUp), undefined, 'no third nudge');
+  assert.deepEqual([...givenUp.keys()].sort(), ['figma', 'lint']);
+  // Once the work is done there's nothing owed.
+  const done: CallRecord[] = [...calls, { name: 'run_command', args: { command: 'npm test' }, denied: false }];
+  assert.equal(cmds.completionCheck([byName('lint')], done, new Map(), new Map()), undefined);
+  assert.equal(cmds.nudgeText(['verify']), 'Ingle: before you finish, you still need to:\n- verify\nDo that now, then finish your answer.');
+  assert.ok(cmds.isNudgeText('Ingle: the command "x" requires you to …'), 'older chats');
+});
+
+test('rule: command_create refuses advice-only commands, but hand-written ones still load', () => {
+  const base = { name: 'tone', mustUse: '', neverUse: '', thenRun: '' };
+  assert.match(cmds.commandCreateRefusal(base) ?? '', /rule_create/);
+  assert.equal(cmds.commandCreateRefusal({ ...base, neverUse: 'write_file' }), undefined);
+  assert.equal(cmds.commandCreateRefusal({ ...base, mustUse: 'web_search' }), undefined);
+  assert.equal(cmds.commandCreateRefusal({ ...base, thenRun: 'npm test' }), undefined);
+  assert.match(cmds.commandCreateRefusal({ ...base, name: ' ', thenRun: 'x' }) ?? '', /needs a name/);
+  const dir = path.join(home, 'advice');
+  writeCommand(path.join(dir, '.ingle', 'commands'), 'deep-research.md', '---\ndescription: Research deeply\nwhen: research\n---\n\nRead at least five sources.');
+  const advice = cmds.listCommands(dir).find((c) => c.name === 'project/deep-research');
+  assert.ok(advice);
+  assert.equal(advice.body, 'Read at least five sources.');
+  assert.match(cmds.commandsBlock([advice]), /### project\/deep-research — Research deeply\nRead at least five sources\.$/);
+});
+
+test('rule: helpers obey bans (tool names hidden, mcp: blocked per call)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const sel: typeof import('../src/engine/toolSelection') = require('../src/engine/toolSelection');
+  const available = [{ name: 'read_file', readOnly: true }, { name: 'web_fetch', readOnly: true }, { name: 'write_file', readOnly: false }];
+  const ban = { mustUse: [], neverUse: ['web_fetch', 'mcp:github'], thenRun: '' };
+  const names = sel.selectTools({ available, lastUser: 'x', isSubAgent: true, active: [ban], mcpToolNames: [], mcpWanted: false }).map((t) => t.name);
+  assert.deepEqual(names, ['read_file']);
+  assert.ok(cmds.bannedBy([{ ...byName('figma'), ...ban }], 'mcp_call', { server: 'github' }));
+});
+
+test('rule: a command whose final name is taken is skipped, with a note in the index', () => {
+  const dir = path.join(home, 'dupe-names');
+  const cdir = path.join(dir, '.ingle', 'commands');
+  writeCommand(cdir, 'a.md', '---\nname: same\nwhen: x\nnever_use: open_url\n---\n');
+  writeCommand(cdir, 'b.md', '---\nname: same\nwhen: y\nnever_use: open_url\n---\n');
+  writeCommand(userDir, 'clash.md', '---\nname: project/clash\nwhen: z\nnever_use: open_url\n---\n');
+  writeCommand(cdir, 'clash.md', '---\nwhen: z\nnever_use: write_file\n---\n');
+  try {
+    const { commands, skipped } = cmds.loadAllCommands(dir);
+    assert.deepEqual(commands.filter((c) => c.name === 'project/same').map((c) => c.when), [['x']], 'first one wins');
+    assert.deepEqual(commands.filter((c) => c.name === 'project/clash').map((c) => c.neverUse), [['open_url']], 'yours wins');
+    assert.deepEqual(skipped.map((c) => path.basename(c.file)).sort(), ['b.md', 'clash.md']);
+    const index = cmds.commandsIndexText(dir);
+    assert.match(index, /Skipped .*b\.md: another command is already called project\/same\./);
+    assert.match(index, /Skipped .*clash\.md: another command is already called project\/clash\./);
+  } finally {
+    fs.rmSync(path.join(userDir, 'clash.md'));
+  }
+});

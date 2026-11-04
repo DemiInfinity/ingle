@@ -58,13 +58,11 @@ function loadCommands(folder: string, prefix: string): CommandEntry[] {
     const text = readText(file);
     if (text === null) return [];
     const meta = frontmatter(text);
-    const whenRaw = (meta.when ?? '').trim();
-    const when = list(whenRaw).map((w) => w.toLowerCase());
-    const always = !whenRaw || when.includes('always');
+    const { when, always } = parseWhen(meta.when);
     return [{
       name: prefix + (meta.name ?? path.basename(f, path.extname(f))),
       description: meta.description ?? '',
-      when: always ? [] : when,
+      when,
       always,
       mustUse: list(meta.must_use).map(parseRequirement).filter((r): r is Requirement => !!r),
       neverUse: list(meta.never_use),
@@ -76,12 +74,34 @@ function loadCommands(folder: string, prefix: string): CommandEntry[] {
   });
 }
 
-/** ~/.ingle/commands, plus `<workspace>/.ingle/commands` with names prefixed `project/` (so both are kept,
- *  as on the Mac — CommandStore.all). */
+/** `when`: comma-separated triggers. Only `always` on its own (or nothing) means every request; `always` next to
+ *  other phrases is just another phrase. Same as WhenParsing in Commands.swift. */
+export function parseWhen(raw: string | undefined): { when: string[]; always: boolean } {
+  const when = list(raw).map((w) => w.toLowerCase());
+  const always = !when.length || (when.length === 1 && when[0] === 'always');
+  return { when: always ? [] : when, always };
+}
+
+/** ~/.ingle/commands, plus `<workspace>/.ingle/commands` with names prefixed `project/`. A command whose final
+ *  name is already taken (e.g. a project file with `name: project/x` twice, or a user command called
+ *  `project/x`) is skipped: the first one wins, yours before the project's. Same as CommandStore.all. */
+export function loadAllCommands(workspaceRoot?: string): { commands: CommandEntry[]; skipped: CommandEntry[] } {
+  const found = loadCommands(COMMANDS_DIR, '');
+  if (workspaceRoot) found.push(...loadCommands(path.join(workspaceRoot, '.ingle', 'commands'), 'project/'));
+  const seen = new Set<string>();
+  const commands: CommandEntry[] = [];
+  const skipped: CommandEntry[] = [];
+  for (const c of found) {
+    const key = c.name.toLowerCase();
+    if (seen.has(key)) { skipped.push(c); continue; }
+    seen.add(key);
+    commands.push(c);
+  }
+  return { commands, skipped };
+}
+
 export function listCommands(workspaceRoot?: string): CommandEntry[] {
-  const out = loadCommands(COMMANDS_DIR, '');
-  if (workspaceRoot) out.push(...loadCommands(path.join(workspaceRoot, '.ingle', 'commands'), 'project/'));
-  return out;
+  return loadAllCommands(workspaceRoot).commands;
 }
 
 /** Enabled commands whose `when` matches the latest user message (case-insensitive substring). */
@@ -130,11 +150,13 @@ export function commandsBlock(active: CommandEntry[]): string {
 
 /** `## Commands (enforced)` for the index ('' when there are none). */
 export function commandsIndexText(workspaceRoot?: string): string {
-  let all: CommandEntry[] = [];
-  try { all = listCommands(workspaceRoot).filter((c) => c.enabled); } catch { return ''; }
-  if (!all.length) return '';
+  let loaded: { commands: CommandEntry[]; skipped: CommandEntry[] };
+  try { loaded = loadAllCommands(workspaceRoot); } catch { return ''; }
+  const all = loaded.commands.filter((c) => c.enabled);
+  if (!all.length && !loaded.skipped.length) return '';
   return ['## Commands (enforced — Ingle checks you follow them when they apply)',
     ...all.map((c) => `- ${c.name}` + (c.description ? ` — ${c.description}` : '') + ` (when: ${c.always ? 'always' : c.when.join(', ')})`),
+    ...loaded.skipped.map((c) => `- Skipped ${c.file}: another command is already called ${c.name}.`),
   ].join('\n');
 }
 
@@ -173,6 +195,8 @@ export function requirementMet(r: Requirement, calls: CallRecord[]): boolean {
   }
 }
 
+/** Every tool that changes files: any of these makes a then_run owed. Add new file-changing tools here
+ *  (the Mac's list is CommandStore.fileChangingTools). */
 export const FILE_CHANGING_TOOLS = ['edit_file', 'write_file'];
 
 /** True if a file changed (an allowed edit_file/write_file) after the last run_command containing `thenRun`. */
@@ -187,7 +211,97 @@ export function thenRunOwed(thenRun: string, calls: CallRecord[]): boolean {
   return owed;
 }
 
+/** The tool a requirement needs offered ('' for skills, which Ingle attaches itself). */
+export function toolNeeded(r: Requirement): string {
+  return r.kind === 'mcp' ? 'mcp_call' : r.kind === 'tool' ? r.tool.toLowerCase() : '';
+}
+
+/** Tools the active commands need offered this request: must_use tools, the MCP tools for mcp:, and
+ *  run_command for then_run. Same as CommandTracker.requiredTools. */
+export function requiredTools(active: (Pick<CommandEntry, 'mustUse'> & { thenRun?: string })[], mcpToolNames: string[] = ['mcp_tools', 'mcp_call']): Set<string> {
+  const out = new Set<string>();
+  for (const c of active) {
+    for (const r of c.mustUse) {
+      if (r.kind === 'tool') out.add(r.tool.toLowerCase());
+      else if (r.kind === 'mcp') mcpToolNames.forEach((n) => out.add(n));
+    }
+    if (c.thenRun?.trim()) out.add('run_command');
+  }
+  return out;
+}
+
+/** never_use items that are plain tool names (removed from the tool list). mcp: items are blocked per call. */
+export function bannedToolNames(active: Pick<CommandEntry, 'neverUse'>[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of active) for (const n of c.neverUse) if (!n.trim().toLowerCase().startsWith('mcp:')) out.add(n.trim().toLowerCase());
+  return out;
+}
+
+/** Why a command can't be obeyed with the tools on offer (after required ones were added from everything
+ *  available), e.g. "web_search isn't available" when Web is off. undefined when it can be. Such a command gets ⚠
+ *  straight away and no nudges. */
+export function unavailableReason(c: CommandEntry, offered: Iterable<string>): string | undefined {
+  const have = new Set([...offered].map((n) => n.toLowerCase()));
+  for (const r of c.mustUse) {
+    const needs = toolNeeded(r);
+    if (needs && !have.has(needs)) return `${needs} isn’t available`;
+  }
+  if (c.thenRun.trim() && !have.has('run_command')) return 'run_command isn’t available';
+  return undefined;
+}
+
+/** What a command still needs before the request may finish, in words ([] when nothing is owed). */
+export function owedWork(c: CommandEntry, calls: CallRecord[]): string[] {
+  const out = c.mustUse.filter((r) => !requirementMet(r, calls)).map(requirementWords);
+  if (c.thenRun && thenRunOwed(c.thenRun, calls)) out.push(`run \`${c.thenRun}\` with run_command (files changed since it last ran)`);
+  return out;
+}
+
+/** Start of every nudge Ingle sends (hidden user messages). Older chats used OLD_NUDGE_PREFIX. */
+export const NUDGE_PREFIX = 'Ingle: before you finish';
+export const OLD_NUDGE_PREFIX = 'Ingle: the command "';
+export const isNudgeText = (s: string) => s.startsWith(NUDGE_PREFIX) || s.startsWith(OLD_NUDGE_PREFIX);
+
+/** One nudge message listing everything owed. Reusable for any check that sends the model back (e.g. "verify
+ *  after editing"). Same wording as CommandStore.nudgeText. */
+export function nudgeText(items: string[]): string {
+  return `${NUDGE_PREFIX}, you still need to:\n` + items.map((i) => `- ${i}`).join('\n') + '\nDo that now, then finish your answer.';
+}
+
+export const MAX_NUDGES = 2;
+
+/** The completion check, pure. `nudges` counts nudges per command and is updated; `givenUp` maps command name →
+ *  reason ('' = ran out of nudges) and is updated. Returns the nudge text to send, or undefined to finish. */
+export function completionCheck(active: CommandEntry[], calls: CallRecord[], nudges: Map<string, number>, givenUp: Map<string, string>): string | undefined {
+  const items: string[] = [];
+  for (const c of active) {
+    if (givenUp.has(c.name)) continue;
+    const owed = owedWork(c, calls);
+    if (!owed.length) continue;
+    const n = nudges.get(c.name) ?? 0;
+    if (n >= MAX_NUDGES) { givenUp.set(c.name, ''); continue; }
+    nudges.set(c.name, n + 1);
+    items.push(`the command "${c.name}": ${owed.join(', and ')}`);
+  }
+  return items.length ? nudgeText(items) : undefined;
+}
+
+/** The ⚠ chip for a command that wasn't obeyed. */
+export function ignoredChip(name: string, reason: string): string {
+  return `⚠ didn’t follow ${name}` + (reason ? ` (${reason})` : '');
+}
+
 // MARK: command_create
+
+/** Why command_create must refuse these fields, or undefined. Advice-only commands (no must_use, never_use or
+ *  then_run) are refused — that's a rule. Hand-written ones still load. Same as CommandStore.refusal. */
+export function commandCreateRefusal(f: { name: string; mustUse: string; neverUse: string; thenRun: string }): string | undefined {
+  if (!f.name.trim()) return 'A command needs a name.';
+  if (!f.mustUse.trim() && !f.neverUse.trim() && !f.thenRun.trim()) {
+    return 'A command needs at least one of must_use, never_use or then_run — otherwise it’s just advice (use rule_create for that).';
+  }
+  return undefined;
+}
 
 export function commandFile(name: string): { slug: string; file: string } {
   const s = slug(name);
@@ -223,7 +337,7 @@ export const commandCreateTool: ToolDef = {
       description: p('One line saying what it enforces'),
       when: p('Comma-separated trigger words or phrases from the user\'s message, e.g. "component, ui kit" — or "always"'),
       must_use: p('Optional, comma-separated: tool names (search_code), mcp:server, mcp:server/tool, or skill:name'),
-      never_use: p('Optional, comma-separated tool names that must not be used, e.g. write_file'),
+      never_use: p('Optional, comma-separated tool names, mcp:server or mcp:server/tool that must not be used, e.g. write_file'),
       then_run: p('Optional: a command that must be run with run_command after any file change, e.g. npm run lint'),
       instructions: p('Optional extra instructions shown to the model with the command'),
       replace: { type: 'boolean', description: 'Overwrite an existing command with this name' },
@@ -239,10 +353,8 @@ export const commandCreateTool: ToolDef = {
       description: str(a, 'description'), when: csv(a, 'when'), mustUse: csv(a, 'must_use'), neverUse: csv(a, 'never_use'),
       thenRun: str(a, 'then_run'), instructions: str(a, 'instructions'),
     };
-    if (!name.trim()) return 'A command needs a name.';
-    if (!fields.mustUse.trim() && !fields.neverUse.trim() && !fields.thenRun.trim()) {
-      return 'A command needs at least one of must_use, never_use or then_run — otherwise it\'s just advice (use rule_create for that).';
-    }
+    const refusal = commandCreateRefusal({ name, ...fields });
+    if (refusal) return refusal;
     const { slug: s, file } = commandFile(name);
     const exists = fs.existsSync(file);
     if (exists && !truthy(a, 'replace')) return `A command called ${s} already exists. Call command_create again with replace set to true to overwrite it.`;
@@ -252,7 +364,7 @@ export const commandCreateTool: ToolDef = {
     });
     if (answer !== 'allow') return DENIED;
     try { writeAtomic(file, text); } catch (e) { return `Couldn't save the command: ${(e as Error).message}`; }
-    return `Created the command ${s}. Ingle will enforce it ${fields.when.trim().toLowerCase() === 'always' || !fields.when.trim() ? 'on every request' : `when a message mentions: ${fields.when}`}.`;
+    return `Created the command ${s}. Ingle will enforce it ${parseWhen(fields.when).always ? 'on every request' : `when a message mentions: ${fields.when}`}.`;
   },
 };
 

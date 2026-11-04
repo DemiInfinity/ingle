@@ -72,9 +72,8 @@ Why first: phase 2 claims "it gets better with use". Without a baseline there's 
   the machine.
 
 ### Consistency between the apps
-Unify the differences listed in [commands.md](commands.md) (`when: always`, `never_use` with `mcp:`, missing
-required tools, nudges, `command_create`). Long term, move shared behaviour
-into one spec with tests both apps run against.
+Commands now behave the same in both apps ([commands.md](commands.md)). Next, move shared behaviour into one spec
+with tests both apps run against.
 
 ### Tests
 A first automated test suite: command parsing and enforcement, tool selection, compaction, frontmatter, matching.
