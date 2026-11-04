@@ -296,55 +296,10 @@ struct ChatDetail: View {
                         slashDismissed = true
                         return .handled
                     }
-                HStack(spacing: 8) {
-                    Button { importing = true } label: {
-                        Image(systemName: "paperclip").font(.system(size: 14))
-                    }
-                    .buttonStyle(IconButtonStyle())
-                    .help("Attach files: code, documents (PDF, Word, Excel…) or images (including HEIC). You can also drop them here.")
-
-                    ModelMenu(conversation: conversation)
-                    ThinkToggle()
-
-                    Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
-                        Label("Web", systemImage: "globe")
-                    }
-                    .toggleStyle(PillToggleStyle())
-                    .help("Let the assistant search and read web pages (read-only: no logins, forms or your local network)")
-
-                    Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
-                        Label("Mac", systemImage: "macbook")
-                    }
-                    .toggleStyle(PillToggleStyle())
-                    .help("Mac control: let the assistant open and drive apps (AppleScript) and look at your screen — asking before each action. Terminal commands and files work without this.")
-
-                    Spacer(minLength: 8)
-                    if !store.sessionAllowed.isEmpty {
-                        Button { store.forgetSessionApprovals() } label: {
-                            Label("\(store.sessionAllowed.count) allowed", systemImage: "checkmark.shield")
-                                .font(.system(size: 11))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Ember.warn)
-                        .help("Allowed for this session without asking: \(store.sessionAllowed.sorted().joined(separator: ", ")). Click to ask every time again.")
-                    }
-                    Image(systemName: "hand.raised")
-                        .font(.system(size: 11))
-                        .help(conversation.macAccess
-                              ? "Terminal and Mac control are on — every command, file change and app action asks you first"
-                              : "Terminal is available and asks before every command or file change. Switch on Mac to let it control apps and see your screen.")
-                    Button {
-                        if streaming { store.stop() } else { send() }
-                    } label: {
-                        Image(systemName: streaming ? "stop.fill" : "arrow.up")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(canSend || streaming ? Ember.onAccent : Ember.tertiary)
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(canSend || streaming ? Ember.accent : Color.white.opacity(0.1)))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend && !streaming)
-                    .help(streaming ? "Stop" : "Send")
+                // Full labels when there's room; icons only when the window is narrow (never wrapped text).
+                ViewThatFits(in: .horizontal) {
+                    controls(compact: false)
+                    controls(compact: true)
                 }
                 .foregroundStyle(Ember.secondary)
             }
@@ -375,6 +330,64 @@ struct ChatDetail: View {
         .padding(.top, 12)
         .padding(.bottom, 18)
         .frame(maxWidth: .infinity)
+    }
+
+    /// The row under the message box: attach, model, Think, Web, Mac, approvals badge, send.
+    @ViewBuilder
+    private func controls(compact: Bool) -> some View {
+            HStack(spacing: 8) {
+                Button { importing = true } label: {
+                    Image(systemName: "paperclip").font(.system(size: 14))
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Attach files: code, documents (PDF, Word, Excel…) or images (including HEIC). You can also drop them here.")
+
+                ModelMenu(conversation: conversation, compact: compact)
+                ThinkToggle(compact: compact)
+
+                Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
+                    Label("Web", systemImage: "globe")
+                }
+                .toggleStyle(PillToggleStyle(compact: compact))
+                .help("Let the assistant search and read web pages (read-only: no logins, forms or your local network)")
+
+                Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
+                    Label("Mac", systemImage: "macbook")
+                }
+                .toggleStyle(PillToggleStyle(compact: compact))
+                .help("Mac control: let the assistant open and drive apps (AppleScript) and look at your screen — asking before each action. Terminal commands and files work without this.")
+
+                Spacer(minLength: compact ? 4 : 8)
+                if !store.sessionAllowed.isEmpty {
+                    Button { store.forgetSessionApprovals() } label: {
+                        Label("\(store.sessionAllowed.count) allowed", systemImage: "checkmark.shield")
+                            .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
+                            .font(.system(size: 11))
+                            .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Ember.warn)
+                    .help("Allowed for this session without asking: \(store.sessionAllowed.sorted().joined(separator: ", ")). Click to ask every time again.")
+                }
+                Image(systemName: "hand.raised")
+                    .font(.system(size: 11))
+                    .help(conversation.macAccess
+                          ? "Terminal and Mac control are on — every command, file change and app action asks you first"
+                          : "Terminal is available and asks before every command or file change. Switch on Mac to let it control apps and see your screen.")
+                Button {
+                    if streaming { store.stop() } else { send() }
+                } label: {
+                    Image(systemName: streaming ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(canSend || streaming ? Ember.onAccent : Ember.tertiary)
+                        .frame(width: 30, height: 30)
+                        .background(Circle().fill(canSend || streaming ? Ember.accent : Color.white.opacity(0.1)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend && !streaming)
+                .help(streaming ? "Stop" : "Send")
+            }
+        .foregroundStyle(Ember.secondary)
     }
 
     private func addFiles(_ urls: [URL]) {
@@ -472,6 +485,7 @@ struct ModelMenu: View {
     @Environment(ChatStore.self) private var store
     @Environment(ModelManager.self) private var mm
     let conversation: Conversation
+    var compact = false
 
     var body: some View {
         let daily = Prefs.dailyModel
@@ -490,13 +504,15 @@ struct ModelMenu: View {
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                Text(ModelNames.display(conversation.model)).foregroundStyle(Ember.text)
-                Text(ModelNames.role(conversation.model)).foregroundStyle(Ember.secondary)
+                Text(ModelNames.display(conversation.model)).foregroundStyle(Ember.text).lineLimit(1)
+                if !compact {
+                    Text(ModelNames.role(conversation.model)).foregroundStyle(Ember.secondary).lineLimit(1)
+                }
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(Ember.secondary)
             }
             .font(.system(size: 12.5, weight: .medium))
-            .padding(.horizontal, 14)
+            .padding(.horizontal, compact ? 10 : 14)
             .frame(height: 30)
             .background(Capsule().fill(Color.white.opacity(0.07)))
             .contentShape(Capsule())
@@ -511,12 +527,12 @@ struct ModelMenu: View {
 
 struct ThinkToggle: View {
     @Environment(ChatStore.self) private var store
+    var compact = false
 
     var body: some View {
         @Bindable var store = store
         Toggle(isOn: $store.think) { Label("Think", systemImage: "brain") }
-            .toggleStyle(PillToggleStyle())
-            .labelStyle(.titleAndIcon)
+            .toggleStyle(PillToggleStyle(compact: compact))
             .help("Let the model think before it answers. Slower, sometimes smarter.")
     }
 }

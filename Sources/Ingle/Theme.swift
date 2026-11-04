@@ -126,15 +126,29 @@ private struct IconButtonBody: View {
 
 /// Rounded pill button used for toggles like Think and Mac access.
 struct PillToggleStyle: ToggleStyle {
+    /// Icon only, for narrow windows (the full name shows as a tooltip).
+    var compact = false
+
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: {
             configuration.label
+                .labelStyle(compact ? AnyLabelStyle(.iconOnly) : AnyLabelStyle(.titleAndIcon))
+                .lineLimit(1)
+                .fixedSize()
                 .font(.system(size: 12.5, weight: .medium))
-                .padding(.horizontal, 14)
+                .padding(.horizontal, compact ? 10 : 14)
                 .frame(height: 30)
                 .foregroundStyle(configuration.isOn ? Ember.onAccent : Ember.secondary)
                 .background(Capsule().fill(configuration.isOn ? Ember.accent : Color.white.opacity(0.06)))
         }
         .buttonStyle(.plain)
     }
+}
+
+
+/// Lets a view switch between label styles at runtime.
+struct AnyLabelStyle: LabelStyle {
+    private let make: (Configuration) -> AnyView
+    init<S: LabelStyle>(_ style: S) { make = { AnyView(style.makeBody(configuration: $0)) } }
+    func makeBody(configuration: Configuration) -> some View { make(configuration) }
 }
