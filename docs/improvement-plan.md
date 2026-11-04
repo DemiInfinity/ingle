@@ -35,7 +35,8 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | A | 29 (effort), 30 (Code mode foundation) | 28 is merged |
 | B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
-| C | 9 (shared spec + `IngleCore`), 10 (benchmark), 11 (model picker) | round B is merged |
+| C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
+| D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 10 (benchmark, including an offline run), 11 (model picker) | 36 is merged |
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
@@ -456,6 +457,73 @@ the relevant code with no secrets or private paths. Ordinary chats never show it
 
 ---
 
+## Wave 4d — work in the background
+
+You should be able to hand Ingle a job ("watch PR 42 and tell me when CI passes", "run the full test suite and fix
+what breaks") and **keep chatting** while it works. Roadmap Phase 3's scheduled tasks are folded in here.
+
+**Today's limits** (what these tasks change): the Mac app runs one thing at a time across all chats (a single
+`streamingID`, `task` and `approval` in `ChatStore.swift`), and the engine serves one request at a time (`-np 1`).
+
+### [ ] 36. Background runs (Mac app first; VS Code can view and start them; round C)
+**Design.**
+- **Runs are independent.** Refactor the agent loop so each run has its own state (messages, tool calls, approvals,
+  stop button) instead of the store-wide `streamingID`/`task`/`approval`. A chat can be the foreground run while
+  others run in the background. Keep `send`/`generate` behaviour for normal chats identical.
+- **Start one.** Use **Run in background** (a composer menu item and ⌘⏎), `/background <task>`, or the model calling a
+  `job_start` tool (with approval showing the task). A background run gets its own entry in a new sidebar section,
+  **Jobs**, with its status (working · waiting for you · done · failed · paused) and a live log. **Open as chat**
+  turns it into a normal chat so you can continue it.
+- **Sharing the engine fairly.** Your foreground chat always comes first. Background runs work between your turns
+  and pause their next model step while you're chatting. If the Mac has spare memory, Settings → General offers
+  "Run background jobs at the same time" (`OLLAMA_NUM_PARALLEL=2`), with the context cost explained (each slot needs
+  its own context). Background runs can use a smaller model (choose per job, default the daily model).
+- **Approvals never block your chat.** A background run that needs approval pauses and shows **waiting for you**,
+  with a notification (with Allow / Deny actions; this absorbs task 19) and a badge on Jobs. When starting a job you
+  can **pre-approve** specific scoped actions for that job only (e.g. "`gh pr view`, `gh pr checks` in this repo"),
+  using task 1's scopes. Pre-approvals are listed on the job and end with it. Secrets (task 28) still need approval
+  each time.
+- **Power and offline.** Runs only while Ingle is open and the Mac is awake. On battery, big-model jobs wait unless
+  allowed. Jobs that need the network wait while offline and resume when it's back.
+- Tears down cleanly. Stopping a job stops its commands and any processes it started.
+**Files.** `ChatStore.swift` (the run refactor, the biggest part; split into a new `Sources/Ingle/Run.swift` +
+`RunQueue.swift`), new `Sources/Ingle/Jobs.swift`, `JobsViews.swift`, `RunNotifications.swift`, `ChatViews.swift`
+(sidebar section, composer menu), `OllamaServer.swift` (parallel option), `SettingsViews.swift`, `EditorBridge.swift`
+(list/start jobs for VS Code), VS Code: a read-only Jobs view in the webview and a "Run in background" command that
+sends the job to the Mac app. Docs: `docs/agent-loop.md`, `docs/mac-app.md`, `HelpTopics`.
+**Done when.** You can start "run the tests and fix failures" in the background, keep chatting normally in another
+chat, approve its command from a notification, and open the finished job as a chat. Stopping a job leaves nothing
+running.
+
+### [ ] 37. Monitors and schedules (round D)
+**Why.** Many background jobs are "keep an eye on X". Asking the model every few minutes would be slow and drain the
+battery, so most of the watching should be done **without the model**.
+**Design.**
+- **A monitor** = a check + an interval + what to do when it changes. The check is a command (`gh pr checks 42 --json
+  state`), an MCP tool call (GitHub MCP `get_pull_request`), or a web page (only when Web is allowed for that job).
+  Ingle runs the check itself, compares the result with last time, and **only wakes the model when something
+  changed**. Then it follows the instructions ("summarise what changed; if CI failed, read the logs and suggest a
+  fix") and notifies you. Changes are kept in the job's log.
+- **A schedule** = a job that runs at set times ("every weekday at 9:00, summarise my open PRs"). Cron-like but
+  written in plain words in the UI.
+- **Files, not hidden state.** Each monitor or schedule is a file in `~/.ingle/jobs/<name>.md` (frontmatter: `check`,
+  `every`, `at`, `until`, `model`, `allow`, `notify`; body = instructions). It's visible, editable, pausable and
+  deletable, and lives in **Settings → Jobs** as well as the sidebar.
+- **Creating them by asking.** "Keep an eye on PR 42 and tell me when it's approved or CI fails" → the model calls
+  `monitor_create`, and you see a card with the check, interval, pre-approved actions and when it stops (e.g. when
+  the PR merges or after 7 days). Nothing runs until you approve.
+- **Ready-made recipes** for common jobs (they work through the `gh` CLI or a GitHub MCP server, whichever you have):
+  PR status/CI, new review comments, a failing nightly test run, a server's disk space over SSH (task 6), a website
+  being up.
+- Stops on its own when its `until` is met, and backs off when a check keeps failing (e.g. offline).
+**Files.** New `Sources/Ingle/Monitors.swift`, `Schedules.swift`, `Jobs.swift` (extend), `SettingsViews.swift` (Jobs
+tab), new `docs/jobs.md`, `docs/ingle-home.md` (the `jobs/` folder), `PRIVACY.md` (monitors only use the network for
+checks you set up), `HelpTopics`, prompt facts.
+**Done when.** "Watch PR 42" with the `gh` CLI notifies you when CI finishes, without the model running between
+checks. A weekday-morning summary runs at 9:00. Both can be paused and edited as files.
+
+---
+
 ## Waves 5–8 — making it better to use
 
 These are proposals, not commitments. Their order is flexible, but within a wave the tasks don't share files. The same rules
@@ -519,7 +587,7 @@ Dictation in the composer with `SFSpeechRecognizer` and `requiresOnDeviceRecogni
 back to Apple's servers), plus optional spoken replies with `AVSpeechSynthesizer`. **Files:** new `Voice.swift`,
 composer in `ChatViews.swift`, `Info.plist` usage strings, `PRIVACY.md`. **Done when** it works with Wi-Fi off.
 
-#### [ ] 19. Notifications for long runs
+#### [ ] 19. Notifications for long runs — *now part of task 36*
 When the chat window isn't focused, notify when a run finishes, gets stuck, or needs approval. Approval
 notifications have **Allow** / **Deny** actions. Off switch in Settings. **Files:** new `RunNotifications.swift`,
 small hooks in `ChatStore.swift`, `SettingsViews.swift`. **Done when** you can approve a command from Notification
