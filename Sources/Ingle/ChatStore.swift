@@ -36,6 +36,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var plan: PlanRef?
     /// A message typed while a run was going: it joined the run at the model's next step.
     var steer: Bool?
+    /// Coverage (task 34): affected places the run never looked at, shown as "⚠ N affected places not checked".
+    var coverage: Coverage.Chip?
 
     var isRealUser: Bool { role == .user && nudge != true }
 
@@ -710,6 +712,12 @@ final class ChatStore {
             // Debug: Reproduce → Find the cause → Fix → Confirm, enforced below.
             var dbg: DebugState? = startMode == .debug ? DebugState() : nil
             if dbg != nil, let i = index(id), TaskList.allDone(conversations[i].tasks) { setTasks(id, DebugState.tasks) }
+            // Coverage (task 34): places impact/references listed must be looked at once code changes (High/Max,
+            // Debug, or a command's must_use: coverage). Code mode only (that's where impact is).
+            var coverage: Coverage? = nil
+            if let codeFolder, Coverage.isOn(effort: effort, mode: startMode, forced: tracker.coverageForced) {
+                coverage = Coverage(root: codeFolder)
+            }
             for _ in 0..<maxSteps {
                 guard let i0 = index(id) else { break }
                 // Steer: messages typed during the run join it here, after the last step's tool results.
@@ -892,6 +900,7 @@ final class ChatStore {
 
                 guard !stopLoop, !Task.isCancelled, let j = index(id), let k = conversations[j].messages.indices.last else { break }
                 conversations[j].messages[k].toolCalls = calls
+                coverage?.noteReply(conversations[j].messages[k].content)
                 if dbg != nil {
                     dbg?.saw(conversations[j].messages[k].content)
                     if let ticked = dbg?.tick(conversations[j].tasks) { setTasks(id, ticked) }
@@ -900,8 +909,10 @@ final class ChatStore {
                 if calls.isEmpty, queued[id]?.isEmpty == false { continue }
                 if calls.isEmpty {
                     // Finished — unless a command hasn't been obeyed. Then send it back: everything owed in one
-                    // nudge, each command twice at most.
-                    if let ask = tracker.completionCheck() ?? dbg?.finishNudge() {
+                    // nudge, each command twice at most. Unchecked affected places (coverage) join it, once per run.
+                    let covItem: String? = coverage?.nudge()
+                    let extra: [String] = covItem.map { [$0] } ?? []
+                    if let ask = tracker.completionCheck(extra: extra) ?? dbg?.finishNudge() {
                         var nudge = ChatMessage(role: .user, content: ask)
                         nudge.nudge = true
                         conversations[j].messages.append(nudge)
@@ -914,6 +925,11 @@ final class ChatStore {
                     if !chips.isEmpty {
                         conversations[j].messages[k].usedContext = (conversations[j].messages[k].usedContext ?? []) + chips
                     }
+                    // Coverage: still unchecked after the nudge, and no reason given → ⚠ N affected places not checked.
+                    let unchecked: [Coverage.Place] = coverage?.left ?? []
+                    if !unchecked.isEmpty, let root = coverage?.root {
+                        conversations[j].messages[k].coverage = Coverage.Chip(root: root, places: unchecked)
+                    }
                     // Plan mode: the plan is saved as a Markdown file, shown as a card on the reply.
                     if planMode, conversations[j].messages[k].plan == nil,
                        let card = savePlanFile(id, reply: conversations[j].messages[k].content, request: requestText, project: project) {
@@ -924,6 +940,8 @@ final class ChatStore {
                         await reviewChanges(id, model: model, web: conv.webOn, commands: tracker.commands,
                                             request: requestText, files: changedFiles)
                     }
+                    // Task 35 (second opinion) hook: at Max, unresolved coverage is a trigger. Wire up on merge:
+                    // if effort == .max, !unchecked.isEmpty { log.add("coverage", Escalation.coverageReason(unchecked.count)) }
                     break
                 }
 
@@ -1006,6 +1024,19 @@ final class ChatStore {
                         output = scrubber?.scrub(output) ?? output
                     }
                     tracker.record(call, succeeded: allowed && ran)
+                    if coverage != nil {
+                        coverage?.record(call, succeeded: allowed && ran)
+                        // impact/references: remember the places (structured, from the helper, so paging doesn't matter).
+                        if allowed && ran, Coverage.sources.contains(call.name), let root = coverage?.root {
+                            let file: String? = call.arg("file").isEmpty ? nil : call.arg("file")
+                            for symbol in Coverage.symbols(of: call, output: output) {
+                                activity = "Noting the places it affects…"
+                                let found: [(path: String, line: Int)] = await CodeIntel.shared.impact(symbol, folder: root, file: file)
+                                coverage?.add(symbol: symbol, places: found)
+                                activity = nil
+                            }
+                        }
+                    }
                     if allowed && ran, dbg != nil {
                         dbg?.record(call.name)
                         if let jt = index(id), let ticked = dbg?.tick(conversations[jt].tasks) { setTasks(id, ticked) }

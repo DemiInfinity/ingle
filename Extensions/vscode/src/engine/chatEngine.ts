@@ -25,7 +25,7 @@ import {
 import { secretApprovalRequest } from '../tools/secretsApproval';
 import {
   activeCommands, bannedBy, blockedMessage, CallRecord, CommandEntry, commandsBlock, commandsNotice, completionCheck,
-  FILE_CHANGING_TOOLS, ignoredChip, isNudgeText, listCommands, unavailableReason,
+  coverageForced, FILE_CHANGING_TOOLS, ignoredChip, isNudgeText, listCommands, unavailableReason,
 } from '../tools/commands';
 import { mcp, MCP_TOOL_NAMES, wantsMCP } from '../tools/mcp';
 import { extractDocument, prepareImage } from '../tools/documents';
@@ -44,7 +44,11 @@ import {
   MODES, newDebugState, WORK_MODES, type DebugState, type WorkMode,
 } from './modes';
 import { isDir, resolvePath as resolveToolPath, tidy } from '../tools/paths';
-import { noteChatText } from '../tools/codeintel';
+import { impactLocationsIn, noteChatText } from '../tools/codeintel';
+import {
+  addPlaces, COVERAGE_SOURCES, coverageLeft, coverageNudge, coverageOn, newCoverage, noteReply, recordCall, symbolsOf,
+  type CoverageState,
+} from './coverage';
 import { buildRepoMap } from '../tools/repomap';
 import { DENIED, str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
 import { ChatStore, NEW_TITLE, StoredChat, StoredMessage, uid } from './chatStore';
@@ -486,6 +490,7 @@ export class ChatEngine implements vscode.Disposable {
         case 'runChanges': return await this.showRunChanges(msg.id);
         case 'showRunDiff': return await this.showRunDiff(msg.id, msg.path);
         case 'openFile': return await this.openRunFile(msg.path);
+        case 'openPlace': return await this.openPlace(msg.id, msg.path, msg.line);
         case 'openPlan': return await this.openPlan(msg.file, false);
         case 'editPlan': return await this.openPlan(msg.file, true);
         case 'draftCommit': return await this.draftCommit(msg.id);
@@ -1445,6 +1450,18 @@ export class ChatEngine implements vscode.Disposable {
     await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
   }
 
+  /** Opens one unchecked place from a reply's coverage chip at its line (only places on that chip). Task 39's
+   *  previewer can take this over for files it shows. */
+  private async openPlace(id: string, rel: string, line: number) {
+    const root = workspaceRoot();
+    const m = this.current().messages.find((x) => x.id === id);
+    if (!root || !m?.coverage?.places.some((p) => p.path === rel && p.line === line)) return;
+    const file = path.join(root, rel);
+    if (!fs.existsSync(file)) { this.post({ type: 'notice', text: `${rel} no longer exists.` }); return; }
+    const at = new vscode.Position(Math.max(0, line - 1), 0);
+    await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false, selection: new vscode.Range(at, at) });
+  }
+
   /** The run's files in their repo, or why they can't be committed. */
   private async commitTarget(messageId: string): Promise<{ repo: string; rel: string[] } | { error: string } | undefined> {
     const r = this.runOf(messageId);
@@ -1648,6 +1665,9 @@ export class ChatEngine implements vscode.Disposable {
     // Debug: Reproduce → Find the cause → Fix → Confirm, enforced below.
     const dbg: DebugState | undefined = mode === 'debug' ? newDebugState() : undefined;
     if (dbg && allDone(chat.tasks)) this.setTasks(chat, debugTasks());
+    // Coverage (task 34): places impact/references listed must be looked at once code changes (High/Max, Debug,
+    // or a command's must_use: coverage). Needs a project.
+    const cov: CoverageState | undefined = root && coverageOn(effort, mode, coverageForced(active)) ? newCoverage(root) : undefined;
     // The task list: offered from Medium up (Low keeps the tool list short), and always while one is going.
     const tasksDef = tasksTool((list) => this.setTasks(chat, list));
     for (let step = 0; step < maxSteps; step++) {
@@ -1763,6 +1783,7 @@ export class ChatEngine implements vscode.Disposable {
         return;
       }
       if (calls.length && !stopped) reply.toolCalls = calls;
+      if (cov) noteReply(cov, reply.content);
       if (dbg) {
         debugSaw(dbg, reply.content);
         const ticked = debugTick(dbg, chat.tasks);
@@ -1775,8 +1796,9 @@ export class ChatEngine implements vscode.Disposable {
       if (!calls.length && this.shared.steer.has(chat.id) && !signal.aborted) continue;
       if (!calls.length) {
         // Completion check: don't finish while an active command isn't satisfied. Everything owed goes in one
-        // nudge; each command gets at most two.
-        const ask = signal.aborted ? undefined : (completionCheck(active, done, nudges, ignored) ?? (dbg ? debugFinishNudge(dbg) : undefined));
+        // nudge; each command gets at most two. Unchecked affected places (coverage) join it, once per run.
+        const covItem = cov && !signal.aborted ? coverageNudge(cov) : undefined;
+        const ask = signal.aborted ? undefined : (completionCheck(active, done, nudges, ignored, covItem ? [covItem] : []) ?? (dbg ? debugFinishNudge(dbg) : undefined));
         if (ask) {
           const nudge: Stored = { id: uid(), role: 'user', content: ask, hidden: true };
           chat.messages.push(nudge);
@@ -1786,8 +1808,11 @@ export class ChatEngine implements vscode.Disposable {
         const chips = [...ignored].map(([n, why]) => ignoredChip(n, why));
         if (verifyMissing) chips.push(VERIFY_SKIPPED_CHIP);
         if (dbg && dbg.edited && !dbg.confirmed) chips.push(DEBUG_UNCONFIRMED_CHIP);
-        if (chips.length) {
-          reply.usedContext = [...(reply.usedContext ?? []), ...chips];
+        if (chips.length) reply.usedContext = [...(reply.usedContext ?? []), ...chips];
+        // Coverage: still unchecked after the nudge, and no reason given → ⚠ N affected places not checked.
+        const unchecked = cov ? coverageLeft(cov) : [];
+        if (unchecked.length) reply.coverage = { places: unchecked };
+        if (chips.length || unchecked.length) {
           this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
           this.store.saveSoon();
         }
@@ -1804,6 +1829,8 @@ export class ChatEngine implements vscode.Disposable {
         if (spec.review && changedFiles.length && !signal.aborted) {
           await this.reviewChanges(chat, a, model, limit, vision, signal, active, lastText, changedFiles);
         }
+        // Task 35 (second opinion) hook: at Max, unresolved coverage is a trigger. Wire up on merge:
+        // if (effort === 'max' && unchecked.length) addTrigger(log, 'coverage', coverageReason(unchecked.length));
         return;
       }
 
@@ -1834,6 +1861,7 @@ export class ChatEngine implements vscode.Disposable {
           }
         }
         if (record) done.push(record);
+        if (cov && record) await this.noteCoverage(cov, record, chat.messages[chat.messages.length - 1] as Stored);
         // High/Max: the first file change brings in the project's check command (unless a command's then_run
         // already covers it). It's enforced like then_run: same nudges, same ⚠ chip.
         if (record && !record.denied && FILE_CHANGING_TOOLS.includes(record.name)) {
@@ -1861,6 +1889,19 @@ export class ChatEngine implements vscode.Disposable {
         chat.messages.push(note);
         this.postFor(chat.id, { type: 'messageAdd', message: forUI(note) });
       }
+    }
+  }
+
+  /** Coverage: records reads and edits, and remembers the places an impact/references call found (structured,
+   *  from the engine, so paging in the text the model saw doesn't matter). */
+  private async noteCoverage(cov: CoverageState, record: CallRecord, row: Stored | undefined): Promise<void> {
+    recordCall(cov, record.name, record.args, record.denied);
+    if (record.denied || !COVERAGE_SOURCES.includes(record.name)) return;
+    const file = str(record.args, 'file').trim() || undefined;
+    for (const symbol of symbolsOf(record.args, row?.tool?.output ?? '')) {
+      this.setActivity('Noting the places it affects…');
+      try { addPlaces(cov, symbol, await impactLocationsIn(cov.root, symbol, file)); } catch { /* none */ }
+      this.setActivity(null);
     }
   }
 

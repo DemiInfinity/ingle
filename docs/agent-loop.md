@@ -224,6 +224,30 @@ answer." — and loops. Each command gets **at most 2 nudges**; after that the r
 A command whose required tool can't be offered at all gets `⚠ didn’t follow X (web_search isn’t available)` with no
 nudges. Details in [commands.md](commands.md#how-enforcement-works).
 
+**Coverage check (task 34).** Having `impact` isn't enough if the model ignores half the list, so the harness checks
+it. On at **High and Max effort**, in **Debug** mode, or when an active command has `must_use: coverage` (off at
+Low/Medium otherwise); in the Mac app only in Code mode, where `impact` is. One small module per app,
+[`Coverage.swift`](../Sources/Ingle/Coverage.swift) and
+[`coverage.ts`](../Extensions/vscode/src/engine/coverage.ts) (tested in `test/coverage.test.ts`):
+
+1. **Remember.** After each `impact` or `references` call, Ingle asks the engine for the structured list of affected
+   places (`CodeIntel.impact(_:folder:file:)` / `impactLocations()`: every real use and each caller's call lines,
+   definitions left out), so paging in the text the model saw doesn't matter. With no symbol, the symbols the tool
+   picked (named in brackets on its first line) are used.
+2. **Count.** Every call that ran is recorded: `edit_file`/`write_file` mark a file edited; `read_file` (whole file,
+   or a range within 3 lines of an affected line), `read_exhaustively`, `outline` and `definition` at a
+   `file:line` position mark it read. Denied calls don't count.
+3. **Check once.** Only when code changed **after** a lookup. When the model tries to finish, affected files it
+   neither read nor edited go into the same hidden nudge as the command checks (one message): "You changed `x` but
+   didn't look at N places that use it: a.ts:12, … Check them (read_file or edit_file), or say why they don't need
+   changing." Sent **once** per run.
+4. **Resolve or flag.** After the nudge, the places count as resolved if the model looks at them, or if what it
+   says gives a reason ("they only log the value", "report.ts doesn't use the return value", "unaffected"). A bare
+   "done" isn't a reason. Otherwise the reply gets **⚠ N affected places not checked** (`ChatMessage.coverage`,
+   optional in both apps); click it to list them, click one to open it at its line (VS Code: in the editor; Mac:
+   VS Code if installed, else the default app).
+5. At **Max**, unresolved coverage is also a trigger for the second-opinion card (task 35).
+
 **Errors** are turned into plain sentences (`ChatStore.friendly`, `friendly()`): engine unreachable, model not
 downloaded, model can't use tools.
 
@@ -353,6 +377,7 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
 | Plan first (into the task list) | no | no | no | yes |
 | `update_tasks` offered | only while a list is unfinished | yes | yes | yes |
 | Helper reviews the changes | no | no | no | yes |
+| Coverage check (places `impact` listed) | no | no | yes | yes |
 | Repeat / stuck guard | 3 / 4 | 3 / 4 | 4 / 6 | 4 / 6 |
 
 - **Defaults.** Per assistant, in Settings → Models: Ember Medium, Flint High (`Prefs.K.dailyEffort` /
@@ -381,6 +406,9 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
   is nudged (at most twice) if it tries to finish without running it after its last change, and the reply gets
   `⚠ didn’t follow verify` if it never does. No check command found: the reply gets the chip
   `verify skipped: no check command found`. The command itself still asks for approval like any other.
+- **Coverage (High, Max; also Debug mode and `must_use: coverage`).** After changing code that `impact` or
+  `references` looked up, affected places the model never read or edited get one nudge, then a ⚠ chip. See
+  [the coverage check](#4-the-loop-and-its-guards).
 - **Plan (Max).** Before the first step, the model is asked (with the full system prompt, no tools) for a short
   numbered plan; its steps become the chat's **task list** (shown live, and in the prompt as `## Your task list`).
   A one-line plan or nothing back: the work goes ahead without a list. Skipped in plan mode.

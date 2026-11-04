@@ -54,6 +54,8 @@
    *  (id → { message, canForce }), each run's files and diffs from the engine, open file diffs ("id|index") and the
    *  Commit flow (id → { phase: 'drafting' | 'editing' | 'committing', message, error }). */
   const openUndo = new Set();
+  /** Replies whose "⚠ N affected places not checked" list is open. */
+  const openCov = new Set();
   const undoNotes = new Map();
   const changesData = new Map();
   const openDiffs = new Set();
@@ -1240,7 +1242,10 @@
       e.thinkBtn = h('button', { class: 'chip-btn think-btn', type: 'button', 'data-act': 'toggle-think', 'aria-expanded': 'false' },
         h('span', { class: 'think-label' }), icon('chevron', 'chev'));
       e.used = h('span', { class: 'used-chip', title: 'Rules, skills and memories Ingle matched to your message and gave the assistant' });
-      e.chips = h('div', { class: 'msg-chips' }, e.thinkBtn, e.used);
+      e.covBtn = h('button', { class: 'chip-btn cov-chip', type: 'button', 'data-act': 'toggle-cov', 'aria-expanded': 'false', hidden: true,
+        title: 'Places the change could affect that the assistant never looked at' });
+      e.chips = h('div', { class: 'msg-chips' }, e.thinkBtn, e.used, e.covBtn);
+      e.cov = h('ul', { class: 'cov-list', hidden: true, 'aria-label': 'Affected places not checked' });
       e.thinking = h('div', { class: 'thinking', hidden: true });
       e.dots = h('div', { class: 'typing', 'aria-label': 'Writing', role: 'img' }, h('span'), h('span'), h('span'));
       e.body = h('div', { class: 'md' });
@@ -1255,7 +1260,7 @@
       e.planCard = h('div', { class: 'plan-card', hidden: true });
       root.append(
         h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model),
-        e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
+        e.chips, e.cov, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
       e.out = h('pre', { class: 'tool-out', hidden: true, tabindex: '0' });
@@ -1353,7 +1358,26 @@
         e.used.setAttribute('aria-label', `Used context: ${used.join(', ')}`);
       }
     }
-    e.chips.hidden = !hasThinking && !used.length;
+    // Coverage: affected places never looked at (task 34). Click to list them; each opens at its line.
+    const places = m.coverage && Array.isArray(m.coverage.places) ? m.coverage.places : [];
+    e.covBtn.hidden = !places.length;
+    const covOpen = places.length > 0 && openCov.has(m.id);
+    if (places.length) {
+      const n = places.length;
+      const label = `⚠ ${n} affected ${n === 1 ? 'place' : 'places'} not checked`;
+      if (e.covText !== label) { e.covText = label; e.covBtn.replaceChildren(h('span', { text: label }), icon('chevron', 'chev')); }
+      e.covBtn.setAttribute('aria-expanded', covOpen ? 'true' : 'false');
+      e.covBtn.classList.toggle('open', covOpen);
+      const key = places.map((p) => `${p.path}:${p.line}`).join('|');
+      if (e.covKey !== key) {
+        e.covKey = key;
+        e.cov.replaceChildren(...places.map((p, i) => h('li', {},
+          h('button', { class: 'cov-place', type: 'button', 'data-act': 'cov-open', 'data-i': String(i), title: `Open ${p.path} at line ${p.line}` },
+            icon('file'), h('span', { text: `${p.path}:${p.line}` })))));
+      }
+    }
+    e.cov.hidden = !covOpen;
+    e.chips.hidden = !hasThinking && !used.length && !places.length;
 
     // Body
     e.dots.hidden = !(live && !p.body);
@@ -1378,7 +1402,7 @@
     fillPlanCard(e, m, canApprove);
     e.planBar.hidden = !canApprove || !!m.plan;
     fillUndo(e, m);
-    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint && !m.plan;
+    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint && !m.plan && !places.length;
   }
 
   const UNDO_VERB = { restore: 'Put back', remove: 'Remove', recreate: 'Bring back' };
@@ -1673,7 +1697,13 @@
     const e = entries.get(id);
     if (act === 'copy-msg') copyText(splitThinking(m.content, m.thinking).body, btn);
     else if (act === 'regen') post({ type: 'regenerate' });
-    else if (act === 'toggle-think') {
+    else if (act === 'toggle-cov') {
+      if (openCov.has(id)) openCov.delete(id); else openCov.add(id);
+      fill(e, m, liveInfo());
+    } else if (act === 'cov-open') {
+      const p = m.coverage && m.coverage.places ? m.coverage.places[Number(btn.dataset.i)] : null;
+      if (p) post({ type: 'openPlace', id, path: p.path, line: p.line });
+    } else if (act === 'toggle-think') {
       if (openThinking.has(id)) openThinking.delete(id); else openThinking.add(id);
       fill(e, m, liveInfo());
     } else if (act === 'toggle-tool') {

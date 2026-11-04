@@ -54,6 +54,8 @@ enum EffortLevel: String, CaseIterable, Identifiable {
     var plan: Bool { self == .max }
     /// A read-only helper reviews the changes at the end.
     var review: Bool { self == .max }
+    /// Coverage checks (Coverage.swift): places `impact` listed must be looked at before finishing.
+    var coverage: Bool { self == .high || self == .max }
     /// The nth identical call is skipped.
     var repeatLimit: Int { verify ? 4 : 3 }
     /// Stop after this many skipped calls.
@@ -64,7 +66,7 @@ enum EffortLevel: String, CaseIterable, Identifiable {
         switch self {
         case .low: return "Low: quick answers, no thinking, fewest tools."
         case .medium: return "Medium: thinks a little. Good for everyday work."
-        case .high: return "High: thinks more, reads the related code first, and runs the project’s checks after editing."
+        case .high: return "High: thinks more, reads the related code first, checks every place a change affects, and runs the project’s checks after editing."
         case .max: return "Max: plans first as a task list, thinks hardest, runs the checks, and a helper reviews the changes at the end."
         }
     }

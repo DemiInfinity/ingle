@@ -352,6 +352,16 @@ button:disabled { cursor: default; }
 body.vscode-high-contrast .used-chip { border-color: var(--ember-line); }
 .used-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .used-chip .ic { width: 11px; height: 11px; }
+.cov-chip { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line); }
+.cov-chip:hover { color: var(--warn); background: var(--warn-soft); filter: brightness(1.1); }
+.cov-list { list-style: none; margin: 0; padding: 4px 0 2px 10px; border-left: 2px solid var(--warn-line); display: grid; gap: 2px; }
+.cov-place {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0;
+  background: none; border: 0; padding: 1px 4px; border-radius: 4px; color: var(--fg); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.88em; cursor: pointer;
+}
+.cov-place:hover { background: var(--hover); }
+.cov-place > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cov-place .ic { width: 12px; height: 12px; flex: none; color: var(--muted); }
 .chev { width: 10px; height: 10px; transition: transform 0.15s ease; }
 .chev.open, .open > .chev { transform: rotate(90deg); }
 

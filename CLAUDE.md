@@ -46,6 +46,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `ToolSelection.swift` | Per-turn tool filtering by keywords (fewer tools → better accuracy for small models) |
 | `Project.swift` / `CodeViews.swift` | **Code mode**: `Conversation.codeFolder` is the one switch; project folder, path resolving (`prepare`), git info, rules files, prompt section, recent projects; `ModeSwitch` (Chat / Code, ⇧⌘C), `ProjectPicker`, `ProjectChip` |
 | `Effort.swift` | **Effort levels** table (`EffortLevel`, in step with `effort.ts`), check-command detection, built-in `verify` command, `OllamaThink`, Max's plan + review |
+| `Coverage.swift` | **Coverage checks** (task 34): remembers `impact`/`references` places, counts reads/edits, one nudge (via `CommandTracker.completionCheck(extra:)`), `CoverageChipView` (⚠ N affected places not checked) — in step with `coverage.ts` |
 | `WorkMode.swift` | **Modes** (Ask · Edit · Auto · Plan · Debug): `riskyCommand`, `autoApproval`, `DebugState`, `ModeMenu`, `ModeBadge` — in step with `modes.ts` |
 | `PlanFiles.swift` | **Plan files** (`.ingle/plans/*.md`: render, parse, tick, `open`), `PlanCard` — in step with `planFiles.ts` |
 | `TaskList.swift` | **Task list** (`update_tasks`, `TaskListView`), **plan mode** (`planModeTools`, refusal, `PlanApproveBar`), steering text — rules in step with `tasks.ts` |
@@ -79,6 +80,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `engine/chatEngine.ts` | `EngineShared` (one ChatStore, EngineServer, Matcher, DiffProvider, `sessionAllowed`, MCP) + per-tab `ChatEngine` (agent loop `runLoop`, `toolsFor`, approvals, commands enforcement, compaction, sub-agents, attachments, slash, `/mcp`) |
 | `engine/toolSelection.ts` | Per-turn tool filtering (`selectTools`, pure — called by `toolsFor`) |
 | `engine/effort.ts` | Effort levels table (in step with `Effort.swift`), think mapping, check-command detection, verify command (pure, tested) |
+| `engine/coverage.ts` | **Coverage checks** (task 34, pure, tested in `test/coverage.test.ts`): affected places, read/edit counting, the single nudge, reasons, the chip |
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
 | `engine/modes.ts`, `tools/planFiles.ts`, `tools/tasks.ts`, `engine/steer.ts`, `tools/gitCommit.ts` | Task list + plan mode filter, steering queue, commit a run's files (all pure, tested in `test/workflow.test.ts`) |
@@ -113,6 +115,9 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
   Sets `think` (level only for models that take one), a prompt line, tool-filter strictness, guard limits; High/Max
   must run the project's check command after editing (built-in `verify` command via the command checks); Max plans
   first and a read-only helper reviews the diff. Both tables live in `Effort.swift` / `effort.ts` — change both.
+- **Coverage (task 34):** at High/Max, in Debug mode or with `must_use: coverage`, places `impact`/`references` listed
+  that the run neither read nor edited after changing code get one nudge (joined to the command nudge), then
+  **⚠ N affected places not checked** (`coverage` on the message, click to open). A stated reason resolves it.
 - **Small-model tuning:** per-turn tool filtering; Qwen sampling settings; repeat-call guard (3rd identical call skipped,
   4th at High/Max); stuck stop after 4 skips (6 at High/Max); no small step cap (200 backstop); compaction at ~75% of context, then `fit()` trimming.
 - **Prompt facts:** every model gets the same Ingle facts (`Persona.systemPrompt` / `personaPrompt`) whatever its name.

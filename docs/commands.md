@@ -45,7 +45,7 @@ Match the spacing tokens from the Figma file exactly. Put new components in src/
 | `name` | Optional; defaults to the file name without `.md`. |
 | `description` | One line saying what it enforces (shown in the index and Settings). |
 | `when` | Comma-separated **trigger phrases**. The command applies when the latest message **contains** any of them (case-insensitive substring). `always` on its own, or empty, = every request (`always, deploy` is just two phrases). |
-| `must_use` | Comma-separated requirements, each one of: a **tool name** (`search_code`, `run_command`, `web_search`…); `mcp:server` (any tool of that MCP server via `mcp_call`); `mcp:server/tool` (that specific tool); `skill:name` (the skill is attached in full). |
+| `must_use` | Comma-separated requirements, each one of: a **tool name** (`search_code`, `run_command`, `web_search`…); `mcp:server` (any tool of that MCP server via `mcp_call`); `mcp:server/tool` (that specific tool); `skill:name` (the skill is attached in full); `coverage` (switches on the coverage check below, whatever the effort). |
 | `never_use` | Comma-separated items that must not be used: tool names, `mcp:server` (any tool of that server) or `mcp:server/tool`. |
 | `then_run` | A command line that must be run with `run_command` **after any file change**, e.g. `npm run lint` or `swift build`. Matching is "the command run contains this text". |
 | `enabled` | `true` (default) or `false` / `no` / `0` / `off`. Toggled in Settings → Extensions → Commands. |
@@ -109,6 +109,22 @@ not shown). Regenerate removes them.
 `then_run` is the project's detected check command (`npm test`, `swift build`, `cargo check`…), so it's enforced by
 exactly the steps above. It isn't added when an active command already has a `then_run`. See
 [agent-loop.md](agent-loop.md#7-effort-and-thinking).
+
+**The `coverage` requirement.** `must_use: coverage` turns on the coverage check for requests the command applies
+to, even at Low or Medium effort (it's on anyway at High and Max and in Debug mode). It isn't met by calling a tool:
+`impact` is offered, the COMMANDS block tells the model "When you change shared code, run impact first and check
+every place it lists", and after a change that `impact`/`references` looked up, places the model neither read nor
+edited get one nudge (in the same message as the other commands' nudges) and then the chip
+**⚠ N affected places not checked**, not `⚠ didn’t follow`. A stated reason ("they only log the value") resolves it.
+It never makes the command "unavailable". See [agent-loop.md](agent-loop.md#4-the-loop-and-its-guards).
+
+```markdown
+---
+description: Check every caller when changing shared code
+when: rename, refactor
+must_use: coverage
+---
+```
 
 ## Creating commands
 

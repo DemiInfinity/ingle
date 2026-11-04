@@ -15,7 +15,9 @@ export const COMMANDS_DIR = path.join(paths.home, 'commands');
 export type Requirement =
   | { kind: 'tool'; tool: string; raw: string }
   | { kind: 'mcp'; server: string; tool?: string; raw: string }
-  | { kind: 'skill'; name: string; raw: string };
+  | { kind: 'skill'; name: string; raw: string }
+  /** `coverage`: turns on coverage checks (engine/coverage.ts) for the request, whatever the effort. */
+  | { kind: 'coverage'; raw: string };
 
 export interface CommandEntry {
   name: string;
@@ -46,6 +48,7 @@ export function parseRequirement(raw: string): Requirement | undefined {
     if (!server) return undefined;
     return { kind: 'mcp', server, tool: tool || undefined, raw: s };
   }
+  if (lower === 'coverage') return { kind: 'coverage', raw: s };
   if (lower.startsWith('skill:')) {
     const name = s.slice(6).trim();
     return name ? { kind: 'skill', name, raw: s } : undefined;
@@ -121,12 +124,13 @@ export function requirementWords(r: Requirement): string {
       ? `use the ${r.server} MCP's ${r.tool} tool (mcp_call with server "${r.server}" and tool "${r.tool}")`
       : `use the ${r.server} MCP (mcp_call with server "${r.server}")`;
     case 'skill': return `follow the ${r.name} skill`;
+    case 'coverage': return 'run impact before changing shared code and check every place it lists';
   }
 }
 
 /** What to use instead of a blocked tool, from the command's must_use (or ''). */
 function insteadWords(c: CommandEntry): string {
-  const usable = c.mustUse.filter((r) => r.kind !== 'skill');
+  const usable = c.mustUse.filter((r) => r.kind !== 'skill' && r.kind !== 'coverage');
   if (!usable.length) return '';
   return ' Instead, ' + usable.map(requirementWords).join(', and ') + '.';
 }
@@ -140,7 +144,9 @@ export function commandsBlock(active: CommandEntry[]): string {
     for (const r of c.mustUse) {
       lines.push(r.kind === 'skill'
         ? `- Follow the ${r.name} skill (Ingle has loaded it below).`
-        : `- Before you finish you MUST ${requirementWords(r)}.`);
+        : r.kind === 'coverage'
+          ? '- When you change shared code, run impact first and check every place it lists (Ingle checks).'
+          : `- Before you finish you MUST ${requirementWords(r)}.`);
     }
     for (const n of c.neverUse) lines.push(`- Never use ${n}.`);
     if (c.thenRun) lines.push(`- After changing files you MUST run: ${c.thenRun} (with run_command).`);
@@ -191,6 +197,7 @@ export interface CallRecord { name: string; args: ToolArgs; denied: boolean }
 export function requirementMet(r: Requirement, calls: CallRecord[]): boolean {
   switch (r.kind) {
     case 'skill': return true; // attached automatically
+    case 'coverage': return true; // checked by the coverage check, not by a call
     case 'tool': return calls.some((c) => c.name.toLowerCase() === r.tool.toLowerCase());
     case 'mcp': return calls.some((c) => c.name === 'mcp_call' && callMatchesMcp(r, c.args));
   }
@@ -211,9 +218,9 @@ export function thenRunOwed(thenRun: string, calls: CallRecord[]): boolean {
   return owed;
 }
 
-/** The tool a requirement needs offered ('' for skills, which Ingle attaches itself). */
+/** The tool a requirement needs offered ('' for skills, which Ingle attaches itself, and coverage). */
 export function toolNeeded(r: Requirement): string {
-  return r.kind === 'mcp' ? 'mcp_call' : r.kind === 'tool' ? r.tool.toLowerCase() : '';
+  return r.kind === 'mcp' ? 'mcp_call' : r.kind === 'tool' ? r.tool.toLowerCase() : '';   // coverage: '' (impact is offered when there's a project)
 }
 
 /** Tools the active commands need offered this request: must_use tools, the MCP tools for mcp:, and
@@ -224,6 +231,7 @@ export function requiredTools(active: (Pick<CommandEntry, 'mustUse'> & { thenRun
     for (const r of c.mustUse) {
       if (r.kind === 'tool') out.add(r.tool.toLowerCase());
       else if (r.kind === 'mcp') mcpToolNames.forEach((n) => out.add(n));
+      else if (r.kind === 'coverage') out.add('impact');
     }
     if (c.thenRun?.trim()) out.add('run_command');
   }
@@ -271,8 +279,9 @@ export function nudgeText(items: string[]): string {
 export const MAX_NUDGES = 2;
 
 /** The completion check, pure. `nudges` counts nudges per command and is updated; `givenUp` maps command name →
- *  reason ('' = ran out of nudges) and is updated. Returns the nudge text to send, or undefined to finish. */
-export function completionCheck(active: CommandEntry[], calls: CallRecord[], nudges: Map<string, number>, givenUp: Map<string, string>): string | undefined {
+ *  reason ('' = ran out of nudges) and is updated. `extra`: other checks' items for the same nudge (coverage).
+ *  Returns the nudge text to send, or undefined to finish. */
+export function completionCheck(active: CommandEntry[], calls: CallRecord[], nudges: Map<string, number>, givenUp: Map<string, string>, extra: string[] = []): string | undefined {
   const items: string[] = [];
   for (const c of active) {
     if (givenUp.has(c.name)) continue;
@@ -283,7 +292,13 @@ export function completionCheck(active: CommandEntry[], calls: CallRecord[], nud
     nudges.set(c.name, n + 1);
     items.push(`the command "${c.name}": ${owed.join(', and ')}`);
   }
+  items.push(...extra);
   return items.length ? nudgeText(items) : undefined;
+}
+
+/** Does an active command switch coverage checks on (`must_use: coverage`)? */
+export function coverageForced(active: Pick<CommandEntry, 'mustUse'>[]): boolean {
+  return active.some((c) => c.mustUse.some((r) => r.kind === 'coverage'));
 }
 
 /** The ⚠ chip for a command that wasn't obeyed. */
@@ -336,7 +351,7 @@ export const commandCreateTool: ToolDef = {
       name: p('Short name, e.g. figma-components'),
       description: p('One line saying what it enforces'),
       when: p('Comma-separated trigger words or phrases from the user\'s message, e.g. "component, ui kit" — or "always"'),
-      must_use: p('Optional, comma-separated: tool names (search_code), mcp:server, mcp:server/tool, or skill:name'),
+      must_use: p('Optional, comma-separated: tool names (search_code), mcp:server, mcp:server/tool, skill:name, or coverage (check every place impact lists)'),
       never_use: p('Optional, comma-separated tool names, mcp:server or mcp:server/tool that must not be used, e.g. write_file'),
       then_run: p('Optional: a command that must be run with run_command after any file change, e.g. npm run lint'),
       instructions: p('Optional extra instructions shown to the model with the command'),

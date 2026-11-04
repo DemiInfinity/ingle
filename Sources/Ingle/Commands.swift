@@ -9,7 +9,7 @@ struct IngleCommand: Identifiable, Hashable {
     let name: String
     let description: String
     let when: [String]          // trigger phrases; empty = always (only "always" on its own, or nothing)
-    let mustUse: [String]       // "tool", "mcp:server", "mcp:server/tool", "skill:name"
+    let mustUse: [String]       // "tool", "mcp:server", "mcp:server/tool", "skill:name", "coverage"
     let neverUse: [String]      // tool names, "mcp:server", "mcp:server/tool"
     let thenRun: String?        // must run a command containing this after changing files
     let enabled: Bool
@@ -30,6 +30,7 @@ struct IngleCommand: Identifiable, Hashable {
         var out: [String] = []
         for r in mustUse {
             if r.hasPrefix("skill:") { out.append("Follow the skill \"\(r.dropFirst(6))\" (it's loaded below).") }
+            else if r == "coverage" { out.append("When you change shared code, run impact first and check every place it lists (Ingle checks).") }
             else if r.hasPrefix("mcp:") {
                 let parts = r.dropFirst(4).split(separator: "/", maxSplits: 1).map(String.init)
                 if parts.count == 2 { out.append("You MUST use the \(parts[1]) tool of the \(parts[0]) MCP server (mcp_call with server \"\(parts[0])\", tool \"\(parts[1])\") before you finish.") }
@@ -204,7 +205,7 @@ enum CommandStore {
                     "name": MacTools.prop("Short name, e.g. components-via-figma"),
                     "description": MacTools.prop("One line saying what it enforces"),
                     "when": MacTools.prop("Comma-separated trigger words that appear in requests it applies to, e.g. \"component, components, ui\" — or \"always\""),
-                    "must_use": MacTools.prop("Comma-separated: tool names, mcp:server, mcp:server/tool, or skill:name"),
+                    "must_use": MacTools.prop("Comma-separated: tool names, mcp:server, mcp:server/tool, skill:name, or coverage (check every place impact lists)"),
                     "never_use": MacTools.prop("Comma-separated tool names, mcp:server or mcp:server/tool that must not be used"),
                     "then_run": MacTools.prop("A command that must be run after any file change, e.g. npm run lint"),
                     "instructions": MacTools.prop("Any extra instructions, in plain words"),
@@ -263,12 +264,13 @@ struct CommandTracker {
 
     /// Same wording as blockedMessage in commands.ts.
     static func blockedMessage(_ c: IngleCommand, _ item: String) -> String {
-        let usable: [String] = c.mustUse.filter { !$0.hasPrefix("skill:") }.map(requirementWords)
+        let usable: [String] = c.mustUse.filter { !$0.hasPrefix("skill:") && $0 != "coverage" }.map(requirementWords)
         let instead: String = usable.isEmpty ? "" : " Instead, " + usable.joined(separator: ", and ") + "."
         return "Blocked by the command \"\(c.name)\": you must not use \(item).\(instead)"
     }
 
     static func requirementWords(_ r: String) -> String {
+        if r == "coverage" { return "run impact before changing shared code and check every place it lists" }
         guard r.hasPrefix("mcp:") else { return r.hasPrefix("skill:") ? "follow the \(r.dropFirst(6)) skill" : "use \(r)" }
         let parts = mcpParts(r)
         let server: String = parts.first ?? ""
@@ -276,9 +278,9 @@ struct CommandTracker {
         return "use the \(server) MCP (mcp_call with server \"\(server)\")"
     }
 
-    /// The tool a requirement needs offered ("" for skills, which Ingle attaches itself).
+    /// The tool a requirement needs offered ("" for skills, which Ingle attaches itself, and coverage).
     static func toolNeeded(_ r: String) -> String {
-        if r.hasPrefix("skill:") { return "" }
+        if r.hasPrefix("skill:") || r == "coverage" { return "" }
         return r.hasPrefix("mcp:") ? "mcp_call" : r
     }
 
@@ -295,6 +297,7 @@ struct CommandTracker {
 
     private func satisfied(_ req: String) -> Bool {
         if req.hasPrefix("skill:") { return true }   // attached automatically
+        if req == "coverage" { return true }          // checked by Coverage, not by a call
         // Only actually using an MCP server counts (mcp_call), not just looking at it.
         return calls.contains { Self.callMatches(req, $0) }
     }
@@ -326,8 +329,9 @@ struct CommandTracker {
     }
 
     /// The completion check. Returns one nudge for everything owed, or nil to finish (then see `chips`).
-    /// Each command gets at most CommandStore.maxNudges. Same as completionCheck in commands.ts.
-    mutating func completionCheck() -> String? {
+    /// Each command gets at most CommandStore.maxNudges. `extra`: other checks' items for the same nudge
+    /// (coverage). Same as completionCheck in commands.ts.
+    mutating func completionCheck(extra: [String] = []) -> String? {
         var items: [String] = []
         for c in commands where givenUp[c.name] == nil {
             let missing = owed(c)
@@ -337,6 +341,7 @@ struct CommandTracker {
             nudges[c.name] = n + 1
             items.append("the command \"\(c.name)\": " + missing.joined(separator: ", and "))
         }
+        items += extra
         return items.isEmpty ? nil : CommandStore.nudgeText(items)
     }
 
@@ -345,11 +350,15 @@ struct CommandTracker {
         commands.compactMap { c in givenUp[c.name].map { CommandStore.ignoredChip(c.name, $0) } }
     }
 
+    /// A command switches coverage checks on (`must_use: coverage`).
+    var coverageForced: Bool { commands.contains { $0.mustUse.contains("coverage") } }
+
     /// Tool names that must be offered this request.
     var requiredTools: Set<String> {
         var out = Set<String>()
         for r in commands.flatMap(\.mustUse) {
             if r.hasPrefix("mcp:") { out.insert("mcp_tools"); out.insert("mcp_call") }
+            else if r == "coverage" { out.insert("impact") }
             else if !r.hasPrefix("skill:") { out.insert(r) }
         }
         if commands.contains(where: { $0.thenRun != nil }) { out.insert("run_command") }

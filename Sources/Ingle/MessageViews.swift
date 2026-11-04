@@ -183,6 +183,9 @@ struct MessageRow: View {
                     .background(Capsule().fill(Color.white.opacity(0.06)))
                 }
             }
+            if let chip = message.coverage, !chip.places.isEmpty, !live {
+                CoverageChipView(chip: chip)
+            }
             if showThinking && !p.thinking.isEmpty {
                 Text(p.thinking)
                     .font(.system(size: 12.5))
