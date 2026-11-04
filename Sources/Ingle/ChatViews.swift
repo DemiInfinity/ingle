@@ -133,6 +133,8 @@ struct ChatDetail: View {
     let conversation: Conversation
 
     @State private var draft = ""
+    /// Follow new text (replies, thinking, task list) while the user is at the bottom; scrolling up stops it.
+    @State private var follow = true
     @State private var attachments: [Attachment] = []
     @State private var importing = false
     @State private var dropping = false
@@ -272,6 +274,7 @@ struct ChatDetail: View {
                         TaskListView(tasks: tasks, running: streaming)
                     }
                     Color.clear.frame(height: 1).id("bottom")
+                        .modifier(BottomSentinel(follow: $follow))
                 }
                 .frame(maxWidth: 720)
                 .padding(.horizontal, 32)
@@ -279,16 +282,50 @@ struct ChatDetail: View {
                 .padding(.bottom, 40)
                 .frame(maxWidth: .infinity)
             }
-            .onChange(of: conversation.messages.last?.content) { proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: conversation.messages.count) { proxy.scrollTo("bottom", anchor: .bottom) }
-            .onChange(of: conversation.tasks) { proxy.scrollTo("bottom", anchor: .bottom) }
+            .modifier(FollowScroll(follow: $follow))
+            // New text only pulls the view down while following; the user's own message always does.
+            .onChange(of: conversation.messages.last?.content) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: conversation.messages.last?.thinking) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: conversation.messages.last?.toolCalls.count) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: conversation.messages.count) {
+                if conversation.messages.last?.isRealUser == true { follow = true }
+                if follow { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: conversation.tasks) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
             .onChange(of: streaming) {
+                guard follow else { return }
                 Task {
                     try? await Task.sleep(for: .milliseconds(80))
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
-            .onAppear { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onAppear { follow = true; proxy.scrollTo("bottom", anchor: .bottom) }
+            .overlay(alignment: .bottom) {
+                if !follow && !conversation.messages.isEmpty {
+                    Button {
+                        follow = true
+                        withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down").font(.system(size: 11, weight: .semibold))
+                            Text(streaming ? "Catch up" : "Jump to latest")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Ember.text)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(Capsule().fill(Ember.surface))
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
+                        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 12)
+                    .help("Scroll to the newest messages and keep following")
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: follow)
         }
     }
 
@@ -988,5 +1025,50 @@ struct SecretPromptSheet: View {
             saved[value] = name
         }
         finish(.saved(saved))
+    }
+}
+
+// MARK: Following new text
+
+/// Where the transcript is scrolled: the offset and how far the bottom is out of view.
+private struct ScrollSpot: Equatable {
+    let offset: CGFloat
+    let fromBottom: CGFloat
+}
+
+/// macOS 15+: follow while the user is at (or near) the bottom. Only the user's own scrolling (a change in offset)
+/// turns following on or off; new text making the content taller doesn't, so streamed replies and thinking keep
+/// pulling the view down until the user scrolls up.
+struct FollowScroll: ViewModifier {
+    @Binding var follow: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.onScrollGeometryChange(for: ScrollSpot.self) { g in
+                let bottom: CGFloat = g.contentOffset.y + g.containerSize.height
+                return ScrollSpot(offset: g.contentOffset.y, fromBottom: g.contentSize.height - bottom)
+            } action: { old, new in
+                guard abs(new.offset - old.offset) > 0.5 else { return }
+                let near: Bool = new.fromBottom < 80
+                if near != follow { follow = near }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// macOS 14 fallback: the 1-point view at the end of the transcript; while it's on screen, follow.
+struct BottomSentinel: ViewModifier {
+    @Binding var follow: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+        } else {
+            content
+                .onAppear { follow = true }
+                .onDisappear { follow = false }
+        }
     }
 }

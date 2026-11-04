@@ -256,7 +256,8 @@ export function tuning(model: string, think: boolean, numCtx: number): Record<st
   if (/qwen3/i.test(model)) {
     // Qwen3.x model cards: precise coding with thinking, or the non-thinking settings.
     Object.assign(o, think
-      ? { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0 }
+      // presence_penalty with thinking too: quantised models loop most in their thinking (keep in step with ModelTuning).
+      ? { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 1.5 }
       : { temperature: 0.7, top_p: 0.8, top_k: 20, min_p: 0, presence_penalty: 1.5 });
   }
   return o;

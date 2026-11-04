@@ -753,6 +753,19 @@
   // The task list, pinned under the latest reply.
   const tasksBox = h('div', { class: 'tasks', role: 'region', 'aria-label': 'Task list', hidden: true });
   const scroller = h('div', { class: 'scroller' }, empty, list, tasksBox);
+  // "Catch up" when the user has scrolled up while new text arrives. It sits stuck to the bottom of the scroller.
+  const catchUp = h('button', { class: 'catch-up', type: 'button', hidden: true, title: 'Scroll to the newest messages and keep following' }, '↓ Jump to latest');
+  scroller.append(catchUp);
+  function renderCatchUp() {
+    const away = !isNearBottom() && S.messages.length > 0;
+    catchUp.hidden = !away;
+    if (away) setText(catchUp, S.streaming ? '↓ Catch up' : '↓ Jump to latest');
+  }
+  catchUp.addEventListener('click', () => {
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+    catchUp.hidden = true;
+  });
+  scroller.addEventListener('scroll', () => renderCatchUp(), { passive: true });
 
   // History overlay
   const histList = h('div', { class: 'hist-list', role: 'list' });
@@ -1565,6 +1578,7 @@
     const was = force || isNearBottom();
     fn();
     if (was) scroller.scrollTop = scroller.scrollHeight;
+    renderCatchUp();
   }
 
   function renderAllMessages() {

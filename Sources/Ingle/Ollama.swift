@@ -301,6 +301,9 @@ enum ModelTuning {
             // Qwen3.x model cards: precise coding with thinking, or the non-thinking settings.
             if think {
                 o["temperature"] = 0.6; o["top_p"] = 0.95; o["top_k"] = 20; o["min_p"] = 0
+                // The model cards suggest a presence penalty against endless repetition, which quantised models
+                // are prone to — and thinking is where it loops (a 26K-character loop was seen with Ember).
+                o["presence_penalty"] = 1.5
             } else {
                 o["temperature"] = 0.7; o["top_p"] = 0.8; o["top_k"] = 20; o["min_p"] = 0
                 o["presence_penalty"] = 1.5
