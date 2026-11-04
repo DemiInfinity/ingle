@@ -7,7 +7,7 @@ It talks to Ollama directly, so **the Ingle Mac app doesn't need to be open** (i
 it starts the one bundled inside Ingle.app). It shares `~/.ingle` with the Mac app: Ember and Flint's names
 and personalities, rules, skills, memory, research reports and MCP servers.
 
-- **Chat** (⌘⌥L or the Ingle icon in the editor title bar): pick Ember or Flint, switch Think and Web, see what it's doing.
+- **Chat** (⌘⌥L or the Ingle icon in the editor title bar): pick Ember or Flint, set Effort (Low · Medium · High · Max) and Web, see what it's doing.
 - **It can work in your project**: read files, search code, see problems, edit files (you approve each change, with
   a diff), write files and run commands (approval first). Undo works for edits.
 - **Files and images**: attach with the paperclip, paste or drag in — PDFs, Word, Excel, Pages, code, and images

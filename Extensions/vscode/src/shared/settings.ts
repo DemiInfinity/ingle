@@ -10,6 +10,9 @@ export interface AssistantSettings {
   model: string;           // Ollama tag
   persona: string;         // the full character text
   contextLength: number;   // num_ctx
+  /** Default effort for new chats with this assistant ("low" | "medium" | "high" | "max"); missing → Ember Medium,
+   *  Flint High (engine/effort.ts defaultEffort). Set in the Mac app's Settings → Models. */
+  effort?: string;
 }
 
 export interface IngleSettings {

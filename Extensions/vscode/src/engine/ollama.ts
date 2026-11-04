@@ -17,7 +17,8 @@ export interface ChatRequest {
   model: string;
   messages: OllamaMessage[];
   tools?: Record<string, unknown>[];
-  think: boolean;
+  /** false = no thinking; true or a level ("low" | "medium" | "high", for models that take levels — see effort.ts). */
+  think: Think;
   numCtx: number;
   keepAlive: string;
 }
@@ -34,6 +35,9 @@ export interface ChatResult {
   evalCount: number;
   evalDuration: number; // nanoseconds
 }
+
+/** Ollama's `think`: on/off, or a level for models that take one (gpt-oss). */
+export type Think = boolean | 'low' | 'medium' | 'high';
 
 export class OllamaError extends Error {}
 class ThinkUnsupported extends Error {}
@@ -142,17 +146,20 @@ export class OllamaClient {
     }
   }
 
-  /** Streaming /api/chat. Retries without `think` if the model rejects it (only before anything was streamed). */
+  /** Streaming /api/chat. If the model rejects `think` (only before anything was streamed): a level is retried
+   *  as plain `true`, then without `think` at all. Same as OllamaClient.chat in Swift. */
   async chat(req: ChatRequest, signal: AbortSignal, handlers: ChatHandlers = {}): Promise<ChatResult> {
-    try {
-      return await this.stream(req, req.think, signal, handlers);
-    } catch (e) {
-      if (e instanceof ThinkUnsupported) return this.stream(req, undefined, signal, handlers);
-      throw e;
+    const tries: (Think | undefined)[] = typeof req.think === 'string' ? [req.think, true, undefined] : [req.think, undefined];
+    for (let i = 0; ; i++) {
+      try {
+        return await this.stream(req, tries[i], signal, handlers);
+      } catch (e) {
+        if (!(e instanceof ThinkUnsupported) || i >= tries.length - 1) throw e;
+      }
     }
   }
 
-  private async stream(req: ChatRequest, think: boolean | undefined, signal: AbortSignal, h: ChatHandlers): Promise<ChatResult> {
+  private async stream(req: ChatRequest, think: Think | undefined, signal: AbortSignal, h: ChatHandlers): Promise<ChatResult> {
     const body: Record<string, unknown> = {
       model: req.model,
       messages: req.messages,

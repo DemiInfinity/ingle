@@ -219,7 +219,7 @@ enum CommandStore {
 
 /// Tracks, for one request, whether active commands have been obeyed.
 struct CommandTracker {
-    let commands: [IngleCommand]
+    private(set) var commands: [IngleCommand]
     private(set) var calls: [ToolCall] = []
     private var changedSinceRun: [String: Bool] = [:]   // command name → a file changed after its then_run last ran
     var nudges: [String: Int] = [:]
@@ -228,6 +228,12 @@ struct CommandTracker {
     private var checkedAvailability = false
 
     init(_ commands: [IngleCommand]) { self.commands = commands }
+
+    /// Adds a built-in command mid-request (Effort's "verify after editing"), enforced like any other.
+    mutating func add(_ c: IngleCommand) {
+        guard !commands.contains(where: { $0.name == c.name }) else { return }
+        commands.append(c)
+    }
 
     /// never_use items that are plain tool names (removed from the tool list). mcp: items are blocked per call.
     var blocked: Set<String> { Set(commands.flatMap(\.neverUse).filter { !$0.hasPrefix("mcp:") }) }

@@ -64,9 +64,11 @@ final class SettingsMirror {
             "userName": fullName.isEmpty ? NSUserName() : fullName,
             "assistants": [
                 ["id": "daily", "name": Prefs.dailyName, "model": Prefs.dailyModel,
-                 "persona": Prefs.str(Prefs.K.dailyPersona), "contextLength": Prefs.contextLength(for: Prefs.dailyModel)],
+                 "persona": Prefs.str(Prefs.K.dailyPersona), "contextLength": Prefs.contextLength(for: Prefs.dailyModel),
+                 "effort": Prefs.str(Prefs.K.dailyEffort)],
                 ["id": "hard", "name": Prefs.hardName, "model": Prefs.hardModel,
-                 "persona": Prefs.str(Prefs.K.hardPersona), "contextLength": Prefs.contextLength(for: Prefs.hardModel)],
+                 "persona": Prefs.str(Prefs.K.hardPersona), "contextLength": Prefs.contextLength(for: Prefs.hardModel),
+                 "effort": Prefs.str(Prefs.K.hardEffort)],
             ],
             "autocompleteModel": Prefs.autoModel,
             "keepAlive": Prefs.keepAlive,

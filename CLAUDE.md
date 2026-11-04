@@ -40,14 +40,15 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 |---|---|
 | `IngleApp.swift` | `@main`, scenes (chat `Window`, `Settings`, `MenuBarExtra`), `AppDelegate` starts EditorBridge, SettingsMirror, DockPresence, EngineUpdater; ⌘N, ⇧⌘K compact |
 | `ChatStore.swift` | **The agent loop.** Conversations, `send`, `generate` (prompt assembly → tool selection → commands → compaction → stream → tools → completion check), approvals (`sessionAllowed`), `runTool`, `chatTool`, `runSubAgent`, compaction (`compact`, `fit`, `historyJSON`), vision detection, slash commands |
-| `ChatViews.swift` / `MessageViews.swift` | Chat UI: sidebar, composer (pills: model, Think, Web, **Mac** = Mac control), slash menu, attachments, context meter, approval card, message rows (tool rows, nudges, compaction divider, images) |
+| `ChatViews.swift` / `MessageViews.swift` | Chat UI: sidebar, composer (pills: model, **Effort**, Web, **Mac** = Mac control), slash menu, attachments, context meter, approval card, message rows (tool rows, nudges, compaction divider, images) |
 | `Tools.swift` | `MacTools`: Terminal tools (`list_files`, `read_file`, `write_file`, `run_command` — always available) and **Mac control** (`controlDefinitions`: `open`, `applescript`, `screenshot` — only when the Mac button is on); `describe`, `needsApproval`, `run`, prompts |
 | `ToolSelection.swift` | Per-turn tool filtering by keywords (fewer tools → better accuracy for small models) |
 | `Project.swift` / `CodeViews.swift` | **Code mode**: `Conversation.codeFolder` is the one switch; project folder, path resolving (`prepare`), git info, rules files, prompt section, recent projects; `ModeSwitch` (Chat / Code, ⇧⌘C), `ProjectPicker`, `ProjectChip` |
+| `Effort.swift` | **Effort levels** table (`EffortLevel`, in step with `effort.ts`), check-command detection, built-in `verify` command, `OllamaThink`, Max's plan + review |
 | `Commands.swift` | **Commands** (obedience layer): `CommandStore` (files in `~/.ingle/commands`), `CommandTracker` (requirements, blocking, nudges) |
 | `Prefs.swift` | UserDefaults keys/defaults, `Persona` (default characters + `systemPrompt(for:web:)` with the built-in facts every model gets), `ModelNames`, `ModelProfiles` (names/personas for any model), `Companion` (does the other app exist?) |
 | `Manifest.swift` | `IngleManifest.refresh` builds the `INGLE.md` index; `HelpTopics` = in-app help the model reads via `ingle_help` — **keep it accurate** |
-| `Ollama.swift` | HTTP client, streaming chat, think-unsupported retry, `capabilities`, `ModelTuning` (per-model sampling, e.g. Qwen) |
+| `Ollama.swift` | HTTP client, streaming chat, `think` as level/on/off with retry, `capabilities`, `ModelTuning` (per-model sampling, e.g. Qwen) |
 | `OllamaServer.swift` | Starts/stops the bundled engine (`builtInBinary` prefers an updated engine), local vs remote server |
 | `EngineUpdater.swift` | Checks GitHub releases daily, notifications, download (progress) → sha256 verify → stage → slim → swap `current`/`previous`, roll back |
 | `ModelManager.swift` / `ModelCatalog.swift` | Model state, switching, sleep timer, smart autocomplete pausing, downloads |
@@ -71,6 +72,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `ui/chatView.ts` | `ChatPanels` (all tabs, serializer restore, `lastActive`) and `ChatTab` (one webview panel + one `ChatEngine`); tab title = chat title |
 | `engine/chatEngine.ts` | `EngineShared` (one ChatStore, EngineServer, Matcher, DiffProvider, `sessionAllowed`, MCP) + per-tab `ChatEngine` (agent loop `runLoop`, `toolsFor`, approvals, commands enforcement, compaction, sub-agents, attachments, slash, `/mcp`) |
 | `engine/toolSelection.ts` | Per-turn tool filtering (`selectTools`, pure — called by `toolsFor`) |
+| `engine/effort.ts` | Effort levels table (in step with `Effort.swift`), think mapping, check-command detection, verify command (pure, tested) |
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
 | `tools/secretsCore.ts`, `secrets.ts` | Secrets store (pure logic, tested) and `secret_list` + getting values from the Mac app / `security` |
@@ -90,8 +92,12 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
   persona = the extension's `personaPrompt` + `guidancePrompt` meaning (keep in step). Mac control off.
 - **Commands:** `~/.ingle/commands/*.md` with `when`, `must_use` (tool | `mcp:server[/tool]` | `skill:name`), `never_use`,
   `then_run`, `enabled`. Enforced: required tools offered, banned blocked, ≤2 nudges before finishing, ⚑/⚠ chips.
-- **Small-model tuning:** per-turn tool filtering; Qwen sampling settings; repeat-call guard (3rd identical call skipped);
-  stuck stop after 4 skips; no small step cap (200 backstop); compaction at ~75% of context, then `fit()` trimming.
+- **Effort:** Low · Medium · High · Max per chat (pill; ⌘⇧E on Mac), default per assistant (Ember Medium, Flint High).
+  Sets `think` (level only for models that take one), a prompt line, tool-filter strictness, guard limits; High/Max
+  must run the project's check command after editing (built-in `verify` command via the command checks); Max plans
+  first and a read-only helper reviews the diff. Both tables live in `Effort.swift` / `effort.ts` — change both.
+- **Small-model tuning:** per-turn tool filtering; Qwen sampling settings; repeat-call guard (3rd identical call skipped,
+  4th at High/Max); stuck stop after 4 skips (6 at High/Max); no small step cap (200 backstop); compaction at ~75% of context, then `fit()` trimming.
 - **Prompt facts:** every model gets the same Ingle facts (`Persona.systemPrompt` / `personaPrompt`) whatever its name.
   If you change behaviour, update those facts **and** `HelpTopics` **and** `docs/`.
 - **Privacy:** no telemetry. Network only for Web (opt-in per chat), model downloads, daily engine-update check. Don't add others

@@ -40,10 +40,21 @@ export interface SelectionInput<T extends SelectableTool> {
    *  server, remote or one of these names. */
   sshHosts?: string[];
   delegate?: T;
+  /** From the effort level: strict (Low) drops the helper and repo_map unless asked; relaxed (High/Max) always
+   *  offers the helper. Default normal. Same as ToolSelection.filter(strictness:) in Swift. */
+  strictness?: 'strict' | 'normal' | 'relaxed';
 }
+
+/** Extra wants under strict filtering (Low effort): tools that are normally always offered. */
+export const STRICT_WANTS: Record<string, RegExp> = {
+  repo_map: /repo map|project structure|overview|codebase|architecture/,
+  report_read: /report|research|earlier/,
+  report_search: /report|research|earlier/,
+};
 
 export function selectTools<T extends SelectableTool>(input: SelectionInput<T>): T[] {
   const { available, isSubAgent, active, mcpToolNames, mcpWanted, delegate } = input;
+  const strictness = input.strictness ?? 'normal';
   const t = input.lastUser.toLowerCase();
   // Commands: tools a must_use (or then_run) needs are always offered, from everything available; never_use
   // tools are removed (mcp: bans are blocked per call instead).
@@ -55,8 +66,10 @@ export function selectTools<T extends SelectableTool>(input: SelectionInput<T>):
     if (forced.has(tool.name.toLowerCase())) return true;
     if (mcpToolNames.includes(tool.name)) return mcpWanted;
     if (tool.name === 'ssh_command') return wantsSSH(t, input.sshHosts ?? []);
+    if (strictness === 'strict' && STRICT_WANTS[tool.name] && !STRICT_WANTS[tool.name].test(t)) return false;
     return !TOOL_WANTS[tool.name] || TOOL_WANTS[tool.name].test(t);
   });
-  if (delegate && (forced.has('delegate') || DELEGATE_WANTS.test(t))) list.push(delegate);
+  const wantsHelper = strictness === 'relaxed' || (strictness !== 'strict' && DELEGATE_WANTS.test(t));
+  if (delegate && (forced.has('delegate') || wantsHelper)) list.push(delegate);
   return list.filter((tool) => !banned.has(tool.name.toLowerCase()));
 }

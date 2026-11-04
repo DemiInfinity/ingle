@@ -81,7 +81,10 @@ export interface MCPServerInfo {
 export interface UIState {
   assistants: { id: string; name: string; role: string; model: string }[]; // role: "Daily coding" / "Hard jobs"
   currentAssistant: string;   // assistant id
-  think: boolean;
+  /** This chat's effort level (src/engine/effort.ts). */
+  effort: 'low' | 'medium' | 'high' | 'max';
+  /** Tooltip text per level, from the effort table. */
+  effortHelp: Record<'low' | 'medium' | 'high' | 'max', string>;
   web: boolean;
   useContext: boolean;
   chats: ChatSummary[];
@@ -137,7 +140,8 @@ export type FromWebview =
   | { type: 'openChat'; id: string }
   | { type: 'deleteChat'; id: string }
   | { type: 'setAssistant'; id: string }
-  | { type: 'toggle'; key: 'think' | 'web' | 'useContext'; value: boolean }
+  | { type: 'toggle'; key: 'web' | 'useContext'; value: boolean }
+  | { type: 'setEffort'; effort: 'low' | 'medium' | 'high' | 'max' }
   | { type: 'approve'; id: string; decision: 'allow' | 'deny' | 'always' }
   | { type: 'showDiff'; id: string }
   | { type: 'insertCode'; code: string }                  // insert at cursor in the active editor

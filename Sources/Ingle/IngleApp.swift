@@ -46,6 +46,8 @@ struct IngleApp: App {
                     .keyboardShortcut("c", modifiers: [.command, .shift])
                 Button("Compact Chat") { chats.compactNow() }
                     .keyboardShortcut("k", modifiers: [.command, .shift])
+                Button("Cycle Effort") { chats.cycleEffort() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
             }
         }
 

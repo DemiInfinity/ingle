@@ -16,7 +16,8 @@
   const S = {
     assistants: [],
     currentAssistant: '',
-    think: false,
+    effort: 'medium',
+    effortHelp: {},
     web: false,
     useContext: true,
     chats: [],
@@ -765,10 +766,16 @@
     class: 'input', rows: '1', 'aria-label': 'Message', spellcheck: 'true',
     title: 'Enter to send · Shift+Enter for a new line',
   });
-  const thinkPill = h('button', {
-    class: 'pill', type: 'button', 'aria-pressed': 'false',
-    title: 'Let the model think before it answers. Slower, sometimes smarter.',
-  }, icon('think'), h('span', { text: 'Think' }));
+  // Effort: Low · Medium · High · Max (engine/effort.ts). A pill that opens a small menu.
+  const EFFORTS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['max', 'Max']];
+  const effortLabel = h('span', { text: 'Medium' });
+  const effortPill = h('button', {
+    class: 'pill effort-pill', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
+  }, icon('think'), effortLabel, icon('chevron', 'chev'));
+  const effortItems = EFFORTS.map(([id, label]) => h('button', {
+    class: 'effort-item', type: 'button', role: 'menuitemradio', 'aria-checked': 'false', 'data-effort': id,
+  }, h('span', { class: 'effort-name', text: label }), h('span', { class: 'effort-help' })));
+  const effortPop = h('div', { class: 'meter-pop effort-pop', role: 'menu', 'aria-label': 'Effort', hidden: true }, ...effortItems);
   const webPill = h('button', {
     class: 'pill', type: 'button', 'aria-pressed': 'false',
     title: 'Let the assistant search and read web pages (read-only)',
@@ -797,7 +804,7 @@
   const composer = h('div', { class: 'composer' },
     attachRow,
     input,
-    h('div', { class: 'composer-row' }, clipBtn, thinkPill, webPill, h('span', { class: 'grow' }),
+    h('div', { class: 'composer-row' }, clipBtn, h('span', { class: 'meter-wrap' }, effortPill, effortPop), webPill, h('span', { class: 'grow' }),
       h('span', { class: 'meter-wrap' }, meterBtn, meterPop), sendBtn));
 
   const HINT = 'Enter to send · Shift+Enter new line · / for commands';
@@ -1518,8 +1525,16 @@
   function renderComposer() {
     const a = currentAssistant();
     input.placeholder = `Ask ${a ? a.name : 'Ingle'} anything…`;
-    thinkPill.setAttribute('aria-pressed', S.think ? 'true' : 'false');
-    thinkPill.classList.toggle('on', S.think);
+    const eff = EFFORTS.find(([id]) => id === S.effort) || EFFORTS[1];
+    setText(effortLabel, eff[1]);
+    effortPill.title = (S.effortHelp[eff[0]] || 'How hard the assistant tries') + ' Click to change.';
+    effortPill.setAttribute('aria-label', `Effort: ${eff[1]}`);
+    effortPill.classList.toggle('on', S.effort === 'high' || S.effort === 'max');
+    for (const item of effortItems) {
+      const id = item.getAttribute('data-effort');
+      item.setAttribute('aria-checked', id === S.effort ? 'true' : 'false');
+      setText(item.lastChild, (S.effortHelp[id] || '').replace(/^[A-Za-z]+: /, ''));
+    }
     webPill.setAttribute('aria-pressed', S.web ? 'true' : 'false');
     webPill.classList.toggle('on', S.web);
     renderSend();
@@ -2008,10 +2023,40 @@
     if (S.streaming) post({ type: 'stop' });
     else send();
   });
-  thinkPill.addEventListener('click', () => {
-    S.think = !S.think;
-    post({ type: 'toggle', key: 'think', value: S.think });
-    renderComposer();
+  let effortOpen = false;
+  function openEffort() {
+    effortOpen = true;
+    effortPop.hidden = false;
+    effortPill.setAttribute('aria-expanded', 'true');
+    const cur = effortItems.find((i) => i.getAttribute('data-effort') === S.effort) || effortItems[0];
+    cur.focus();
+  }
+  function closeEffort(refocus) {
+    if (!effortOpen) return;
+    effortOpen = false;
+    effortPop.hidden = true;
+    effortPill.setAttribute('aria-expanded', 'false');
+    if (refocus) effortPill.focus();
+  }
+  effortPill.addEventListener('click', () => (effortOpen ? closeEffort(true) : openEffort()));
+  for (const item of effortItems) {
+    item.addEventListener('click', () => {
+      S.effort = item.getAttribute('data-effort');
+      post({ type: 'setEffort', effort: S.effort });
+      renderComposer();
+      closeEffort(false);
+      input.focus();
+    });
+  }
+  effortPop.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const i = effortItems.indexOf(document.activeElement);
+    const n = effortItems.length;
+    effortItems[(i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n].focus();
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (effortOpen && !effortPop.contains(e.target) && !effortPill.contains(e.target)) closeEffort(false);
   });
   webPill.addEventListener('click', () => {
     S.web = !S.web;
@@ -2025,6 +2070,7 @@
     if (S.mcpServers) { e.preventDefault(); closeMcp(); return; }
     if (S.menuOpen) { e.preventDefault(); closeMenu(true); return; }
     if (meterOpen) { e.preventDefault(); closeMeter(true); return; }
+    if (effortOpen) { e.preventDefault(); closeEffort(true); return; }
     if (S.historyOpen) { e.preventDefault(); closeHistory(true); return; }
     if (S.approval) {
       e.preventDefault();
@@ -2050,7 +2096,8 @@
     if (!state) return;
     S.assistants = Array.isArray(state.assistants) ? state.assistants : [];
     S.currentAssistant = state.currentAssistant || (S.assistants[0] && S.assistants[0].id) || '';
-    S.think = !!state.think;
+    S.effort = ['low', 'medium', 'high', 'max'].includes(state.effort) ? state.effort : 'medium';
+    S.effortHelp = state.effortHelp || {};
     S.web = !!state.web;
     S.useContext = state.useContext !== false;
     S.chats = Array.isArray(state.chats) ? state.chats : [];

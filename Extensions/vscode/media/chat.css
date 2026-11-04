@@ -931,6 +931,25 @@ body.vscode-high-contrast .pill, body.vscode-high-contrast-light .pill { border-
 .meter-hint { margin: 0; font-size: 0.84em; color: var(--muted); }
 .compact-btn { align-self: flex-start; }
 
+.effort-pill .chev { width: 10px; height: 10px; opacity: 0.7; transform: rotate(90deg); }
+.effort-pop { left: 0; right: auto; width: 250px; padding: 4px; gap: 0; }
+.effort-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 5px;
+  text-align: left;
+  color: inherit;
+}
+.effort-item:hover, .effort-item:focus-visible { background: var(--hover); }
+.effort-item[aria-checked="true"] .effort-name { color: var(--ember); }
+.effort-item[aria-checked="true"] .effort-name::after { content: " ✓"; }
+.effort-name { font-weight: 600; font-size: 0.92em; }
+.effort-help { font-size: 0.82em; color: var(--muted); }
+
 /* ---------------------------------------------------------------- Motion */
 
 @media (prefers-reduced-motion: reduce) {
