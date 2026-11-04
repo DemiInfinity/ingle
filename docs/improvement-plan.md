@@ -58,9 +58,11 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion), 39 (previewer) | round B1 (32) is merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle), 40 (learn this project), 41 (better local reasoning) | 36 is merged |
-| **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged; **run on Saturday 7 November 2026** (the user's date) |
+| **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged; **run all day on Sunday 8 November 2026** (the user's date) |
 
-**Benchmark (final round), run on Saturday 7 November 2026.** Written and run only after everything above is merged. The benchmark must be written, checked with the quick tier, and ready to start by Friday 6 November, so Saturday is for running it. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
+**Schedule (the user's decision, 4 November 2026).** Round B2 (34, 35, 39) finishes and merges now, then work pauses. **Saturday 7 November:** round C, round D and writing the benchmark, ending with its quick tier. **Sunday 8 November: the benchmark runs all day**, from morning to night, on mains power.
+
+**Benchmark (final round), run all day on Sunday 8 November 2026.** Written and quick-checked on Saturday, after everything above is merged. It runs the real models on this Mac (Ember's and Flint's defaults), each task with and without Ingle's harness (`ingle -p … --harness on|off`, plus per-part switches to see what helps most), with Wi-Fi on and off. Cloud reference point (the user approved this on 4 November 2026; Claude Code is installed): the same tasks through `claude -p` in a copy of each benchmark project, to show the remaining gap honestly and which kinds of task still need the cloud. Only the benchmark's own test projects are sent, never the user's private work. It's a separate, clearly labelled run that needs internet, and the local runs don't depend on it. It reports success rate, steps, nudges, approvals, time and tokens per task, and the results go in `bench/results/` and the README. Re-run it after waves 5–8 (the learning loop in wave 8 is judged by it).
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
 
@@ -325,6 +327,10 @@ else. So:
 - **Quick** (10 tasks × A/B × both models × 1 run ≈ **1–2 hours**) checks everything works first, and **measures real
   minutes per run** so the runner can give an honest estimate before the standard run.
 - **Full** (all ~30 tasks × 3 runs × A/B/C) is optional, for later, e.g. on a desktop Mac or a home server.
+- **Sunday plan (about 14 hours available):** quick tier first thing (about 1–2 h) to confirm everything works, then
+  **Standard** (about 5–8 h), then, with the time left, condition C (High effort) on **both** models, the ablations on
+  both models, and the Claude Code reference run. The runner orders work so the most important numbers finish first
+  (A vs B for both models), and stops cleanly at bedtime with everything resumable.
 - **Runs in chunks, whenever it suits you.** `bench/run.sh --for 60m` runs for about an hour, then stops at the end of
   the current task. It resumes exactly where it left off and never repeats a finished run.
 - **Grouped by model.** All Ember runs, then all Flint runs, so each model loads once per chunk instead of swapping
