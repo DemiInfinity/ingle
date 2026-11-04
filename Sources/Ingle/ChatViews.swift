@@ -604,30 +604,54 @@ struct EffortMenu: View {
     let conversation: Conversation
     var compact = false
 
+    /// A gauge that fills with the level, so the pill reads at a glance.
+    private func icon(_ level: EffortLevel) -> String {
+        switch level {
+        case .low: return "gauge.with.dots.needle.0percent"
+        case .medium: return "gauge.with.dots.needle.33percent"
+        case .high: return "gauge.with.dots.needle.67percent"
+        case .max: return "gauge.with.dots.needle.100percent"
+        }
+    }
+
+    /// The short description shown after the name, like the model pill's role.
+    private func role(_ level: EffortLevel) -> String {
+        switch level {
+        case .low: return "Quick"
+        case .medium: return "Everyday"
+        case .high: return "Thorough"
+        case .max: return "Plan & review"
+        }
+    }
+
     var body: some View {
         let level: EffortLevel = conversation.effortLevel
-        let strong: Bool = level == .high || level == .max
+        // Styled exactly like ModelMenu: a neutral pill, name in text colour, details in secondary.
+        // (Orange is kept for switches that are on, like Web and Mac.)
         Menu {
             Picker("Effort", selection: Binding(get: { conversation.effortLevel }, set: { store.setEffort($0) })) {
                 ForEach(EffortLevel.allCases) { e in
-                    Text(e.help).tag(e)
+                    Text("\(e.label) · \(role(e))").tag(e)
                 }
             }
             .pickerStyle(.inline)
             Divider()
+            Text(level.help)
             Text("⌘⇧E cycles the levels")
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "brain")
-                if !compact { Text(level.label).lineLimit(1) }
+            HStack(spacing: 7) {
+                Image(systemName: icon(level))
+                Text(level.label).foregroundStyle(Ember.text).lineLimit(1)
+                if !compact {
+                    Text(role(level)).foregroundStyle(Ember.secondary).lineLimit(1)
+                }
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Ember.secondary)
             }
             .font(.system(size: 12.5, weight: .medium))
-            .fixedSize()
             .padding(.horizontal, compact ? 10 : 14)
             .frame(height: 30)
-            .foregroundStyle(strong ? Ember.onAccent : Ember.secondary)
-            .background(Capsule().fill(strong ? Ember.accent : Color.white.opacity(0.06)))
+            .background(Capsule().fill(Color.white.opacity(0.07)))
             .contentShape(Capsule())
         }
         .menuStyle(.button)
