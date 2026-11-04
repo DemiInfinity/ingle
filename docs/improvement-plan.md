@@ -56,7 +56,7 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 | B | 31 (coding tools), 15 (checkpoints) | 8, 29 and 30 are merged |
 | B1 | 32 (workflow: task list, plan mode, changes panel using 15's undo, commit) | 15 is merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion), 39 (previewer) | round B1 (32) is merged |
-| C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
+| C | 36 (background runs; includes making the agent loop run several jobs at once), 42 (live activity dropdown) | round B2 is merged (Saturday 7 November) |
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle), 40 (learn this project), 41 (better local reasoning) | 36 is merged |
 | **Final** | **10 (benchmark): write it, then run it for real numbers** (the user's decision: only once everything above is built) | round D is merged; **run all day on Sunday 8 November 2026** (the user's date) |
 
@@ -865,6 +865,47 @@ check itself against reality**. That's the best way to spend a laptop's time on 
 `HelpTopics`, `docs/agent-loop.md`, tests.
 **Done when.** A maths-heavy question is answered by running code and is right. A failing-test task in Debug mode tries
 3 fixes, keeps the passing one and rolls back the others cleanly. The benchmark shows the gain and the time cost.
+
+---
+
+## Wave 4i — see what it's doing
+
+### [ ] 42. Live activity: what it's doing and thinking, as a dropdown (both apps + CLI; round C)
+**Why (the user's request).** While you wait, you should be able to see what Ingle is doing and why, the way Claude
+Code shows it, so waiting makes sense and you can step in early if it heads the wrong way. Today there's only a
+"Thinking…" / "Thought for Ns" line with the raw thinking, and tool rows shown separately.
+**Design.**
+- **One activity dropdown per reply**, at the top of the reply while it works:
+  - **Collapsed** (default): a single live line showing the **current step in plain words** ("Reading
+    `ChatStore.swift`", "Running `npm test` · 0:42", "Thinking about the cause", "Waiting for your approval"), plus a
+    small spinner, elapsed time and step count ("Step 6 · 1:12"). It updates as it goes.
+  - **Expanded:** a **timeline** of everything in this run, in order:
+    - thinking, streamed live and auto-scrolling;
+    - each tool call as a step with its icon, a short summary, status (running · done · failed · waiting for you ·
+      blocked by a command) and duration;
+    - nudges ("Ingle asked it to run the tests first");
+    - mode and effort events (plan written, checks run, coverage nudge, second opinion offered).
+    Each step can be expanded for its full input and output, the way tool rows are today.
+  - **When the run ends** it folds to a summary: "Worked for 3m 12s · 14 steps · read 6 files, edited 3, ran tests ✓".
+    The final answer shows below it as now.
+- **Plain-words step summaries** come from a small table per tool (no extra model call), e.g. `search_code` →
+  "Searching for `approvalScope`", `impact` → "Checking what `runSubAgent` affects".
+- **The thinking stays honest:** what's shown is what the model actually produced, with no rewriting. A short
+  "current focus" line is taken from the latest thinking sentence or the current step.
+- **Settings** (Settings → General, and the composer's ⋯ menu per chat): *Show activity: collapsed · expanded while
+  working · always expanded*. Default: collapsed, with expanded available in one click.
+- **Everywhere:** the same dropdown in VS Code; background jobs (task 36) show it in their job view and chip; the CLI
+  (task 38) shows the current-step line live and the timeline with `--verbose` or by pressing `t`.
+- **Placement rule:** it lives in the transcript under the user's message, never in the top bar.
+- Light on memory and context: the timeline is UI only and never adds anything to the model's prompt.
+**Files.** New `Sources/Ingle/ActivityView.swift` (replaces the thinking toggle and folds tool rows into the
+timeline), `MessageViews.swift`, `ChatStore.swift` (a per-run event list: step started/finished, status, timings),
+`Prefs.swift`/`SettingsViews.swift` (the setting), VS Code `media/chat.js`/`chat.css` (same dropdown),
+`shared/protocol.ts` (activity events), `engine/chatEngine.ts` (emit them), a shared step-summary table per app (kept in
+step), docs `docs/mac-app.md`, `docs/vscode-extension.md`, `HelpTopics`. Tests for the event stream and step summaries.
+**Done when.** During a multi-step job in either app, the collapsed line always says what's happening right now; expanding
+shows live thinking and every step with status and timing; after the run it folds to a one-line summary; and nothing
+about it reaches the model's prompt.
 
 ---
 
