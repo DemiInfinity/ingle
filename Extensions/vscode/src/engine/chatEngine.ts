@@ -56,7 +56,7 @@ import {
   reviewTask, thinkParam, VERIFY_SKIPPED_CHIP, verifyCommand,
 } from './effort';
 import { prettyModel, roleName } from './names';
-import { OllamaClient, OllamaMessage, RawToolCall } from './ollama';
+import { OllamaClient, OllamaMessage, RawToolCall, ThinkingRepeatGuard } from './ollama';
 import {
   COMPACT_PROMPT,
   EditorSnapshot,
@@ -1712,12 +1712,15 @@ export class ChatEngine implements vscode.Disposable {
       const started = Date.now();
       let thinkStart: number | undefined;
       let thinkEnd: number | undefined;
+      let thinkingLoopCount = 0;
+      let thinkingRepeatGuard = new ThinkingRepeatGuard();
       const inline = new InlineThink();
-      const addThinking = (t: string) => {
-        if (!t) return;
+      const addThinking = (t: string): boolean => {
+        if (!t) return false;
         if (thinkStart === undefined) thinkStart = Date.now();
         reply.thinking = (reply.thinking ?? '') + t;
         this.postFor(chat.id, { type: 'messageDelta', id: reply.id, thinking: t });
+        return thinkingRepeatGuard.push(t);
       };
       const addContent = (t: string) => {
         if (!t) return;
@@ -1735,10 +1738,18 @@ export class ChatEngine implements vscode.Disposable {
           {
             onContent: (raw) => {
               const d = inline.push(raw);
-              addThinking(d.thinking);
+              const looped = addThinking(d.thinking);
               addContent(d.content);
+              return looped;
             },
             onThinking: addThinking,
+            onThinkingLoop: () => {
+              thinkingLoopCount++;
+              addContent(thinkingLoopCount === 1
+                ? '\n\nI noticed my thinking started repeating, so I stopped it and am answering directly.\n\n'
+                : '\n\nI stopped a second repeated thinking response. Please try a shorter prompt or Low effort.\n');
+              thinkingRepeatGuard = new ThinkingRepeatGuard();
+            },
           },
         );
         const tail = inline.push('', true);

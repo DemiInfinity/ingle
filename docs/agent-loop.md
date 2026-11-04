@@ -203,6 +203,10 @@ After the calls:
 
 - **Stuck detection.** When **4 or more** calls (6 at High and Max effort) have been skipped as repeats during this request, the run stops
   with "I seem to be going round in circles, so I've stopped. Tell me what to try next, or say 'carry on'…".
+- **Thinking repetition.** If one response emits four consecutive copies of the same 24–256 character phrase in its
+  thinking stream (including inline `<think>` text), Ingle stops that response and retries once with thinking off.
+  The retry receives the conversation, the partial thinking as context, and instructions to answer directly; a note
+  in the reply explains the retry. If thinking repeats again, Ingle stops and leaves the note visible.
 - **Backstop.** There is no small step cap — local models cost nothing per step. The Mac app stops after 200
   steps; VS Code uses `ingle.maxSteps` (default 200, `0` = no limit) and says so when it reaches it.
 - **Stop** cancels the stream, denies any open approval card and ends the loop.
@@ -367,7 +371,9 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
   behave the same. Thinking arrives in a separate `thinking` stream and is shown collapsed ("Thought for Ns").
   Models that inline reasoning as `<think>…</think>` are split the same way (`ThinkSplitter` in
   [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift); `InlineThink` in `chatEngine.ts`). Helpers,
-  compaction and tab-title summaries always run with `think: false`.
+  compaction and tab-title summaries always run with `think: false`. If a response repeats the same phrase four
+  times in a row while thinking, Ingle stops it and retries with thinking off, passing the partial reasoning and
+  conversation as context so the reply can still answer.
 - **Tool filtering.** Strict (Low): the helper (`delegate`) is never offered, and `report_read`/`report_search`
   (and in VS Code `repo_map`) need asking for. Relaxed (High/Max): the helper is always offered. Commands still
   override this. See [Tool selection](#3-tool-selection).

@@ -24,8 +24,9 @@ export interface ChatRequest {
 }
 
 export interface ChatHandlers {
-  onContent?(text: string): void;
-  onThinking?(text: string): void;
+  onContent?(text: string): boolean | void;
+  onThinking?(text: string): boolean | void;
+  onThinkingLoop?(): void;
 }
 
 export interface ChatResult {
@@ -34,6 +35,24 @@ export interface ChatResult {
   toolCalls: RawToolCall[];
   evalCount: number;
   evalDuration: number; // nanoseconds
+  thinkingLoopStopped?: boolean;
+}
+
+/** Detect four consecutive copies of a 24–256 character phrase, using a bounded tail. */
+export class ThinkingRepeatGuard {
+  private tail = '';
+
+  push(text: string): boolean {
+    this.tail = (this.tail + text).slice(-2048);
+    const n = this.tail.length;
+    for (let period = 24; period <= Math.min(256, Math.floor(n / 4)); period++) {
+      const last = this.tail.slice(n - period);
+      if (this.tail.slice(n - 2 * period, n - period) !== last) continue;
+      if (this.tail.slice(n - 3 * period, n - 2 * period) !== last) continue;
+      if (this.tail.slice(n - 4 * period, n - 3 * period) === last) return true;
+    }
+    return false;
+  }
 }
 
 /** Ollama's `think`: on/off, or a level for models that take one (gpt-oss). */
@@ -152,7 +171,19 @@ export class OllamaClient {
     const tries: (Think | undefined)[] = typeof req.think === 'string' ? [req.think, true, undefined] : [req.think, undefined];
     for (let i = 0; ; i++) {
       try {
-        return await this.stream(req, tries[i], signal, handlers);
+        const result = await this.stream(req, tries[i], signal, handlers);
+        if (result.thinkingLoopStopped) {
+          handlers.onThinkingLoop?.();
+          const messages = [...req.messages];
+          if (result.thinking) {
+            messages.push({ role: 'assistant', content: 'My previous thinking before it started repeating (incomplete context; do not repeat it):\n' + result.thinking.slice(-3000) });
+          }
+          messages.push({ role: 'user', content: 'Your previous response started repeating its reasoning before answering. Stop thinking and answer the original request directly now, using the conversation above and any useful context. Be concise and do not repeat the loop.' });
+          const fallback = await this.stream({ ...req, messages, think: false }, false, signal, handlers);
+          if (fallback.thinkingLoopStopped) handlers.onThinkingLoop?.();
+          return fallback;
+        }
+        return result;
       } catch (e) {
         if (!(e instanceof ThinkUnsupported) || i >= tries.length - 1) throw e;
       }
@@ -207,12 +238,20 @@ export class OllamaClient {
         if (m.thinking) {
           emitted = true;
           result.thinking += m.thinking;
-          h.onThinking?.(m.thinking);
+          if (h.onThinking?.(m.thinking)) {
+            result.thinkingLoopStopped = true;
+            finished = true;
+            return;
+          }
         }
         if (m.content) {
           emitted = true;
           result.content += m.content;
-          h.onContent?.(m.content);
+          if (h.onContent?.(m.content)) {
+            result.thinkingLoopStopped = true;
+            finished = true;
+            return;
+          }
         }
         if (Array.isArray(m.tool_calls)) {
           emitted = true;

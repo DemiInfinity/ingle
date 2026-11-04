@@ -866,6 +866,7 @@ final class ChatStore {
                             if thinkStart != nil && thinkEnd == nil { thinkEnd = Date() }
                             conversations[j].messages[k].content += chunk.content
                         }
+                        if chunk.resetToolCalls { calls.removeAll() }
                         calls += chunk.toolCalls
                         if chunk.done {
                             if chunk.evalDuration > 0 {

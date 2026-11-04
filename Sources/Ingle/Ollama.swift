@@ -36,9 +36,33 @@ struct ChatChunk: Sendable {
     var content = ""
     var thinking = ""
     var toolCalls: [ToolCall] = []
+    var resetToolCalls = false
     var done = false
     var evalCount = 0
     var evalDuration: Int64 = 0
+}
+
+/// Detects four consecutive copies of the same 24–256 byte phrase in the model's thinking stream.
+/// Keep a short tail so detection stays bounded for long responses.
+private struct ThinkingRepeatGuard {
+    private var tail: [UInt8] = []
+
+    mutating func append(_ text: String) -> Bool {
+        tail.append(contentsOf: text.utf8)
+        if tail.count > 2_048 { tail = Array(tail.suffix(2_048)) }
+        let count = tail.count
+        guard count >= 96 else { return false }
+        for period in 24...min(256, count / 4) {
+            let last = (count - period)..<count
+            let previous = (count - 2 * period)..<(count - period)
+            guard tail[last].elementsEqual(tail[previous]) else { continue }
+            let third = (count - 3 * period)..<(count - 2 * period)
+            guard tail[last].elementsEqual(tail[third]) else { continue }
+            let fourth = (count - 4 * period)..<(count - 3 * period)
+            if tail[last].elementsEqual(tail[fourth]) { return true }
+        }
+        return false
+    }
 }
 
 /// Minimal client for the local Ollama HTTP API.
@@ -193,8 +217,22 @@ struct OllamaClient: Sendable {
                     if case .level = think { tries = [think, .on, nil] }
                     for (n, attempt) in tries.enumerated() {
                         do {
-                            try await streamChat(model: model, messages: messages, tools: tools, think: attempt,
-                                                 numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
+                            let result = try await streamChat(model: model, messages: messages, tools: tools, think: attempt,
+                                                              numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
+                            if result.loopStopped {
+                                continuation.yield(ChatChunk(content: "\n\nI noticed my thinking started repeating, so I stopped it and am answering directly.\n\n", resetToolCalls: true))
+                                var retryMessages = messages
+                                if !result.thinking.isEmpty {
+                                    let context = String(result.thinking.suffix(3_000))
+                                    retryMessages.append(["role": "assistant", "content": "My previous thinking before it started repeating (incomplete context; do not repeat it):\n" + context])
+                                }
+                                retryMessages.append(["role": "user", "content": "Your previous response started repeating its reasoning before answering. Stop thinking and answer the original request directly now, using the conversation above and any useful context. Be concise and do not repeat the loop."])
+                                let fallback = try await streamChat(model: model, messages: retryMessages, tools: tools, think: .off,
+                                                                    numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
+                                if fallback.loopStopped {
+                                    continuation.yield(ChatChunk(content: "\n\nI stopped a second repeated thinking response. Please try a shorter prompt or Low effort.\n", resetToolCalls: true))
+                                }
+                            }
                             break
                         } catch OllamaError.thinkingUnsupported {
                             // The model doesn't take this kind of "think"; try the next, simpler one.
@@ -212,7 +250,7 @@ struct OllamaClient: Sendable {
 
     private func streamChat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: OllamaThink?,
                             numCtx: Int, keepAlive: String,
-                            continuation: AsyncThrowingStream<ChatChunk, Error>.Continuation) async throws {
+                            continuation: AsyncThrowingStream<ChatChunk, Error>.Continuation) async throws -> (loopStopped: Bool, thinking: String) {
         var body: [String: Any] = [
             "model": model,
             "messages": messages,
@@ -238,6 +276,9 @@ struct OllamaClient: Sendable {
             throw OllamaError.server(message)
         }
 
+        var thought = ""
+        var repeatGuard = ThinkingRepeatGuard()
+        var loopStopped = false
         for try await line in bytes.lines {
             try Task.checkCancellation()
             guard let obj = Self.json(line) else { continue }
@@ -249,6 +290,9 @@ struct OllamaClient: Sendable {
             if let message = obj["message"] as? [String: Any] {
                 chunk.content = message["content"] as? String ?? ""
                 chunk.thinking = message["thinking"] as? String ?? ""
+                let inlineThinking = ThinkSplitter.split(chunk.content, extra: "").thinking
+                let streamedThinking = chunk.thinking + inlineThinking
+                thought += streamedThinking
                 if let calls = message["tool_calls"] as? [[String: Any]] {
                     chunk.toolCalls = calls.compactMap(Self.toolCall)
                 }
@@ -256,9 +300,19 @@ struct OllamaClient: Sendable {
             chunk.done = obj["done"] as? Bool ?? false
             chunk.evalCount = (obj["eval_count"] as? NSNumber)?.intValue ?? 0
             chunk.evalDuration = (obj["eval_duration"] as? NSNumber)?.int64Value ?? 0
+            let streamedThinking = chunk.thinking + ThinkSplitter.split(chunk.content, extra: "").thinking
+            let repeated = !streamedThinking.isEmpty && repeatGuard.append(streamedThinking)
+            if repeated {
+                loopStopped = true
+                chunk.toolCalls = []
+            }
             continuation.yield(chunk)
+            if repeated {
+                break
+            }
             if chunk.done { break }
         }
+        return (loopStopped, thought)
     }
 
     private static func json(_ line: String) -> [String: Any]? {
