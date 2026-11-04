@@ -32,6 +32,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var checkpoint: RunCheckpoint?
     /// On a tool row: the mode approved it without asking ("Auto approved (Edit mode): …").
     var autoApproved: String?
+    /// A plan saved as a Markdown file (PlanFiles), shown as a card.
+    var plan: PlanRef?
     /// A message typed while a run was going: it joined the run at the model's next step.
     var steer: Bool?
 
@@ -87,6 +89,8 @@ struct Conversation: Identifiable, Codable, Equatable {
     var workMode: String?
     /// The mode before Plan, to go back to after Approve.
     var modeBefore: String?
+    /// The plan file the task list ticks (an approved plan, or Max's).
+    var planFile: String?
 
     var workModeValue: WorkMode { workMode.flatMap(WorkMode.init(rawValue:)) ?? .ask }
 
@@ -445,6 +449,29 @@ final class ChatStore {
         generate(in: id)
     }
 
+    /// The chat's task list. The plan file follows it: steps ticked, status approved → done (and its card too).
+    func setTasks(_ id: Conversation.ID, _ list: [TaskItem]) {
+        guard let i = index(id) else { return }
+        conversations[i].tasks = list
+        guard let file = conversations[i].planFile else { return }
+        PlanFiles.tickFile(file, tasks: list, status: "approved")
+        if let status = PlanFiles.read(file)?.status,
+           let k = conversations[i].messages.firstIndex(where: { $0.plan?.file == file }),
+           conversations[i].messages[k].plan?.status != status {
+            conversations[i].messages[k].plan?.status = status
+        }
+    }
+
+    /// Saves a plan reply as a Markdown file (the project's .ingle/plans, or ~/.ingle/plans), or nil.
+    func savePlanFile(_ id: Conversation.ID, reply: String, request: String, project: String?) -> PlanRef? {
+        let body: String = ThinkSplitter.split(reply, extra: "").body
+        let steps: [String] = TaskList.fromPlan(body).map(\.content)
+        guard steps.count >= 2 else { return nil }
+        let doc: PlanFiles.Doc = PlanFiles.fromReply(body, steps: steps, request: request, chat: id.uuidString)
+        guard let file = PlanFiles.save(doc, in: PlanFiles.dir(project: project)) else { return nil }
+        return PlanRef(file: file, name: (file as NSString).lastPathComponent, status: "draft")
+    }
+
     /// Takes back a message waiting to join the run.
     func unqueue(_ chat: Conversation.ID, _ messageID: ChatMessage.ID) {
         queued[chat]?.removeAll { $0.id == messageID }
@@ -478,8 +505,14 @@ final class ChatStore {
         let back: WorkMode = conversations[i].modeBefore.flatMap(WorkMode.init(rawValue:)) ?? .ask
         conversations[i].modeBefore = nil
         conversations[i].workMode = back == .plan || back == .ask ? nil : back.rawValue
-        let list: [TaskItem] = TaskList.fromPlan(ThinkSplitter.split(m.content, extra: "").body)
-        if !list.isEmpty { conversations[i].tasks = list }
+        // The plan file, as you left it, is what runs.
+        let doc: PlanFiles.Doc? = m.plan.flatMap { PlanFiles.read($0.file) }
+        if let plan = m.plan, doc != nil, let k = conversations[i].messages.firstIndex(where: { $0.id == messageID }) {
+            conversations[i].planFile = plan.file
+            conversations[i].messages[k].plan?.status = "approved"
+        }
+        let list: [TaskItem] = doc.map(PlanFiles.tasks) ?? TaskList.fromPlan(ThinkSplitter.split(m.content, extra: "").body)
+        if !list.isEmpty { setTasks(id, list) }
         conversations[i].messages.append(ChatMessage(role: .user, content: TaskList.planApproved))
         generate(in: id)
     }
@@ -554,7 +587,10 @@ final class ChatStore {
         let firstNew: Int = index(id).map { conversations[$0].messages.count } ?? 0
         activeRuns[id] = run
         // A finished task list goes when the next job starts; an unfinished one stays (e.g. "carry on" after Stop).
-        if let i = index(id), conversations[i].tasks != nil, TaskList.allDone(conversations[i].tasks) { conversations[i].tasks = nil }
+        if let i = index(id), conversations[i].tasks != nil, TaskList.allDone(conversations[i].tasks) {
+            conversations[i].tasks = nil
+            conversations[i].planFile = nil
+        }
         task = Task { [self] in
             // Engine asleep or stopped? Start it now rather than making the user press Start.
             if !(await OllamaServer.shared.isUp()) {
@@ -671,7 +707,7 @@ final class ChatStore {
             var needPlan: Bool = effort.plan && startMode != .plan && startMode != .debug
             // Debug: Reproduce → Find the cause → Fix → Confirm, enforced below.
             var dbg: DebugState? = startMode == .debug ? DebugState() : nil
-            if dbg != nil, let i = index(id), TaskList.allDone(conversations[i].tasks) { conversations[i].tasks = DebugState.tasks }
+            if dbg != nil, let i = index(id), TaskList.allDone(conversations[i].tasks) { setTasks(id, DebugState.tasks) }
             for _ in 0..<maxSteps {
                 guard let i0 = index(id) else { break }
                 // Steer: messages typed during the run join it here, after the last step's tool results.
@@ -856,7 +892,7 @@ final class ChatStore {
                 conversations[j].messages[k].toolCalls = calls
                 if dbg != nil {
                     dbg?.saw(conversations[j].messages[k].content)
-                    if let ticked = dbg?.tick(conversations[j].tasks) { conversations[j].tasks = ticked }
+                    if let ticked = dbg?.tick(conversations[j].tasks) { setTasks(id, ticked) }
                 }
                 // Finished, but you typed something meanwhile: carry on with it rather than ending the run.
                 if calls.isEmpty, queued[id]?.isEmpty == false { continue }
@@ -875,6 +911,11 @@ final class ChatStore {
                     if let d = dbg, d.edited, !d.confirmed { chips.append(DebugState.unconfirmedChip) }
                     if !chips.isEmpty {
                         conversations[j].messages[k].usedContext = (conversations[j].messages[k].usedContext ?? []) + chips
+                    }
+                    // Plan mode: the plan is saved as a Markdown file, shown as a card on the reply.
+                    if planMode, conversations[j].messages[k].plan == nil,
+                       let card = savePlanFile(id, reply: conversations[j].messages[k].content, request: requestText, project: project) {
+                        conversations[j].messages[k].plan = card
                     }
                     // Max: a read-only helper reviews what changed, and its notes are shown.
                     if effort.review, !changedFiles.isEmpty, !Task.isCancelled {
@@ -965,7 +1006,7 @@ final class ChatStore {
                     tracker.record(call, succeeded: allowed && ran)
                     if allowed && ran, dbg != nil {
                         dbg?.record(call.name)
-                        if let jt = index(id), let ticked = dbg?.tick(conversations[jt].tasks) { conversations[jt].tasks = ticked }
+                        if let jt = index(id), let ticked = dbg?.tick(conversations[jt].tasks) { setTasks(id, ticked) }
                     }
                     let autoNote: String? = autoApproved.removeValue(forKey: id)
                     // High/Max: the first file change brings in the project's check command (unless a command's
@@ -1115,7 +1156,7 @@ final class ChatStore {
             switch TaskList.parse(call) {
             case .failure(let e): return e.message
             case .success(let list):
-                if let i = index(id) { conversations[i].tasks = list }
+                setTasks(id, list)
                 return TaskList.result(list)
             }
         case "chat_list", "chat_search", "chat_read":

@@ -38,6 +38,7 @@ import {
   tasksTool, type TaskItem,
 } from '../tools/tasks';
 import { insertQueued, SteerQueue, steerText } from './steer';
+import { planFromReply, plansDir, readPlanFile, savePlan, tasksFromPlanFile, tickPlanFile } from '../tools/planFiles';
 import {
   autoApproval, DEBUG_UNCONFIRMED_CHIP, debugFinishNudge, debugRecord, debugRefusal, debugSaw, debugTasks, debugTick, isWorkMode, modeOf,
   MODES, newDebugState, WORK_MODES, type DebugState, type WorkMode,
@@ -484,6 +485,8 @@ export class ChatEngine implements vscode.Disposable {
         case 'runChanges': return await this.showRunChanges(msg.id);
         case 'showRunDiff': return await this.showRunDiff(msg.id, msg.path);
         case 'openFile': return await this.openRunFile(msg.path);
+        case 'openPlan': return await this.openPlan(msg.file, false);
+        case 'editPlan': return await this.openPlan(msg.file, true);
         case 'draftCommit': return await this.draftCommit(msg.id);
         case 'commit': return await this.commitRun(msg.id, msg.message);
       }
@@ -1313,6 +1316,38 @@ export class ChatEngine implements vscode.Disposable {
     chat.tasks = list;
     this.store.saveSoon();
     this.postFor(chat.id, { type: 'tasks', tasks: list });
+    // The plan file follows the task list: steps ticked, status approved → done.
+    if (chat.planFile) {
+      tickPlanFile(chat.planFile, list, 'approved');
+      const status = readPlanFile(chat.planFile)?.status;
+      const card = chat.messages.find((m) => m.plan?.file === chat.planFile) as Stored | undefined;
+      if (card?.plan && status && card.plan.status !== status) {
+        card.plan.status = status;
+        this.postFor(chat.id, { type: 'messageUpdate', message: forUI(card) });
+      }
+    }
+  }
+
+  /** Saves a plan reply as a Markdown file and returns the card for it, or undefined (fewer than 2 steps, or no disk). */
+  private savePlanFile(chat: StoredChat, reply: string, request: string): Stored['plan'] {
+    const steps = tasksFromPlan(reply).map((t) => t.content);
+    if (steps.length < 2) return undefined;
+    try {
+      const file = savePlan(plansDir(workspaceRoot()), planFromReply(reply, steps, request, chat.id));
+      return { file, name: path.basename(file), status: 'draft' };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** One place that opens a plan file (task 39's previewer will take this over): Markdown preview, or the editor for Edit. */
+  private async openPlan(file: string, edit: boolean) {
+    const chat = this.current();
+    if (!chat.messages.some((m) => m.plan?.file === file)) return;
+    if (!fs.existsSync(file)) { this.post({ type: 'notice', text: `${path.basename(file)} no longer exists.` }); return; }
+    const uri = vscode.Uri.file(file);
+    if (edit) await vscode.window.showTextDocument(uri, { preview: false });
+    else await vscode.commands.executeCommand('markdown.showPreview', uri);
   }
 
   private postQueued(chatId: string) {
@@ -1343,7 +1378,14 @@ export class ChatEngine implements vscode.Disposable {
     const back = chat.modeBefore && chat.modeBefore !== 'plan' ? chat.modeBefore : 'ask';
     chat.modeBefore = undefined;
     this.setWorkMode(back);
-    const list = tasksFromPlan(m.content);
+    // The plan file, as you left it, is what runs.
+    const doc = m.plan?.file ? readPlanFile(m.plan.file) : undefined;
+    if (m.plan && doc) {
+      chat.planFile = m.plan.file;
+      m.plan.status = 'approved';
+      this.postFor(chat.id, { type: 'messageUpdate', message: forUI(m as Stored) });
+    }
+    const list = doc ? tasksFromPlanFile(doc) : tasksFromPlan(m.content);
     if (list.length) this.setTasks(chat, list);
     await this.send(PLAN_APPROVED, undefined, true);
   }
@@ -1473,6 +1515,7 @@ export class ChatEngine implements vscode.Disposable {
     // A finished task list goes when the next job starts; an unfinished one stays (e.g. "carry on" after Stop).
     if (chat.tasks && allDone(chat.tasks)) {
       chat.tasks = undefined;
+      chat.planFile = undefined;
       this.postFor(chatId, { type: 'tasks', tasks: [] });
     }
     this.postStatus();
@@ -1746,6 +1789,15 @@ export class ChatEngine implements vscode.Disposable {
           this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
           this.store.saveSoon();
         }
+        // Plan mode: the plan is saved as a Markdown file, shown as a card on the reply.
+        if (planMode && !reply.plan) {
+          const card = this.savePlanFile(chat, reply.content, lastUser?.content ?? '');
+          if (card) {
+            reply.plan = card;
+            this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
+            this.store.saveSoon();
+          }
+        }
         // Max: a read-only helper reviews what changed, and its notes are shown.
         if (spec.review && changedFiles.length && !signal.aborted) {
           await this.reviewChanges(chat, a, model, limit, vision, signal, active, lastText, changedFiles);
@@ -1956,7 +2008,18 @@ export class ChatEngine implements vscode.Disposable {
     if (signal.aborted) return false;
     // No plan, or a one-liner: carry on without a list rather than stopping the work.
     const list = tasksFromPlan(text);
-    if (list.length) this.setTasks(chat, list);
+    if (!list.length) return true;
+    // Saved as a plan file too (approved: Max goes straight on), with a card in the chat.
+    const request = [...chat.messages].reverse().find((m) => m.role === 'user' && !(m as Stored).hidden)?.content ?? '';
+    const card = this.savePlanFile(chat, text, request);
+    if (card) {
+      chat.planFile = card.file;
+      card.status = 'approved';
+      const note: Stored = { id: uid(), role: 'assistant', content: '', assistantName: _a.name, model: prettyModel(model), plan: card };
+      chat.messages.push(note);
+      this.postFor(chat.id, { type: 'messageAdd', message: forUI(note) });
+    }
+    this.setTasks(chat, list);
     return true;
   }
 

@@ -271,6 +271,9 @@ The Claude Code-style workflow (task 32). Mac: [`TaskList.swift`](../Sources/Ing
     `get_problems`) and a reply has stated the cause in a line starting "Cause:". After an edit, finishing without a
     later `run_command`/`get_problems` gets a hidden nudge (the same mechanism as commands, at most two), then the
     chip `⚠ fix not confirmed`. Max's plan step is skipped.
+- **Plan files.** A Plan-mode plan (≥ 2 steps) and Max's plan are saved as Markdown in `.ingle/plans/` (see
+  [ingle-home.md](ingle-home.md#plans)) and shown as a card (Open, Edit, Approve). Approve reads the file, so your
+  edits are what runs; `setTasks` ticks the file's checklist and status as the task list changes (`chat.planFile`).
 - **Steer while it works.** Sending while this chat's run is going queues the message (per chat: VS Code
   `SteerQueue` on `EngineShared`, Mac `ChatStore.queued`), shown above the message box with × to take it back. At
   the top of each step — after the previous step's tool results, never between a tool call and its results

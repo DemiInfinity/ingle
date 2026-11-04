@@ -265,10 +265,20 @@ extension ChatStore {
         // No plan, or a one-liner: carry on without a list rather than stopping the work.
         let body: String = ThinkSplitter.split(text, extra: "").body
         let list: [TaskItem] = TaskList.fromPlan(body)
-        if !list.isEmpty, let j = index(id) {
-            conversations[j].tasks = list
-            save()
+        guard !list.isEmpty, let j = index(id) else { return true }
+        // Saved as a plan file too (approved: Max goes straight on), with a card in the chat.
+        let conv: Conversation = conversations[j]
+        let request: String = conv.messages.last(where: { $0.isRealUser })?.content ?? ""
+        let project: String? = conv.codeFolder ?? ((conv.useEditor ?? true) ? EditorBridge.shared.freshContext?.workspace : nil)
+        if var card = savePlanFile(id, reply: body, request: request, project: project) {
+            card.status = "approved"
+            conversations[j].planFile = card.file
+            var note = ChatMessage(role: .assistant, content: "", model: model)
+            note.plan = card
+            conversations[j].messages.append(note)
         }
+        setTasks(id, list)
+        save()
         return true
     }
 

@@ -45,6 +45,12 @@ struct MessageRow: View {
                     if let onApprovePlan, !streaming { PlanApproveBar(approve: onApprovePlan) }
                     ChangesPanel(chat: chat, messageID: message.id, checkpoint: cp, busy: streaming, onUndo: onUndo)
                 }
+            } else if let plan = message.plan {
+                // A plan saved as a file: its card (with Approve in Plan mode) under the reply.
+                VStack(alignment: .leading, spacing: 10) {
+                    if !p.body.isEmpty || !p.thinking.isEmpty { assistant(p) }
+                    PlanCard(plan: plan, approve: streaming ? nil : onApprovePlan)
+                }
             } else if shown {
                 if let onApprovePlan, !streaming, !p.body.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {

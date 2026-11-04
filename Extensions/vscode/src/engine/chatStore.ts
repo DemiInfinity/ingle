@@ -36,6 +36,8 @@ export interface StoredChat {
   workMode?: WorkMode;
   /** The mode before Plan, to go back to after Approve. */
   modeBefore?: WorkMode;
+  /** The plan file the task list ticks (an approved plan, or Max's). */
+  planFile?: string;
 }
 
 export const NEW_TITLE = 'New chat';

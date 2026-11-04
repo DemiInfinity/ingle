@@ -322,3 +322,67 @@ test('Debug ticks its own task list as the steps happen (bug: it stayed 0/4 when
   assert.deepEqual(list.map((t) => t.status), ['done', 'done', 'done', 'done']);
   assert.equal(debugTick(s, [{ content: 'The model’s own list', status: 'pending' }]), undefined, 'a replaced list is left alone');
 });
+
+// MARK: plan files
+
+import { parsePlan, planFromReply, plansDir, renderPlan, savePlan, slug, tasksFromPlanFile, tickPlanFile, tickPlanText } from '../src/tools/planFiles';
+
+test('plan files: where they go and their names', () => {
+  assert.equal(plansDir('/work/proj', '/Users/me'), '/work/proj/.ingle/plans');
+  assert.equal(plansDir(undefined, '/Users/me'), '/Users/me/.ingle/plans');
+  assert.equal(slug('Add a subtract(a, b) function to calc.py!'), 'add-a-subtract-a-b-function');
+  assert.equal(slug('???'), 'plan');
+  const dir = path.join(tmp, 'plans');
+  const doc = planFromReply('x\n1. A\n2. B', ['A', 'B'], 'Do the thing', 'chat-1', new Date('2026-11-04T10:00:00Z'));
+  const a = savePlan(dir, doc, new Date('2026-11-04T10:00:00Z'));
+  const b = savePlan(dir, doc, new Date('2026-11-04T10:00:00Z'));
+  assert.equal(path.basename(a), '2026-11-04-do-the-thing.md');
+  assert.equal(path.basename(b), '2026-11-04-do-the-thing-2.md');
+});
+
+test('plan files: written from a plan reply and read back', () => {
+  const reply = 'I read calc.py.\n\nPlan:\n1. Add **subtract** to `calc.py`\n2. Write tests\n3. Update the README\n\nShall I go ahead?';
+  const steps = tasksFromPlan(reply).map((t) => t.content);
+  const doc = planFromReply(reply, steps, 'Add subtract, with tests.\nAnd docs.', 'chat-9', new Date('2026-11-04T10:00:00.123Z'));
+  const text = renderPlan(doc);
+  assert.match(text, /^---\ntitle: Add subtract, with tests\nstatus: draft\nchat: chat-9\ncreated: 2026-11-04T10:00:00Z\n---\n/);
+  assert.match(text, /## Steps\n\n- \[ \] Add subtract to calc.py\n- \[ \] Write tests\n- \[ \] Update the README\n/);
+  assert.match(text, /## Notes\n\nI read calc.py.\n\nPlan:\n\nShall I go ahead\?/);
+  const back = parsePlan(text);
+  assert.equal(back.title, 'Add subtract, with tests');
+  assert.equal(back.status, 'draft');
+  assert.equal(back.chat, 'chat-9');
+  assert.deepEqual(back.steps.map((s) => s.content), ['Add subtract to calc.py', 'Write tests', 'Update the README']);
+  assert.match(back.goal, /^Add subtract, with tests\.\nAnd docs\.$/);
+});
+
+test('plan files: Approve reads your edits, and steps are ticked in the file as they finish', () => {
+  // You edited the file: removed a step, added one, ticked one, added a note.
+  const edited = '---\ntitle: "Fix: the parser"\nstatus: draft\nchat: c\ncreated: x\n---\n\n# Fix: the parser\n\n## Goal\n\nFix it\n\n## Steps\n\n- [x] Read the parser\n- [ ] Add a failing test\n- [ ] Fix parse()\n\n## Notes\n\nKeep the old API.\n- [ ] not a step\n';
+  const doc = parsePlan(edited);
+  assert.equal(doc.title, 'Fix: the parser');
+  const tasks = tasksFromPlanFile(doc);
+  assert.deepEqual(tasks, [
+    { content: 'Read the parser', status: 'done' },
+    { content: 'Add a failing test', status: 'in_progress' },
+    { content: 'Fix parse()', status: 'pending' },
+  ]);
+  const approved = tickPlanText(edited, tasks, 'approved')!;
+  assert.match(approved, /\nstatus: approved\n/);
+  const later = tickPlanText(approved, [
+    { content: 'Read the parser', status: 'done' }, { content: 'Add a failing test', status: 'done' }, { content: 'Fix parse()', status: 'in_progress' },
+  ])!;
+  assert.match(later, /- \[x\] Add a failing test\n- \[ \] Fix parse\(\)/);
+  assert.match(later, /- \[ \] not a step/, 'only the Steps section is touched');
+  assert.match(later, /Keep the old API\./);
+  // The model's list has different wording/length: ticked by matching text only.
+  const done = tickPlanText(later, [{ content: 'fix parse()', status: 'done' }, { content: 'Something else', status: 'done' }])!;
+  assert.match(done, /- \[x\] Fix parse\(\)/);
+  assert.match(done, /\nstatus: done\n/, 'every step ticked → done');
+  assert.equal(tickPlanText(done, [{ content: 'fix parse()', status: 'done' }]), undefined, 'nothing changed');
+  const f = path.join(tmp, 'tick.md');
+  fs.writeFileSync(f, edited);
+  tickPlanFile(f, tasks, 'approved');
+  assert.match(fs.readFileSync(f, 'utf8'), /status: approved/);
+  tickPlanFile(path.join(tmp, 'missing.md'), tasks);  // no throw
+});

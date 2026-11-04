@@ -1176,3 +1176,10 @@ body.vscode-light .dot-connected { background: #1a7f37; }
 .pill-role { color: var(--muted); }
 .pill.mode-pill .chev { width: 10px; height: 10px; }
 .tool-auto { flex: none; padding: 0 6px; border-radius: 8px; font-size: 0.82em; background: var(--raised); color: var(--muted); }
+
+.plan-card { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 6px 8px 6px 10px; border-radius: 6px;
+  border: 1px solid var(--ember-line); background: var(--ember-soft); font-size: 0.92em; }
+.plan-ic .ic { width: 14px; height: 14px; color: var(--ember); }
+.plan-name { font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-status { padding: 0 6px; border-radius: 8px; background: var(--raised); color: var(--muted); font-size: 0.88em; }
+.plan-status.plan-approved { color: var(--ember); }

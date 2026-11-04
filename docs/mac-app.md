@@ -254,6 +254,7 @@ servers and the engine Ingle started are stopped.
 | [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
 | [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (with the mode badge), `ProjectPicker`, `ProjectChip` |
 | [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift) | 260 | `WorkMode` (Ask · Edit · Auto · Plan · Debug: labels, prompt lines, `riskyCommand`, `autoApproval`), `DebugState`, `ModeMenu`, `ModeBadge` — in step with `modes.ts` |
+| [`PlanFiles.swift`](../Sources/Ingle/PlanFiles.swift) | 260 | `PlanFiles` (plan Markdown files: path, render, parse, tick, `open`), `PlanRef`, `PlanCard` — in step with `planFiles.ts` |
 | [`TaskList.swift`](../Sources/Ingle/TaskList.swift) | 250 | `TaskItem`, `TaskList` (update_tasks parsing, prompt, plan → tasks, plan mode tools and wording, steering text), `TaskListView`, `PlanApproveBar` |
 | [`ChangesPanel.swift`](../Sources/Ingle/ChangesPanel.swift) | 420 | `GitCommit` (repo, diff, commit exactly a run's files), the `ChatStore` commit extension (`draftCommit`, `commitRun`), `ChangesPanel` (diffs, Open in editor, Undo, Commit) |
 | [`CodeTools.swift`](../Sources/Ingle/CodeTools.swift) | 450 | Code mode tools: `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map`; `Diagnostics` (error parsing), `CodeFiles` (project file list), `Glob` |

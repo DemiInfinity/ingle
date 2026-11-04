@@ -134,6 +134,7 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 | `approvePlan` | `id` | **Approve** under the plan reply |
 | `unqueue` | `id` | Take back a waiting steering message |
 | `runChanges` / `showRunDiff` / `openFile` | `id`, `path` | Changes panel: load the diffs, open VS Code's diff editor, open the file |
+| `openPlan` / `editPlan` | `file` | A plan card's **Open** (Markdown preview) and **Edit** (the file) |
 | `draftCommit` / `commit` | `id`, `message` | **Commit…** (draft) and **Commit** (after editing; asks for approval) |
 | `startEngine` | — | Start the engine now |
 | `openSettings` | — | Open `~/.ingle` |
@@ -464,6 +465,7 @@ open-source remote extensions); test them separately.
 | [`src/engine/diff.ts`](../Extensions/vscode/src/engine/diff.ts) | `DiffProvider` for `ingle-diff:` documents |
 | [`src/engine/modes.ts`](../Extensions/vscode/src/engine/modes.ts) | Work modes: table, `riskyCommand`, `autoApproval`, Debug state and nudges (pure, tested) |
 | [`src/engine/steer.ts`](../Extensions/vscode/src/engine/steer.ts) | `SteerQueue` (messages typed during a run, per chat), `canInsertNow`, `insertQueued`, `steerText` (pure, tested) |
+| [`src/tools/planFiles.ts`](../Extensions/vscode/src/tools/planFiles.ts) | Plan Markdown files: path, render, parse, tick (pure, tested); opened by `ChatEngine.openPlan` |
 | [`src/tools/tasks.ts`](../Extensions/vscode/src/tools/tasks.ts) | `update_tasks`: parsing, result text, prompt section, plan → tasks; plan mode filter, refusal and wording (pure, tested) |
 | [`src/tools/gitCommit.ts`](../Extensions/vscode/src/tools/gitCommit.ts) | Commit a run's files: repo, diff, message prompt and clean-up, `git add` + `git commit` of exactly those files (tested) |
 | [`src/tools/types.ts`](../Extensions/vscode/src/tools/types.ts) | `ToolDef`, `ToolContext`, `ToolResult`, `toOllama`, `str` |

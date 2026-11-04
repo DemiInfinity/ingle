@@ -35,6 +35,8 @@ export interface ChatMessage {
   checkpoint?: RunCheckpoint;
   /** A user message typed while a run was going: it joined the run at the model's next step. */
   steer?: boolean;
+  /** A plan saved as a Markdown file (tools/planFiles.ts): shown as a card with Open, Edit and (in Plan mode) Approve. */
+  plan?: { file: string; name: string; status: 'draft' | 'approved' | 'done' };
 }
 
 /** One item on the chat's task list (update_tasks; see tools/tasks.ts). */
@@ -202,5 +204,7 @@ export type FromWebview =
   | { type: 'runChanges'; id: string }                    // open the changes panel under reply `id`
   | { type: 'showRunDiff'; id: string; path: string }     // VS Code's diff editor for one file of that run
   | { type: 'openFile'; path: string }
+  | { type: 'openPlan'; file: string }                   // a plan file in the Markdown preview
+  | { type: 'editPlan'; file: string }                   // a plan file in the editor
   | { type: 'draftCommit'; id: string }
   | { type: 'commit'; id: string; message: string };

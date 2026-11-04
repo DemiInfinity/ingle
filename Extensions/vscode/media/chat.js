@@ -1254,9 +1254,10 @@
       e.planBar = h('div', { class: 'plan-bar', hidden: true },
         h('span', { class: 'plan-text', text: 'Plan mode · Approve to start the work with this plan as the task list, or reply to change it.' }),
         h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan' }, icon('check'), 'Approve'));
+      e.planCard = h('div', { class: 'plan-card', hidden: true });
       root.append(
         h('div', { class: 'msg-head' }, h('span', { class: 'avatar' }, mark()), e.who, e.model),
-        e.chips, e.thinking, e.dots, e.body, e.foot, e.planBar, e.undo);
+        e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
       e.out = h('pre', { class: 'tool-out', hidden: true, tabindex: '0' });
@@ -1375,9 +1376,11 @@
     setText(e.stats, statsText);
     e.stats.hidden = !statsText;
 
-    e.planBar.hidden = !(S.workMode === 'plan' && !S.streaming && m.id === info.lastAssistantId && !failed && !!p.body);
+    const canApprove = S.workMode === 'plan' && !S.streaming && m.id === info.lastAssistantId && !failed && !!p.body;
+    fillPlanCard(e, m, canApprove);
+    e.planBar.hidden = !canApprove || !!m.plan;
     fillUndo(e, m);
-    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint;
+    e.root.hidden = !body && !hasThinking && !live && !m.checkpoint && !m.plan;
   }
 
   const UNDO_VERB = { restore: 'Put back', remove: 'Remove', recreate: 'Bring back' };
@@ -1470,6 +1473,29 @@
       }
     }
     e.undo.replaceChildren(...kids);
+  }
+
+  const PLAN_STATUS = { draft: 'Draft', approved: 'Approved', done: 'Done' };
+
+  /** A plan saved as a Markdown file: its name and status, Open (preview), Edit (the file) and, in Plan mode, Approve
+   *  (which reads the file, so your edits are what runs). */
+  function fillPlanCard(e, m, canApprove) {
+    const pl = m.plan;
+    e.planCard.hidden = !pl;
+    if (!pl) { e.planKey = ''; return; }
+    const key = JSON.stringify([pl, canApprove && pl.status === 'draft']);
+    if (e.planKey === key) return;
+    e.planKey = key;
+    e.planCard.replaceChildren(
+      h('span', { class: 'plan-ic' }, icon('doc')),
+      h('span', { class: 'plan-name', text: pl.name, title: pl.file }),
+      h('span', { class: 'plan-status plan-' + pl.status, text: PLAN_STATUS[pl.status] || pl.status }),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn', type: 'button', 'data-act': 'plan-open', title: 'Open the plan (Markdown preview)' }, 'Open'),
+      h('button', { class: 'btn', type: 'button', 'data-act': 'plan-edit', title: 'Edit the plan file — Approve uses what the file says' }, icon('edit'), 'Edit'),
+      canApprove && pl.status === 'draft'
+        ? h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan', title: 'Start the work with this plan (read from the file) as the task list' }, icon('check'), 'Approve')
+        : null);
   }
 
   /** The task list, pinned under the latest reply: ticks as it goes. */
@@ -1689,6 +1715,8 @@
       c.phase = 'committing'; c.error = '';
       post({ type: 'commit', id, message: c.message });
       fill(e, m, liveInfo());
+    } else if (act === 'plan-open' || act === 'plan-edit') {
+      if (m.plan) post({ type: act === 'plan-open' ? 'openPlan' : 'editPlan', file: m.plan.file });
     } else if (act === 'approve-plan') {
       renderComposer();
       post({ type: 'approvePlan', id });

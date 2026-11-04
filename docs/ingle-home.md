@@ -15,11 +15,13 @@ Everything a user might want to read or edit by hand lives in **`~/.ingle`**, in
 ├── commands/            one .md per command (enforced)
 ├── memory/              one .md per subject + INDEX.md
 ├── research/            one .md per report + INDEX.md
+├── plans/               plans made in normal chats (Plan mode or Max effort), one .md each
 └── checkpoints/         originals of files changed by each run, for Undo this run (both apps; pruned)
 
 <your project>/.ingle/
 ├── rules/               project rules, shown as project/<name>
-└── commands/            project commands, shown as project/<name>
+├── commands/            project commands, shown as project/<name>
+└── plans/               plans made in Code chats (Mac) or in the workspace (VS Code), one .md each
 ```
 
 Path helpers: `IngleHome` in [`../Sources/Ingle/Extensions.swift`](../Sources/Ingle/Extensions.swift) and `paths` in
@@ -232,6 +234,49 @@ The same format as Claude Desktop and Cursor:
   `~/Library/Application Support/Claude/claude_desktop_config.json` without overwriting), **Reload**, per-server
   switches (stored in the Mac app's preferences and mirrored to `settings.json` as `mcpDisabled`).
 - How servers are started and used: [mac-app.md](mac-app.md#mcp-servers), [vscode-extension.md](vscode-extension.md#mcp).
+
+## `plans/`
+
+A plan made in **Plan** mode or by **Max** effort is saved as Markdown, so you can read it, edit it and keep it:
+`<project>/.ingle/plans/YYYY-MM-DD-<short-slug>.md` in a Mac Code chat (its folder) or in VS Code (the workspace
+folder), and `~/.ingle/plans/…` in a normal chat with no project. A name that's taken gets `-2`, `-3`…. Written and
+read by `PlanFiles` in [`../Sources/Ingle/PlanFiles.swift`](../Sources/Ingle/PlanFiles.swift) and
+[`../Extensions/vscode/src/tools/planFiles.ts`](../Extensions/vscode/src/tools/planFiles.ts) (same format; tested in
+`test/workflow.test.ts`, the Swift copy checked against the same output).
+
+```markdown
+---
+title: Add subtract, with tests
+status: draft          # draft → approved (Approve, or Max) → done (every step ticked)
+chat: 3F2A…            # the chat it came from
+created: 2026-11-04T10:00:00Z
+---
+
+# Add subtract, with tests
+
+## Goal
+
+The request, as you wrote it.
+
+## Steps
+
+- [ ] Add subtract to calc.py
+- [ ] Write tests
+
+## Notes
+
+Everything else the assistant said with the plan.
+```
+
+- The chat shows a **plan card** with the file name and status: **Open** (VS Code: the Markdown preview; Mac: the
+  default app, through `PlanFiles.open`, which the previewer in task 39 will take over), **Edit** (the file in
+  your editor) and, in Plan mode, **Approve**.
+- **Approve reads the file**, so what you changed there is what runs: its unticked steps become the task list (ticked
+  ones stay done), and `status` becomes `approved`.
+- As the task list moves on, Ingle ticks the steps in the file (`- [x]`, matched by position, or by text if the list
+  changed) and sets `status: done` when they're all ticked. Only the tick marks and the status line change; anything
+  else you wrote stays.
+- Ingle doesn't add `.ingle/plans/` to any `.gitignore`. Whether plans are committed with the project is your choice.
 
 ## `checkpoints/`
 
