@@ -16,6 +16,8 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
   `node --check Extensions/vscode/media/chat.js`, plus any tests the task adds.
 - Codable structs: new stored properties are optional. Follow the Swift pitfalls in `CLAUDE.md`.
 - Commit with `git commit -s` on your own branch. Don't push, don't merge, don't touch `local.env` or `private/`.
+- **Fix bugs you find.** Add a test that shows the bug where you can, fix it (in both apps if both have it), and
+  list it in your report. Only leave a bug if fixing it would clash with another task's files; say so.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
 ---
@@ -132,6 +134,57 @@ output. An unticked host or `user@1.2.3.4` is refused. With SSH off the tool is 
 `package.json` (settings contribution), `docs/vscode-extension.md`.
 **Done when.** It behaves the same as the Mac app, reading hosts from `settings.json` or the VS Code settings, and the
 type check passes. Add tests for host checking and quoting if task 2 has merged.
+
+---
+
+## Wave 2b — secrets store (after wave 2 merges; one task, both apps)
+
+### [ ] 28. Secrets store: the model uses secrets, but never sees them
+**Why.** Today memory refuses anything that looks like a password (`Memory.looksSecret`). But a password you type in
+chat still goes into the model's context and into saved chat history (`chats.json`, VS Code's chat storage), and there's
+nowhere safe to keep it. SSH, MCP servers and API calls all need secrets sooner or later.
+
+**Design.**
+- **Where secrets live.** The macOS **Keychain** (service `Ingle`, one generic-password item per secret, with a name
+  and a short description). Never in `~/.ingle`, chat history, memory, logs or `settings.json`. Only the *names* and
+  descriptions are listed in `~/.ingle/secrets.json` so both apps and the model know what exists.
+- **Catching secrets before they're sent.** Before a message is sent, the composer checks it with the same patterns
+  as `looksSecret`, plus known key formats (`ghp_`, `sk-`, `AKIA`, PEM blocks, long random strings) and phrases
+  like "my password is". If it finds one, it asks: **Save as secret / Send anyway / Cancel**. Save as secret stores the
+  value in the Keychain and replaces it in the message with `{{secret:name}}` *before* the message is stored or
+  sent. There's also a `/secret` command and **Settings → Secrets** (add, rename, describe, delete; the value is
+  shown only after Touch ID).
+- **How the model uses one.** It can call `secret_list` (names and descriptions only). There's **no tool that returns a
+  value.** To use one, it writes the placeholder in a tool argument, e.g.
+  `run_command: gh auth login --with-token <<< {{secret:github-token}}` or an MCP header.
+- **Approval every time.** Any tool call containing `{{secret:…}}` always shows the approval card with a clear
+  **"Uses secret: github-token"** line and where it goes (command, host, MCP server). There's no "Allow for This
+  Session" for secret use. Optionally require **Touch ID** too (Settings, on by default, via `LocalAuthentication`).
+  The value is read from the Keychain and substituted only *after* approval, at the moment the tool runs.
+- **Never echoed back.** Before tool output goes back to the model or into history, every occurrence of a secret's
+  value (and its base64 form) is replaced with `{{secret:name}}`. Commands are passed through environment variables
+  where possible (`INGLE_SECRET_GITHUB_TOKEN`) so the value doesn't appear in `ps` output.
+- **Writing a secret to a file** (`write_file`/`edit_file` with a placeholder) is allowed only with a warning on the
+  card: "This writes github-token to disk in plain text."
+- **VS Code.** The extension reads values through the Mac app over the editor bridge (`EditorBridge.swift`, token
+  auth), so the Mac app shows the approval and Touch ID. If the Mac app isn't running, it falls back to
+  `/usr/bin/security find-generic-password`, which shows macOS's own Keychain prompt; say so in the docs. It never caches
+  values.
+- **Prompt fact** (both apps): *"Never ask the user to type a password or key in chat. Use secret_list and
+  {{secret:name}} placeholders; the user approves each use. You can't read secret values."*
+
+**Files.** New `Sources/Ingle/Secrets.swift` (Keychain, detection, substitution, scrubbing), approvals in
+`ChatStore.swift` + `MacTools.approvalScope` (secret calls never get a session scope), composer in `ChatViews.swift`,
+approval card in `MessageViews.swift`, `SettingsViews.swift` (new Secrets tab), `EditorBridge.swift` (secret
+request endpoint), `Memory.swift` (point "Not saved" at the secrets store); new
+`Extensions/vscode/src/tools/secrets.ts`, `engine/chatEngine.ts` (approvals, output scrubbing), `media/chat.js`
+(composer check, card line), `shared/protocol.ts`, `engine/prompt.ts`, tests in `test/secrets.test.ts`; docs
+`docs/security-and-privacy.md`, `docs/ingle-home.md`, `PRIVACY.md`, `HelpTopics`.
+
+**Done when.** Typing "my GitHub token is ghp_…" offers Save as secret, and afterwards the token appears nowhere in chat
+history, memory or the model's context (check the raw request sent to Ollama). A command using
+`{{secret:github-token}}` needs approval (and Touch ID if on) every time and works. Output that prints the token
+shows the placeholder instead. Both apps behave the same.
 
 ---
 
