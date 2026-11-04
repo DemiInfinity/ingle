@@ -31,10 +31,10 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 
 | Round | Tasks | Starts when |
 |---|---|---|
-| A0 | 8 (unify commands), 33 (code intelligence MCP, new folder only) | now, alongside the secrets store (28) |
+| A0 | 8 (unify commands), 33 (code intelligence engine + MCP server, new folder only) | now, alongside the secrets store (28) |
 | A | 29 (effort), 30 (Code mode foundation) | 28 is merged |
 | B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
-| B2 | 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
+| B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
 | C | 9 (shared spec + `IngleCore`), 10 (benchmark), 11 (model picker) | round B is merged |
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
@@ -354,14 +354,22 @@ The harness can't make a small model cleverer, but it can stop it **missing thin
 file it skipped, half a log it never read. And when a job really is beyond it, Ingle should say so and help you get a
 second opinion, **only when needed**.
 
-### [ ] 33. Code intelligence MCP server (`ingle-code`) — can start any time (new folder only)
+**Decision (hybrid).** One analysis engine, used three ways: imported directly by the VS Code extension as built-in
+tools; run as a helper process by the Mac app, with its tools shown as built-in tools (normal names, no `mcp_call`
+step, no approval prompt for these read-only tools inside the workspace); and published as a standard MCP server for
+other apps. Why: small models struggle with the two-step `mcp_tools` → `mcp_call` route and with an approval on every
+call, and coverage checks (task 34) need to understand the results. A separate engine still means one
+implementation, crash isolation and use outside Ingle.
+
+### [ ] 33. Code intelligence engine + MCP server (`ingle-code`) — can start any time (new folder only)
 **Why.** Today the model finds code with text search and the repo map, and it misses things. Language servers
-already know every definition, reference and type error exactly. Wrapping them as an **MCP server** means both apps
-use it through their existing MCP clients, with no new agent-loop code. It also works in any other MCP client
-(Claude Desktop, Claude Code, Cursor).
+already know every definition, reference and type error exactly.
 **Design.**
-- A new Node/TypeScript package in `Extensions/mcp-code/`. MCP over stdio, written by hand like `MCPConnection`. No
-  runtime npm deps.
+- A new Node/TypeScript package in `Extensions/ingle-code/`, with **no runtime npm deps**, in two layers:
+  - `src/engine/`: a plain library with typed functions (`references()`, `impact()`, …) that the VS Code extension can
+    import directly;
+  - `src/mcp/`: a thin MCP-over-stdio server (written by hand like `MCPConnection`) that exposes the same functions,
+    plus `bin/ingle-code` to run it. The Mac app uses this same entry point as its helper process.
 - It **drives language servers that are already installed** over LSP: `sourcekit-lsp` (comes with Xcode/CLT),
   `typescript-language-server`/`tsserver`, `pyright`, `gopls`, `rust-analyzer`. It finds them on `PATH` and reports
   which languages are available. With no server for a language, it falls back to a fast symbol scan (`git grep` +
@@ -376,17 +384,35 @@ use it through their existing MCP clients, with no new agent-loop code. It also 
     change to this symbol could affect.
   - `diagnostics(paths?)`: compiler/type errors without a full build.
   - `read_exhaustively(path, question)`: for huge files and logs, walks the file in chunks and returns a structured
-    note for every chunk, so nothing is skipped (the model reads the notes, not 50,000 lines).
+    note for every chunk, so nothing is skipped (the model reads the notes, not 50,000 lines). The per-chunk notes come
+    from the local engine (`/api/generate` at `OLLAMA_HOST` or `localhost:11434`) with a small model, so it's still fully
+    local.
 - Output is short and capped, with "showing 40 of 212, ask for page 2". Small context windows come first.
-- Read-only. It never edits files.
-- Settings → Extensions gets a one-click **Add Ingle Code** that writes the entry to `~/.ingle/mcp.json`. Docs explain
-  installing a language server for each language.
-**Files.** `Extensions/mcp-code/**` (new, with its own `package.json`, `tsconfig.json` and `node:test` tests against
-small fixture projects), `SettingsViews.swift` (the add button only), `docs/ingle-code.md` (new),
-`docs/README.md`.
-**Done when.** In this repo, `references` for `approvalScope` finds every use in both the Swift and TypeScript code,
-`diagnostics` reports a deliberately broken file, and Ember using it in Ingle answers "what calls `runSubAgent`?"
-correctly and completely.
+- Read-only. It never edits files. It keeps language servers warm per workspace and shuts them down when idle.
+- Tool names, arguments and output format are written down in `Extensions/ingle-code/TOOLS.md`. Task 33b and the
+  Mac app follow it exactly.
+**Files.** `Extensions/ingle-code/**` only (its own `package.json`, `tsconfig.json`, `node:test` tests against small
+fixture projects in Swift and TypeScript, `TOOLS.md`, `README.md` with MCP set-up for Claude Code/Desktop/Cursor),
+plus `docs/ingle-code.md` (new) and one line in `docs/README.md`.
+**Done when.** Run as an MCP server on this repo, `references` for `approvalScope` finds every use in both the
+Swift and TypeScript code, `diagnostics` reports a deliberately broken file, and results say exact/approximate
+correctly when a language server is missing.
+
+### [ ] 33b. Built-in code intelligence in both apps (after 33 and round B; with 34)
+**Do.**
+- **VS Code:** import `ingle-code`'s engine and register its tools as normal `ToolDef`s (`references`, `impact`,
+  …), offered in coding requests by `toolSelection.ts`. Inside the workspace they don't need approval (read-only).
+- **Mac app (Code mode):** start `ingle-code` as a helper process per project (Node found on `PATH` or the usual
+  Homebrew/nvm places) and talk to it with the existing MCP client code, but **register its tools as built-in tools**
+  in Code mode: normal names, no `mcp_call`, no approval inside the project. If Node isn't found, fall back to
+  `search_code`/repo map and say once, plainly, that analysis is approximate and installing Node turns on exact results.
+- The tools feed task 34 (coverage) and task 35 (relevant code for the brief).
+- Prompt facts + `HelpTopics` + docs say when to use `impact` before changing shared code.
+**Files.** `Extensions/vscode/src/tools/codeintel.ts` (new), `tools/index.ts`, `toolSelection.ts`,
+`package.json` (bundle `ingle-code` into the `.vsix`), new `Sources/Ingle/CodeIntel.swift`, `Tools.swift`
+(registration), `ToolSelection.swift`, `docs/ingle-code.md`.
+**Done when.** In both apps, "what calls `runSubAgent`?" in a Code chat is answered completely with no approval
+prompts, and the same answer comes from Claude Code using `ingle-code` as an MCP server.
 
 ### [ ] 34. Coverage checks: the harness notices what was missed (both apps; after round B)
 **Why.** Having `impact` isn't enough if the model ignores half the list. This is the obedience-layer idea applied to

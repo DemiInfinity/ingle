@@ -21,7 +21,11 @@ struct ChatRoot: View {
         .toolbarBackground(Ember.bg, for: .windowToolbar)
         .tint(Ember.accent)
         .preferredColorScheme(.dark)
-        .onAppear { AppActions.openChat = { openWindow(id: "chat") } }
+        .onAppear {
+            AppActions.openChat = { openWindow(id: "chat") }
+            // Opening the window starts on a blank new chat (an empty one is reused, e.g. an editor request).
+            store.newChat()
+        }
     }
 }
 

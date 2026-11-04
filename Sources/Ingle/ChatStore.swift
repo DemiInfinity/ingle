@@ -126,7 +126,9 @@ final class ChatStore {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("chats.json")
         load()
-        if conversations.isEmpty { newChat() } else { selection = conversations.first?.id }
+        // Open on a blank new chat, like starting fresh; empty chats from before aren't kept.
+        conversations.removeAll { $0.messages.isEmpty }
+        newChat()
         ChatStore.current = self
     }
 
@@ -163,7 +165,9 @@ final class ChatStore {
     func index(_ id: Conversation.ID) -> Int? { conversations.firstIndex { $0.id == id } }
 
     var sections: [ChatSection] {
-        let list = search.isEmpty ? conversations : conversations.filter { c in
+        // A new chat appears in the list once it has a message.
+        let started: [Conversation] = conversations.filter { !$0.messages.isEmpty }
+        let list = search.isEmpty ? started : started.filter { c in
             c.title.localizedCaseInsensitiveContains(search) ||
             c.messages.contains { $0.content.localizedCaseInsensitiveContains(search) }
         }
@@ -1011,7 +1015,8 @@ final class ChatStore {
     }
 
     func save() {
-        guard let data = try? JSONEncoder().encode(conversations) else { return }
+        let started: [Conversation] = conversations.filter { !$0.messages.isEmpty }
+        guard let data = try? JSONEncoder().encode(started) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 }
