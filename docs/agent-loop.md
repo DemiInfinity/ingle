@@ -396,7 +396,8 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
 - `num_ctx` = the assistant's context length (default 32,768; per assistant in Settings → Models).
 - For any model whose tag contains `qwen3`, the Qwen model cards' presets:
   - thinking: `temperature 0.6`, `top_p 0.95`, `top_k 20`, `min_p 0`;
-  - not thinking: `temperature 0.7`, `top_p 0.8`, `top_k 20`, `min_p 0`, `presence_penalty 1.5`.
+  - not thinking: `temperature 0.7`, `top_p 0.8`, `top_k 20`, `min_p 0`.
+- Both presets also set `presence_penalty 1.5` to discourage repetition, including loops in the thinking stream.
 
 Other models get Ollama's defaults (plus `num_ctx`). Note that Ollama's Go runner has been reported to accept and
 silently ignore the penalty options (ollama/ollama#14493), which is one reason the app-side repeat guard exists —
