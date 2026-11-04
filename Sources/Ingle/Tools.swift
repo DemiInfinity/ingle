@@ -56,7 +56,7 @@ enum MacTools {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let folders = Prefs.workspaceFolders.joined(separator: ", ")
         return """
-        Mac access is on: you are running locally on the user's Mac (macOS, zsh, home folder \(home)).
+        You can use the user's Mac: you are running locally on the user's Mac (macOS, zsh, home folder \(home)).
         You have tools to look at and act on this Mac. Their workspace folders are: \(folders).
         Rules:
         - Look before you act: list or read files before changing them.

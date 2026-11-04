@@ -77,6 +77,11 @@
         "command": "ingle.about",
         "title": "About Ingle (credits and licence)",
         "category": "Ingle"
+      },
+      {
+        "command": "ingle.forgetApprovals",
+        "title": "Ask Before Every Action Again",
+        "category": "Ingle"
       }
     ],
     "menus": {

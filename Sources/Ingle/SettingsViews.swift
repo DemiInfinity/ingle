@@ -533,7 +533,7 @@ struct MacAccessSettings: View {
     var body: some View {
         EmberForm {
             Section {
-                Text("Turn on Mac access in a chat to let the model look at your files and, with your OK, run commands, write files and open apps.")
+                Text("The assistant can always look at files in these folders, and use your Mac and Terminal — but it asks you before every command, file change or app it opens (or once per session if you choose “Allow for This Session”).")
                     .font(.system(size: 12))
                     .foregroundStyle(Ember.secondary)
             }
@@ -816,7 +816,7 @@ struct ExtensionsSettings: View {
             } header: {
                 Text("MCP servers")
             } footer: {
-                Text("Ingle’s servers live in ~/.ingle/mcp.json (same format as Claude Desktop and Cursor). Servers from ~/.cursor/mcp.json and ~/.claude.json show up too. Tools are offered when Mac access is on, and every call asks for your approval.")
+                Text("Ingle’s servers live in ~/.ingle/mcp.json (same format as Claude Desktop and Cursor). Servers from ~/.cursor/mcp.json and ~/.claude.json show up too. The assistant can use them in any chat; each call asks you first.")
                     .font(.system(size: 11)).foregroundStyle(Ember.secondary)
             }
         }
@@ -833,7 +833,7 @@ private struct MCPServerRow: View {
 
     private var statusText: String {
         switch mcp.status[server.name] ?? .stopped {
-        case .stopped: return "Starts when a chat with Mac access needs it"
+        case .stopped: return "Starts when a chat needs it"
         case .starting: return "Starting…"
         case .running(let n): return "Running · \(n) tool\(n == 1 ? "" : "s")"
         case .failed(let message): return "Couldn’t start: \(message)"

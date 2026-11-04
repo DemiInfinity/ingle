@@ -109,7 +109,8 @@ final class ChatStore {
 
     private var task: Task<Void, Never>?
     private var approval: CheckedContinuation<Bool, Never>?
-    private var alwaysAllow: [Conversation.ID: Set<String>] = [:]
+    /// Kinds of action the user allowed for this session ("Allow for This Session"), until Ingle quits.
+    private(set) var sessionAllowed: Set<String> = []
     private var visionCache: [String: Bool] = [:]
     /// Images produced by the last tool call (read_file on an image), attached to its tool message.
     private var lastToolImages: [String] = []
@@ -292,7 +293,7 @@ final class ChatStore {
 
     func resolve(_ allow: Bool, always: Bool = false) {
         if always, let p = pending {
-            alwaysAllow[p.conversation, default: []].insert(p.call.name)
+            sessionAllowed.insert(p.call.name)
         }
         approval?.resume(returning: allow)
         approval = nil
@@ -300,14 +301,17 @@ final class ChatStore {
     }
 
     private func requestApproval(_ id: Conversation.ID, _ call: ToolCall, _ info: MacTools.Info) async -> Bool {
-        if alwaysAllow[id]?.contains(call.name) == true { return true }
+        if sessionAllowed.contains(call.name) { return true }
         return await withCheckedContinuation { continuation in
             approval = continuation
             pending = PendingApproval(conversation: id, call: call, info: info)
         }
     }
 
-    // MARK: The generation loop (with tool use when Mac access is on)
+    /// Ask again for everything allowed this session.
+    func forgetSessionApprovals() { sessionAllowed.removeAll() }
+
+    // MARK: The generation loop
 
     private func generate(in id: Conversation.ID) {
         streamingID = id
@@ -418,7 +422,7 @@ final class ChatStore {
                 if let persona = Persona.systemPrompt(for: model, web: conv.webOn) { system.append(persona) }
                 if let block = CommandStore.promptBlock(tracker.commands) { system.append(block) }
                 // Only the short INGLE.md index goes in; details load on demand through tools.
-                system.append(IngleManifest.refresh(macAccess: conv.macAccess, project: project, web: conv.webOn, currentChat: id))
+                system.append(IngleManifest.refresh(macAccess: true, project: project, web: conv.webOn, currentChat: id))
                 if let editor {
                     system.append(editor.promptSection)
                     if let projectRules = editor.projectInstructions { system.append(projectRules) }
@@ -447,14 +451,14 @@ final class ChatStore {
                 if lastText.contains("skill") || lastText.contains("rule") { tools += KnowledgeTools.builderDefinitions }
                 if !SkillStore.all().isEmpty { tools.append(SkillStore.toolDefinition) }
                 if RuleStore.all(project: project).contains(where: { !$0.always }) { tools.append(RuleStore.toolDefinition) }
-                if conv.macAccess {
+                do {   // The Mac and Terminal are always available; every change asks first.
                     system.append(MacTools.systemPrompt)
                     tools += MacTools.definitions
                     if !MCPManager.shared.servers.isEmpty { tools += MacTools.mcpTools }
                 }
                 tools = ToolSelection.filter(tools, lastUserText: lastText)
                 if lastText.contains("command") { tools.append(CommandStore.toolDefinition) }
-                // Commands: tools they require are always offered (MCP even with Mac access off — still approved
+                // Commands: tools they require are always offered (still approved
                 // per call); tools they ban are taken away.
                 let have = Set(tools.map(ToolSelection.name))
                 for def in Self.toolPool where tracker.requiredTools.contains(ToolSelection.name(def)) && !have.contains(ToolSelection.name(def)) {
@@ -588,7 +592,7 @@ final class ChatStore {
                     lastToolImages = []
                     if allowed {
                         activity = info.title + "…"
-                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess)
+                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: true)
                         activity = nil
                     }
                     tracker.record(call, succeeded: allowed)
@@ -748,7 +752,7 @@ final class ChatStore {
                 if !KnowledgeTools.subAgentAllowed.contains(c.name) {
                     result = "Helpers can only read, so that tool isn't available."
                 } else if (c.name == "list_files" || c.name == "read_file") && (!mac || !Prefs.inWorkspace(c.arg("path"))) {
-                    result = mac ? "Helpers can only read inside the workspace folders." : "Mac access is off."
+                    result = "Helpers can only read inside the workspace folders."
                 } else if c.name.hasPrefix("chat_") {
                     result = chatTool(c, excluding: parent)
                 } else {
@@ -769,7 +773,7 @@ final class ChatStore {
         let text = error.localizedDescription
         let lower = text.lowercased()
         if lower.contains("not found") { return "That model isn’t downloaded yet. Use Download Models in Settings → Models." }
-        if lower.contains("does not support tools") { return "This model can’t use Mac access. Switch to Daily coding or turn Mac access off." }
+        if lower.contains("does not support tools") { return "This model can’t use tools, so it can only chat. Switch to Daily coding or Hard jobs." }
         return "Something went wrong: \(text)"
     }
 

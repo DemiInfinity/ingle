@@ -227,6 +227,8 @@ export class EngineShared implements vscode.Disposable {
   readonly matcher = new Matcher();
   readonly diff = new DiffProvider();
   readonly visionCache = new Map<string, boolean>();
+  /** Kinds of action allowed for this session ("Allow for this session"), shared by every Ingle tab until VS Code closes. */
+  readonly sessionAllowed = new Set<string>();
   readonly engines = new Set<ChatEngine>();
   private readonly registration: vscode.Disposable;
 
@@ -271,7 +273,6 @@ export class ChatEngine implements vscode.Disposable {
   private generating?: { chatId: string; abort: AbortController };
   private activity: string | null = null;
   private pending?: PendingApproval;
-  private readonly alwaysAllow = new Map<string, Set<string>>();
   private readonly visionCache: Map<string, boolean>;
   private pendingPrefill?: string;
   private contextTimer?: NodeJS.Timeout;
@@ -488,7 +489,6 @@ export class ChatEngine implements vscode.Disposable {
   private deleteChat(id: string) {
     if (this.generating?.chatId === id) this.stop();
     this.store.delete(id);
-    this.alwaysAllow.delete(id);
     if (id === this.currentId) {
       const next = this.store.summaries()[0];
       if (next) this.currentId = next.id;
@@ -825,7 +825,7 @@ export class ChatEngine implements vscode.Disposable {
 
   private requestApproval(chatId: string, toolName: string, args: ToolArgs, req: Omit<ApprovalRequest, 'id'>, isSub: boolean, signal: AbortSignal): Promise<'allow' | 'deny'> {
     if (signal.aborted) return Promise.resolve('deny');
-    if (this.alwaysAllow.get(chatId)?.has(toolName)) return Promise.resolve('allow');
+    if (this.shared.sessionAllowed.has(toolName)) return Promise.resolve('allow');
     if (this.pending) this.pending.resolve('deny'); // only one card at a time
     const request: ApprovalRequest = { ...req, id: uid(), title: isSub ? 'Helper: ' + req.title : req.title };
     return new Promise((resolve) => {
@@ -851,9 +851,7 @@ export class ChatEngine implements vscode.Disposable {
     const p = this.pending;
     if (!p || p.id !== id) return;
     if (decision === 'always') {
-      const set = this.alwaysAllow.get(p.chatId) ?? new Set<string>();
-      set.add(p.toolName);
-      this.alwaysAllow.set(p.chatId, set);
+      this.shared.sessionAllowed.add(p.toolName);
     }
     p.resolve(decision === 'deny' ? 'deny' : 'allow');
   }

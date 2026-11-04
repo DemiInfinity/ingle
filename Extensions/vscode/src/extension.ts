@@ -122,6 +122,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('ingle.newTab', () => { tabs.openNew(); }),
     vscode.commands.registerCommand('ingle.focus', () => tabs.reveal()),
     vscode.commands.registerCommand('ingle.popOut', () => tabs.popOut()),
+    vscode.commands.registerCommand('ingle.forgetApprovals', () => {
+      const n = tabs.forgetApprovals();
+      void vscode.window.showInformationMessage(n ? `Ingle will ask before every action again (cleared ${n}).` : 'Nothing was allowed for this session.');
+    }),
     vscode.commands.registerCommand('ingle.newChat', async () => {
       const engine = await tabs.reveal();
       await engine.handle({ type: 'newChat' });

@@ -1091,7 +1091,7 @@
     if (preview) { preview.tabIndex = 0; preview.setAttribute('aria-label', 'Preview'); }
 
     const allow = h('button', { class: 'btn primary', type: 'button', onclick: () => decide('allow'), onkeydown: noEnter }, 'Allow');
-    const always = h('button', { class: 'btn', type: 'button', onclick: () => decide('always'), onkeydown: noEnter }, 'Always allow in this chat');
+    const always = h('button', { class: 'btn', type: 'button', onclick: () => decide('always'), onkeydown: noEnter }, 'Allow for this session');
     const deny = h('button', { class: 'btn', type: 'button', onclick: () => decide('deny') }, 'Deny');
     const diff = a.canShowDiff
       ? h('button', { class: 'btn ghost', type: 'button', onclick: () => post({ type: 'showDiff', id: a.id }) }, icon('diff'), 'View Diff')

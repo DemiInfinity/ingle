@@ -312,16 +312,19 @@ struct ChatDetail: View {
                     .toggleStyle(PillToggleStyle())
                     .help("Let the assistant search and read web pages (read-only: no logins, forms or your local network)")
 
-                    Toggle(isOn: Binding(get: { conversation.macAccess }, set: { store.setMacAccess($0) })) {
-                        Label("Mac", systemImage: "macbook")
-                    }
-                    .toggleStyle(PillToggleStyle())
-                    .help("Mac access: let the assistant look at files and, with your OK, run commands, write files and open apps")
-
                     Spacer(minLength: 8)
-                    Image(systemName: conversation.macAccess ? "hand.raised" : "lock")
+                    if !store.sessionAllowed.isEmpty {
+                        Button { store.forgetSessionApprovals() } label: {
+                            Label("\(store.sessionAllowed.count) allowed", systemImage: "checkmark.shield")
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Ember.warn)
+                        .help("Allowed for this session without asking: \(store.sessionAllowed.sorted().joined(separator: ", ")). Click to ask every time again.")
+                    }
+                    Image(systemName: "hand.raised")
                         .font(.system(size: 11))
-                        .help(conversation.macAccess ? "Changes to your Mac ask for approval first" : "Your files stay private: the assistant can't touch your Mac")
+                        .help("The assistant can use your Mac and Terminal, but asks before every command, file change or app it opens")
                     Button {
                         if streaming { store.stop() } else { send() }
                     } label: {
@@ -572,7 +575,8 @@ struct ApprovalCard: View {
                 Button("Deny") { store.resolve(false) }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Always Allow in This Chat") { store.resolve(true, always: true) }
+                Button("Allow for This Session") { store.resolve(true, always: true) }
+                    .help("Don’t ask again for this kind of action until Ingle quits")
                 Button("Allow") { store.resolve(true) }
                     .buttonStyle(.borderedProminent)
             }
@@ -602,7 +606,7 @@ struct EmptyChat: View {
         Prompt(title: "Explain this error", sub: "Paste a stack trace or log", text: "Explain this error and how to fix it:\n\n"),
         Prompt(title: "Write tests for a function", sub: "xUnit, Jest or pytest", text: "Write unit tests for this function:\n\n"),
         Prompt(title: "Review my SQL query", sub: "Spot slow joins and missing indexes", text: "Review this SQL query for performance:\n\n"),
-        Prompt(title: "Tidy my Downloads folder", sub: "Turn on Mac access first", text: "Look in ~/Downloads and suggest how to organise it. Don't move anything yet."),
+        Prompt(title: "Tidy my Downloads folder", sub: "Asks before changing anything", text: "Look in ~/Downloads and suggest how to organise it. Don't move anything yet."),
     ]
 
     var body: some View {

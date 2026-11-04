@@ -207,7 +207,7 @@ enum SkillStore {
         let extras = ((try? FileManager.default.contentsOfDirectory(atPath: skill.folder.path)) ?? [])
             .filter { $0 != "SKILL.md" && !$0.hasPrefix(".") }.sorted()
         if !extras.isEmpty {
-            out += "\n\nOther files in this skill (open them with read_file when Mac access is on):\n"
+            out += "\n\nOther files in this skill (open them with read_file):\n"
             out += extras.map { "- " + skill.folder.appendingPathComponent($0).path }.joined(separator: "\n")
         }
         return out

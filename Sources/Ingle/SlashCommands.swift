@@ -128,7 +128,7 @@ struct MCPSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("MCP servers").font(.system(size: 16, weight: .semibold)).foregroundStyle(Ember.text)
-                    Text("From ~/.ingle/mcp.json, plus Cursor and Claude Code’s configs. The assistant can use them when Mac access is on.")
+                    Text("From ~/.ingle/mcp.json, plus Cursor and Claude Code’s configs. The assistant can use them in any chat; each call asks you first.")
                         .font(.system(size: 12)).foregroundStyle(Ember.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -193,7 +193,7 @@ private struct MCPStatusRow: View {
     private var label: String {
         if !mcp.isEnabled(server.name) { return "Turned off" }
         switch status {
-        case .stopped: return "Not connected — connects when a chat with Mac access needs it"
+        case .stopped: return "Not connected — connects when a chat needs it"
         case .starting: return "Connecting…"
         case .running(let n): return "Connected · \(n) tool\(n == 1 ? "" : "s")"
         case .failed(let message): return "Couldn’t connect: \(message)"

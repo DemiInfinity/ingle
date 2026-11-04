@@ -173,7 +173,7 @@ enum KnowledgeTools {
 
     static let delegateDefinition: [String: Any] = MacTools.tool(
         "delegate",
-        "Hand a self-contained piece of work to a helper sub-agent that starts fresh and reports back. It can only read: web (if on), memory, reports, past chats, skills, rules, and files (if Mac access is on). Give it a complete, specific task.",
+        "Hand a self-contained piece of work to a helper sub-agent that starts fresh and reports back. It can only read: web (if on), memory, reports, past chats, skills, rules, and workspace files. Give it a complete, specific task.",
         ["task": MacTools.prop("Everything the helper needs: the goal, what to look at, and what to report back")],
         required: ["task"])
 

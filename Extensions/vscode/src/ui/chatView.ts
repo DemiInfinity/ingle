@@ -143,6 +143,13 @@ export class ChatPanels implements vscode.WebviewPanelSerializer, vscode.Disposa
     return tab;
   }
 
+  /** "Ingle: Ask Before Every Action Again" — clears everything allowed for this session. */
+  forgetApprovals(): number {
+    const n = this.shared.sessionAllowed.size;
+    this.shared.sessionAllowed.clear();
+    return n;
+  }
+
   dispose(): void {
     for (const t of [...this.tabs]) t.panel.dispose();
     this.shared.dispose();
