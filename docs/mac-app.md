@@ -62,8 +62,9 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
   grouped by project folder; right-click to delete), a status card, and the
   **This Mac** card (`SystemCard` in [`SystemMonitor.swift`](../Sources/Ingle/SystemMonitor.swift): CPU, memory,
   GPU utilisation from `IOAccelerator`, 80 s GPU sparkline).
-- **Message bar:** paperclip, model pill (`ModelMenu`), **Effort** (`EffortMenu`, ⌘⇧E cycles), **Web**, **Mac** (hidden
-  in Code mode), the "N allowed" badge, a hand icon explaining what asks first, Send/Stop. Above it: the editor chip
+- **Message bar:** paperclip, model pill (`ModelMenu`), **Effort** (`EffortMenu`, ⌘⇧E cycles), **Mode** (`ModeMenu`, ⇧Tab cycles), **Web**, **Mac** (hidden
+  in Code mode), the "N allowed" badge, a hand icon explaining what asks first, Send/Stop (while it works, Return
+  queues your message for the next step; the button stops). Above it: the editor chip
   (`EditorChip`) or, in Code mode, the project chip (`ProjectChip`), and the slash menu;
   below it: the context meter (`ContextMeter`) with **Compact**.
 - **Messages** ([`MessageViews.swift`](../Sources/Ingle/MessageViews.swift)): `MessageRow` renders user and
@@ -129,7 +130,19 @@ A chat can belong to a project folder, the way Claude Code works, while normal c
     `run_command`** and shares its session scope. `CodeTools.prepare` fills in the command before the card is shown;
     it is never taken from the model. Running it counts as running a `then_run`.
   - Read-only ones (`repo_map`, `find_files`, `search_code`) need no approval and are given to helpers too.
-- The task list / plan mode / changes panel come in task 32.
+- **Modes:** the **Mode** pill in the message bar (`ModeMenu` in [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift),
+  ⇧Tab cycles; `Conversation.workMode`), for every chat: Ask, Edit, Auto, Plan, Debug (see
+  [agent-loop.md](agent-loop.md#4b-task-list-plan-mode-and-steering)). `ModeBadge` next to Chat / Code shows it when
+  it isn't Ask. Auto-approval happens in `ChatStore.requestApproval` (`WorkMode.autoApproval`); in Plan the last
+  reply gets **Approve** (`PlanApproveBar`).
+- **Task list:** `update_tasks` ([`TaskList.swift`](../Sources/Ingle/TaskList.swift)), stored in
+  `Conversation.tasks`, shown by `TaskListView` pinned under the latest reply. Works in Chat mode too.
+- **Changes panel and Commit:** [`ChangesPanel.swift`](../Sources/Ingle/ChangesPanel.swift) under a run's last
+  reply: each file's diff (`DiffText`, Side by Side `SideBySideDiff`), Open in editor (VS Code if installed, else the
+  default app), Undo this run, Commit… (`GitCommit`: drafted by the chat's model, approved, `git add` + `git commit`
+  of exactly the run's files, never pushed; sign-off in Settings → Mac Access → Commit button, off by default).
+- **Steer while it works:** Return while a run is going queues the message (`ChatStore.queued`, shown above the
+  message box); it joins at the model's next step. See [agent-loop.md](agent-loop.md#4b-task-list-plan-mode-and-steering).
 
 ### Slash commands
 
@@ -234,12 +247,15 @@ servers and the engine Ingle started are stopped.
 | [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift) | 450 | `MessageRow`, `ThinkSplitter`, `TypingDots`, `CopyButton`, a small Markdown parser (`Markdown`, `MDBlock`, `MarkdownView`), `CodeBlock`, the approval card's diff (`ApprovalDiff`, `DiffText`, `SideBySideDiff`) |
 | [`Tools.swift`](../Sources/Ingle/Tools.swift) | 270 | `MacTools`: Terminal and Mac-control definitions, `ingle_help`, `mcp_tools`/`mcp_call`, prompts, `describe`, `needsApproval`, `run`, shell, AppleScript, `open` quoting |
 | [`ToolSelection.swift`](../Sources/Ingle/ToolSelection.swift) | 50 | Per-turn keyword filtering of optional tools |
-| [`Effort.swift`](../Sources/Ingle/Effort.swift) | 300 | `EffortLevel` (the effort table, kept in step with `effort.ts`), check-command detection, the built-in verify command, `OllamaThink`, Max's plan and review (`ChatStore` extension) |
+| [`Effort.swift`](../Sources/Ingle/Effort.swift) | 300 | `EffortLevel` (the effort table, kept in step with `effort.ts`), check-command detection, the built-in verify command, `OllamaThink`, Max's plan (into the task list) and review (`ChatStore` extension) |
 | [`Commands.swift`](../Sources/Ingle/Commands.swift) | 230 | `IngleCommand`, `CommandStore` (load, prompt block, index, enable, create), `CommandTracker` |
 | [`Prefs.swift`](../Sources/Ingle/Prefs.swift) | 320 | `Prefs` keys and defaults, `Persona` (defaults and `systemPrompt`), `ModelNames`, `ModelProfiles`, `Companion` |
 | [`Manifest.swift`](../Sources/Ingle/Manifest.swift) | 170 | `IngleManifest` (`INGLE.md`), `HelpTopics` |
 | [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
-| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 150 | Code mode views: `ModeSwitch`, `ProjectPicker`, `ProjectChip` |
+| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (with the mode badge), `ProjectPicker`, `ProjectChip` |
+| [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift) | 260 | `WorkMode` (Ask · Edit · Auto · Plan · Debug: labels, prompt lines, `riskyCommand`, `autoApproval`), `DebugState`, `ModeMenu`, `ModeBadge` — in step with `modes.ts` |
+| [`TaskList.swift`](../Sources/Ingle/TaskList.swift) | 250 | `TaskItem`, `TaskList` (update_tasks parsing, prompt, plan → tasks, plan mode tools and wording, steering text), `TaskListView`, `PlanApproveBar` |
+| [`ChangesPanel.swift`](../Sources/Ingle/ChangesPanel.swift) | 420 | `GitCommit` (repo, diff, commit exactly a run's files), the `ChatStore` commit extension (`draftCommit`, `commitRun`), `ChangesPanel` (diffs, Open in editor, Undo, Commit) |
 | [`CodeTools.swift`](../Sources/Ingle/CodeTools.swift) | 450 | Code mode tools: `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map`; `Diagnostics` (error parsing), `CodeFiles` (project file list), `Glob` |
 | [`RepoMap.swift`](../Sources/Ingle/RepoMap.swift) | 230 | Repo map: symbol extraction, ranking, budgeted outline (port of `repomap.ts`) |
 | [`EditMatch.swift`](../Sources/Ingle/EditMatch.swift) | 290 | `EditMatch` (edit_file matching, port of `editmatch.ts`), `LineDiff` (unified diff and stats, port of `diff.ts`) |

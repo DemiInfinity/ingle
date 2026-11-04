@@ -8,14 +8,18 @@ struct ModeSwitch: View {
     @Environment(ChatStore.self) private var store
 
     var body: some View {
-        Picker("Mode", selection: Binding(get: { store.current?.isCode ?? false }, set: { store.switchMode(code: $0) })) {
-            Text("Chat").tag(false)
-            Text("Code").tag(true)
+        HStack(spacing: 10) {
+            Picker("Mode", selection: Binding(get: { store.current?.isCode ?? false }, set: { store.switchMode(code: $0) })) {
+                Text("Chat").tag(false)
+                Text("Code").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 140)
+            .help("Chat for anything; Code to work on a project folder (⌘⇧C)")
+            // The chat's mode when it isn't Ask (Edit, Auto, Plan, Debug), so it's visible at a glance.
+            ModeBadge()
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 140)
-        .help("Chat for anything; Code to work on a project folder (⌘⇧C)")
     }
 }
 

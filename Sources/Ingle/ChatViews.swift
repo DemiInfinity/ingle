@@ -140,6 +140,13 @@ struct ChatDetail: View {
     @FocusState private var focused: Bool
 
     private var streaming: Bool { store.streamingID == conversation.id }
+    /// Plan mode: the last reply gets Approve (once it has finished).
+    private var approveTarget: ChatMessage.ID? {
+        guard conversation.workModeValue == .plan, !streaming,
+              let last = conversation.messages.last(where: { $0.role == .assistant && $0.compactedCount == nil }),
+              conversation.messages.last?.role == .assistant, !last.failed else { return nil }
+        return last.id
+    }
 
     /// The "/" menu's items for what's typed so far, or nil when it's closed.
     private var slashItems: [SlashItem]? {
@@ -162,7 +169,9 @@ struct ChatDetail: View {
     /// A Code chat still waiting for its folder.
     private var needsFolder: Bool { conversation.isCode && conversation.projectPath == nil }
     private var canSend: Bool {
-        !streaming && !needsFolder && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        // While it works, typing adds your message to the run at its next step (text only).
+        if streaming { return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty }
+        return !needsFolder && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
 
     var body: some View {
@@ -249,8 +258,14 @@ struct ChatDetail: View {
                                    isLast: m.id == conversation.messages.last?.id,
                                    streaming: streaming,
                                    onRegenerate: { store.regenerate() },
-                                   onUndo: { force in store.undoRun(m.id, force: force) })
+                                   onUndo: { force in store.undoRun(m.id, force: force) },
+                                   chat: conversation.id,
+                                   onApprovePlan: approveTarget == m.id ? { store.approvePlan(m.id) } : nil)
                             .id(m.id)
+                    }
+                    // The task list, pinned under the latest reply.
+                    if let tasks = conversation.tasks, !tasks.isEmpty {
+                        TaskListView(tasks: tasks, running: streaming)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -262,6 +277,7 @@ struct ChatDetail: View {
             }
             .onChange(of: conversation.messages.last?.content) { proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: conversation.messages.count) { proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: conversation.tasks) { proxy.scrollTo("bottom", anchor: .bottom) }
             .onChange(of: streaming) {
                 Task {
                     try? await Task.sleep(for: .milliseconds(80))
@@ -291,6 +307,29 @@ struct ChatDetail: View {
             if let items = slashItems {
                 SlashMenu(items: items, selected: min(slashIndex, max(0, items.count - 1)), pick: pickSlash)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            // Messages typed while it works: they join the run at its next step (× takes one back).
+            if let waiting = store.queued[conversation.id], !waiting.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(waiting) { q in
+                        HStack(spacing: 8) {
+                            Text("Next step:").foregroundStyle(Ember.secondary)
+                            Text(q.content).foregroundStyle(Ember.text).lineLimit(1).truncationMode(.tail)
+                            Spacer(minLength: 4)
+                            Button {
+                                store.unqueue(conversation.id, q.id)
+                                if draft.isEmpty { draft = q.content }
+                            } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                            .buttonStyle(.plain)
+                            .help("Take it back")
+                        }
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 12)
+                        .frame(height: 26)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+                    }
+                }
+                .frame(maxWidth: 720, alignment: .leading)
             }
             VStack(alignment: .leading, spacing: 10) {
                 if !attachments.isEmpty {
@@ -350,6 +389,12 @@ struct ChatDetail: View {
                         pickSlash(items[min(slashIndex, items.count - 1)])
                         return .handled
                     }
+                    // ⇧Tab cycles the mode (Ask → Edit → Auto → Plan → Debug).
+                    .onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")]) { press in
+                        guard press.modifiers.contains(.shift) || press.key == KeyEquivalent("\u{19}") else { return .ignored }
+                        store.cycleWorkMode()
+                        return .handled
+                    }
                     .onKeyPress(.escape) {
                         guard slashItems != nil else { return .ignored }
                         slashDismissed = true
@@ -374,6 +419,8 @@ struct ChatDetail: View {
                     Text(unreadable).foregroundStyle(Ember.accent)
                 } else if let notice = store.notice {
                     Label(notice, systemImage: "checkmark.circle").foregroundStyle(Ember.secondary)
+                } else if streaming {
+                    Text("Return adds your message at the next step · Stop ends the run")
                 } else {
                     Text("Return to send · ⌥Return for a new line · ⌘N new chat")
                 }
@@ -403,6 +450,7 @@ struct ChatDetail: View {
 
                 ModelMenu(conversation: conversation, compact: compact)
                 EffortMenu(conversation: conversation, compact: compact)
+                ModeMenu(conversation: conversation, compact: compact)
 
                 Toggle(isOn: Binding(get: { conversation.webOn }, set: { store.setWebAccess($0) })) {
                     Label("Web", systemImage: "globe")
@@ -439,6 +487,7 @@ struct ChatDetail: View {
                           ? "Terminal and Mac control are on — every command, file change and app action asks you first"
                           : "Terminal is available and asks before every command or file change. Switch on Mac to let it control apps and see your screen.")
                 Button {
+                    // While it works the button stops it; Return adds a typed message to the run instead.
                     if streaming { store.stop() } else { send() }
                 } label: {
                     Image(systemName: streaming ? "stop.fill" : "arrow.up")
@@ -473,7 +522,7 @@ struct ChatDetail: View {
 
     private func send() {
         guard canSend else { return }
-        if isHard && mm.state != .hard && !mm.confirmHardOnBattery() { return }
+        if !streaming && isHard && mm.state != .hard && !mm.confirmHardOnBattery() { return }
         // Looks like a password or key? Ask before it's stored or sent anywhere.
         let found: [DetectedSecret] = Secrets.detectWithNames(draft)
         if !found.isEmpty {

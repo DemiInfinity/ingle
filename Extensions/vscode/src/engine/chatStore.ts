@@ -2,8 +2,9 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { ChatMessage, ChatSummary } from '../shared/protocol';
+import type { ChatMessage, ChatSummary, TaskItem } from '../shared/protocol';
 import type { EffortLevel } from './effort';
+import type { WorkMode } from './modes';
 import type { RawToolCall } from './ollama';
 
 /** A message as saved: the UI shape plus what's needed to replay it to Ollama. */
@@ -29,6 +30,12 @@ export interface StoredChat {
   usage?: { used: number; limit: number };
   /** True once the model has summarised the first message into a short title. */
   autoTitled?: boolean;
+  /** The task list the model keeps with update_tasks (or an approved plan). */
+  tasks?: TaskItem[];
+  /** Work mode (the Mode pill): ask (default, also for old chats), edit, auto, plan, debug. See modes.ts. */
+  workMode?: WorkMode;
+  /** The mode before Plan, to go back to after Approve. */
+  modeBefore?: WorkMode;
 }
 
 export const NEW_TITLE = 'New chat';

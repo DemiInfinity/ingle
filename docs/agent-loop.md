@@ -73,7 +73,9 @@ Built fresh every step in `generate(in:)`:
 5. Code mode: `Project.promptSection` (folder, git branch and status, the project's rules files) and the
    `## Repo map`. Otherwise `editor.promptSection` and `editor.projectInstructions` — what you're working on, and the project's
    `AGENTS.md` / `CLAUDE.md` / `.cursorrules` (8,000 characters each).
-6. `## Effort` — the effort level's prompt line, if it has one (see [Effort and thinking](#7-effort-and-thinking)).
+6. `## Effort` — the effort level's prompt line, if it has one (see [Effort and thinking](#7-effort-and-thinking)),
+   then the Mode line (Edit, Auto, Debug, or `## Plan mode`) and `## Your task list` while the chat's list is unfinished
+   (see [Task list, plan mode and steering](#4b-task-list-plan-mode-and-steering)).
 7. `## Loaded for this request` — matched and forced rules, skills, memories and reports.
 8. `MemoryStore.systemPrompt` (if memory is on), `WebTools.systemPrompt` (if Web is on),
    `KnowledgeTools.systemPrompt`, `MacTools.systemPrompt` (Terminal rules), and `MacTools.controlPrompt`
@@ -92,7 +94,7 @@ Built fresh every step in `generate(in:)`:
 6. `## Loaded for this request` (memories, forced skills) and `## Possibly relevant` (suggested skills, rules, reports).
 7. `guidancePrompt` — how to work (read before editing, prefer small `edit_file` replacements, one tool at a
    time, don't retry denials, web and memory guidance).
-8. `## Effort` — the effort level's prompt line, if it has one.
+8. `## Effort` — the effort level's prompt line, if it has one; then the Mode line and `## Your task list` as on the Mac.
 9. `## Summary of earlier messages` — if compacted.
 
 ### Matching rules, skills, memory and reports
@@ -210,10 +212,10 @@ with its own id. Every file-changing tool calls `Checkpoints.snapshot(path:run:)
 just before it writes, so the first change to each file copies its original to `~/.ingle/checkpoints/<chat>/<run>/`
 (see [ingle-home.md](ingle-home.md#checkpoints)). Helpers are read-only, so they never snapshot. When the run ends
 (finished, stopped or failed), `finish(run)` records each file's new state, and if anything changed the run's last
-reply gets `checkpoint` (run id + what Undo would do per file). The chat shows **Undo this run · N files** under it;
-clicking opens a preview (Put back / Remove / Bring back per file, and "changes made by commands … can't be undone
-here") with **Undo**. If a file changed after the run, it says which and offers **Undo anyway**. For the changes
-panel (task 32) the API is `changes(run)` → `[path, before?, after?]` and `restore(run, force:)`.
+reply gets `checkpoint` (run id + what Undo would do per file). The chat shows the **changes panel** under it
+(see [below](#4b-task-list-plan-mode-and-steering)), built on `changes(run)` → `[path, before?, after?]`, with
+**Undo this run** (`restore(run, force:)`). If a file changed after the run, it says which and offers **Undo anyway**.
+Regenerate keeps a reply that carries a checkpoint as an empty stub, so the earlier run's panel and Undo stay.
 
 **Completion check (commands).** When a turn has no tool calls, every active command's requirements are checked
 against the calls made during this request. If something is missing, Ingle adds one hidden "nudge" message listing
@@ -224,6 +226,67 @@ nudges. Details in [commands.md](commands.md#how-enforcement-works).
 
 **Errors** are turned into plain sentences (`ChatStore.friendly`, `friendly()`): engine unreachable, model not
 downloaded, model can't use tools.
+
+## 4b. Task list, plan mode and steering
+
+The Claude Code-style workflow (task 32). Mac: [`TaskList.swift`](../Sources/Ingle/TaskList.swift),
+[`ChangesPanel.swift`](../Sources/Ingle/ChangesPanel.swift) and the loop in `ChatStore.generate`; VS Code:
+[`tools/tasks.ts`](../Extensions/vscode/src/tools/tasks.ts), [`engine/steer.ts`](../Extensions/vscode/src/engine/steer.ts),
+[`tools/gitCommit.ts`](../Extensions/vscode/src/tools/gitCommit.ts) and `ChatEngine.runLoop`. The pure parts are tested in
+`test/workflow.test.ts`.
+
+- **Task list (`update_tasks`).** `items: [{content, status: pending | in_progress | done}]`, the whole list each
+  time. Stored on the chat (`Conversation.tasks`, `StoredChat.tasks`), so it belongs to that chat's run. Parsing is
+  forgiving (JSON text, `completed`/`in progress`/…, plain strings), keeps 12 items at most and only one in progress.
+  The tool returns progress ("1/3 done. Now: …"). Offered from Medium up, always while a list is unfinished or in plan
+  mode; never to helpers. While unfinished, the list goes in the system prompt as `## Your task list` (`[x]`, `[>]`,
+  `[ ]`), so it survives compaction. It's shown pinned under the latest reply with ticks; a finished list is cleared
+  when the next run starts, an unfinished one stays (e.g. for "carry on" after Stop).
+- **Max's plan** asks for a numbered plan (no tools) as before, but the steps become the chat's task list
+  (`tasksFromPlan` / `TaskList.fromPlan`: the last numbered list in the reply, ≥ 2 steps) instead of a **Plan**
+  message. A one-line plan means no list. High's prompt line encourages a list for 3+ step jobs.
+- **Modes** (task 32's revision; Mac [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift), VS Code
+  [`engine/modes.ts`](../Extensions/vscode/src/engine/modes.ts), tested in `test/workflow.test.ts`; Swift parity
+  checked against the same cases). The **Mode** pill in the message bar, styled like Model and Effort, sets per chat
+  (`Conversation.workMode`, `StoredChat.workMode`, optional: old chats are Ask) what may happen without asking;
+  **⇧Tab** in the message box cycles it. The window (Mac toolbar) and the VS Code header show a badge when it isn't
+  Ask, and the mode's line goes in the prompt.
+  - **Ask** — as before: changes and commands each ask.
+  - **Edit** — `write_file`/`edit_file` inside the project (Code mode's folder, or the editor's workspace) are
+    approved automatically. Everything else asks as in Ask.
+  - **Auto** — as Edit, plus `run_command` (and the Mac's `get_problems`) running inside the project, unless
+    `riskyCommand` says why it must ask: sudo; `rm -r`/`-f`; `git push`, `reset --hard`, `clean`; network tools
+    (curl, wget, ssh, scp, rsync, nc…); package installs and publishes; `| sh`, `bash -c`, `eval`; system changes
+    (kill, launchctl, osascript, `defaults write`, chown…); any write or delete reaching a path outside the project;
+    any `{{secret:…}}`; a working folder outside the project. Secrets, MCP, SSH, Mac control, links and outside reads
+    always ask. An auto-approved call says **Auto approved** on its tool row (with the reason as a tooltip).
+  - **Plan** — tools are cut to reading and searching plus `update_tasks` and `delegate` (VS Code: `readOnly` tools;
+    Mac: `TaskList.planModeTools` — not `get_problems`, which runs the checks), and any other call, even one the
+    model names without being offered it, is refused ("Plan mode is on: you can only read and search…"). Max's plan
+    step is skipped. The last reply gets **Approve**: the chat goes back to the mode it had before Plan
+    (`modeBefore`, usually Ask), `tasksFromPlan(reply)` becomes the task list, and "Approved. Go ahead with the
+    plan…" is sent as your message. Replying instead keeps Plan, so the model revises the plan.
+  - **Debug** — the task list starts as Reproduce → Find the cause → Fix → Confirm. `debugRefusal` refuses
+    `edit_file`/`write_file` until the run has located the failure (any read, search, `run_command` or
+    `get_problems`) and a reply has stated the cause in a line starting "Cause:". After an edit, finishing without a
+    later `run_command`/`get_problems` gets a hidden nudge (the same mechanism as commands, at most two), then the
+    chip `⚠ fix not confirmed`. Max's plan step is skipped.
+- **Steer while it works.** Sending while this chat's run is going queues the message (per chat: VS Code
+  `SteerQueue` on `EngineShared`, Mac `ChatStore.queued`), shown above the message box with × to take it back. At
+  the top of each step — after the previous step's tool results, never between a tool call and its results
+  (`canInsertNow`) — queued messages join the chat as user messages marked `steer` ("Added while it was working");
+  the model sees them prefixed "(Sent while you were working — take it into account from here.)". If the model
+  finishes while something is queued, the loop carries on instead of ending. Stop still ends the run; anything still
+  queued goes back into the message box. Attachments and slash commands wait for the run to end.
+- **Changes panel.** Under the run's last reply: **Changes · N files**, each Edited / Created / Deleted with +/−
+  lines and its unified diff (Mac `DiffText`, Side by Side `SideBySideDiff`; VS Code inline, plus the diff editor),
+  **Open in editor** (Mac: VS Code if installed, else the default app), **Undo this run**, and **Commit…**.
+- **Commit.** Shown when every file of the run is in one git repository. The current model drafts a message from
+  `git diff HEAD` of just those files (new files in full), `think` off; you edit it. **Commit** asks for approval
+  (never for the session) showing `git add -A -- <files>` and `git commit [-s] -F <message> -- <files>`, then runs
+  them, so only the run's files are committed even if other changes are staged. It never pushes. Sign-off is off by
+  default (Mac: Settings → Mac Access → Commit button; VS Code: `ingle.commitSignOff`). The reply then shows
+  "Committed <hash>".
 
 ## 5. Compaction and fitting the context
 
@@ -281,10 +344,11 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
 | | Low | Medium | High | Max |
 |---|---|---|---|---|
 | Thinking (`think`) | off | on (`"low"` where the model takes levels) | on (`"medium"`) | on (`"high"`) |
-| `## Effort` prompt line | "Answer directly in as few steps as possible." | (none) | "Investigate before changing anything: read the related code, then check your work." | "Plan first, investigate fully, verify with the project's checks, then review your own changes before finishing." |
+| `## Effort` prompt line | "Answer directly in as few steps as possible." | (none) | "Investigate before changing anything: read the related code, then check your work. For a job of 3 or more steps, keep a task list with update_tasks." | "Plan first, investigate fully, verify with the project's checks, then review your own changes before finishing. Work through your task list and keep it current with update_tasks." |
 | Tool filtering | strict | normal | relaxed | relaxed |
 | Verify after editing | no | no | yes | yes |
-| Plan first | no | no | no | yes |
+| Plan first (into the task list) | no | no | no | yes |
+| `update_tasks` offered | only while a list is unfinished | yes | yes | yes |
 | Helper reviews the changes | no | no | no | yes |
 | Repeat / stuck guard | 3 / 4 | 3 / 4 | 4 / 6 | 4 / 6 |
 
@@ -315,8 +379,8 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
   `⚠ didn’t follow verify` if it never does. No check command found: the reply gets the chip
   `verify skipped: no check command found`. The command itself still asks for approval like any other.
 - **Plan (Max).** Before the first step, the model is asked (with the full system prompt, no tools) for a short
-  numbered plan; it's shown as its own message starting **Plan**, and stays in the history so the work starts from
-  it. If nothing comes back, the work goes ahead without one. (Task 32's task list will replace this.)
+  numbered plan; its steps become the chat's **task list** (shown live, and in the prompt as `## Your task list`).
+  A one-line plan or nothing back: the work goes ahead without a list. Skipped in plan mode.
 - **Review (Max).** When the request finishes and files changed, Ingle runs `git diff HEAD` on those files itself
   (read-only; new files are shown in full), and a read-only helper (`runSubAgent`) reviews it against the request.
   Its notes are shown as a message starting **Review**, with a `helper review` chip.
@@ -359,4 +423,8 @@ see [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md#2-local-models
 | **Nudges capped at 2** per command | Guaranteed compliance | Unlimited nudging can loop forever when a model can't or won't comply; two tries fix most cases, and the ⚠ chip makes the failure visible rather than silent. |
 | One **system message** rebuilt every step | Prompt caching across steps | Ollama keeps the KV cache for an identical prefix, so stable parts come first (persona, commands, index); volatile parts (matched context, summary) are near the end in VS Code. The Mac app puts the summary first, which can reduce cache reuse after compaction. |
 | **Same model** for helpers | Parallel helpers on a small model | Only one big model fits in memory on most Macs; loading a second would evict the first. |
+| **Auto** mode by a pattern list of risky commands | Sandboxing every command | A sandbox would block normal builds and tests; the list is short, readable and tested in both apps, and anything it doesn't recognise as risky still runs only inside the project folder. The cost: a cleverly disguised destructive command could slip through, so Auto is opt-in per chat and every auto-approved call is shown. |
+| Steering messages join **at the next step** | Interrupting a step mid-stream | A tool call and its results must stay together for the model API, and stopping a half-written reply wastes work. The cost: a long single step (a slow command) delays your message until it ends — press Stop if it can't wait. |
+| Plan mode by **tool filtering + refusal** | A separate planning model or prompt-only plan mode | Small models ignore "don't edit" in a prompt; taking the tools away (and refusing any that slip through) makes it reliable. |
+| Three agent loops in step (Mac Chat, Mac Code, VS Code) | One shared core | Porting the coding tools and the workflow to Swift means the same logic in two languages; the pure parts are tested in TypeScript and mirrored. Task 9's shared fixtures are what keeps that safe; longer term the loop could move into one shared core. |
 | Approximate token counting (chars/4) | Exact counts | Ollama has no cheap tokenise endpoint for every model; the 75%/90% margins absorb the error. |

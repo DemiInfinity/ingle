@@ -102,6 +102,12 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 | `slashItems` | `items` | Slash menu after `/skill-reload` |
 | `mcp` | `servers: MCPServerInfo[]` | Open the `/mcp` dialog |
 | `notice` | `text` | Short note under the composer (fades after ~4 s) |
+| `undoRefused` | `id`, `message`, `canForce` | Undo didn't happen (offer **Undo anyway** if allowed) |
+| `tasks` | `tasks: TaskItem[]` | The task list changed (pinned under the latest reply) |
+| `workMode` | `mode` | The chat's mode changed (e.g. back from Plan after Approve) |
+| `queued` | `items` | Steering messages still waiting for the next step |
+| `runChanges` | `id`, `files: RunChangeFile[]`, `repo?`, `noCommit?` | The changes panel's diffs, and whether Commit is possible |
+| `commitDraft` / `commitFailed` | `id`, `message` | A drafted commit message to edit, or why it didn't commit |
 
 ### Webview → extension (`FromWebview`)
 
@@ -123,6 +129,12 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 | `insertCode` / `applyCode` | `code`, `language?` | Code block buttons |
 | `copy` | `text` | Copy to the clipboard |
 | `regenerate` | — | Regenerate the last reply |
+| `undoRun` | `id`, `force?` | **Undo this run** under reply `id` |
+| `setWorkMode` | `mode: ask \| edit \| auto \| plan \| debug` | The **Mode** pill or ⇧Tab |
+| `approvePlan` | `id` | **Approve** under the plan reply |
+| `unqueue` | `id` | Take back a waiting steering message |
+| `runChanges` / `showRunDiff` / `openFile` | `id`, `path` | Changes panel: load the diffs, open VS Code's diff editor, open the file |
+| `draftCommit` / `commit` | `id`, `message` | **Commit…** (draft) and **Commit** (after editing; asks for approval) |
 | `startEngine` | — | Start the engine now |
 | `openSettings` | — | Open `~/.ingle` |
 
@@ -134,7 +146,9 @@ Key shapes: `ChatMessage` (with `tool`, `usedContext`, `stats`, `thoughtSeconds`
 renderer that escapes everything before adding markup, syntax colouring, the composer (paste, drag and drop, the
 paperclip; hold Shift when dropping from Finder, or VS Code opens the file instead), slash menu, context meter
 (ring + percentage, click for details and **Compact chat**), approval card, `/mcp` modal, history menu, and an
-ARIA live region for announcements.
+ARIA live region for announcements. Since task 32 it also draws the task list (pinned under the latest reply), the **Mode** pill (⇧Tab cycles) with a header
+badge, the **Approve** bar in Plan, "Auto approved" tags on tool rows, queued steering messages above the composer, and the changes panel (diffs, Diff / Open, Undo this
+run, Commit…) under a run's last reply — see [agent-loop.md](agent-loop.md#4b-task-list-plan-mode-and-steering).
 
 ## Tools
 
@@ -285,6 +299,7 @@ side. **Ask Ingle About This** prefills a new chat with the selection (or the li
 | `ingle.shareProblems` | `true` | Include errors and warnings in what the Mac app sees |
 | `ingle.openBeside` | `true` | Open the first tab beside your code |
 | `ingle.maxSteps` | `200` | Backstop for steps in one request; `0` = no limit |
+| `ingle.commitSignOff` | `false` | Add a Signed-off-by line (`git commit -s`) when you use **Commit** under a run's changes |
 | `ingle.ssh.enabled` | unset | Turn SSH access on or off (user settings only); unset follows the Mac app, which defaults to off |
 | `ingle.ssh.hosts` | unset | `~/.ssh/config` host names assistants may use (user settings only); unset follows the Mac app |
 
@@ -447,6 +462,10 @@ open-source remote extensions); test them separately.
 | [`src/engine/matcher.ts`](../Extensions/vscode/src/engine/matcher.ts) | Embedding and keyword matching (port of `SemanticMatcher.swift`) |
 | [`src/engine/names.ts`](../Extensions/vscode/src/engine/names.ts) | `prettyModel`, `roleName` |
 | [`src/engine/diff.ts`](../Extensions/vscode/src/engine/diff.ts) | `DiffProvider` for `ingle-diff:` documents |
+| [`src/engine/modes.ts`](../Extensions/vscode/src/engine/modes.ts) | Work modes: table, `riskyCommand`, `autoApproval`, Debug state and nudges (pure, tested) |
+| [`src/engine/steer.ts`](../Extensions/vscode/src/engine/steer.ts) | `SteerQueue` (messages typed during a run, per chat), `canInsertNow`, `insertQueued`, `steerText` (pure, tested) |
+| [`src/tools/tasks.ts`](../Extensions/vscode/src/tools/tasks.ts) | `update_tasks`: parsing, result text, prompt section, plan → tasks; plan mode filter, refusal and wording (pure, tested) |
+| [`src/tools/gitCommit.ts`](../Extensions/vscode/src/tools/gitCommit.ts) | Commit a run's files: repo, diff, message prompt and clean-up, `git add` + `git commit` of exactly those files (tested) |
 | [`src/tools/types.ts`](../Extensions/vscode/src/tools/types.ts) | `ToolDef`, `ToolContext`, `ToolResult`, `toOllama`, `str` |
 | [`src/tools/index.ts`](../Extensions/vscode/src/tools/index.ts) | `allTools()` |
 | [`src/tools/files.ts`](../Extensions/vscode/src/tools/files.ts) | read, list, find, search, problems, edit, write |

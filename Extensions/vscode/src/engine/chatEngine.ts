@@ -15,7 +15,7 @@ import type {
   UIState,
 } from '../shared/protocol';
 import { assistant, AssistantSettings, expandHome, IngleSettings, loadSettings, paths } from '../shared/settings';
-import { allTools, enabledSSHHosts } from '../tools';
+import { allTools, enabledSSHHosts, toolNamed } from '../tools';
 import { allowedHost, sshScope } from '../tools/sshConfig';
 import { listSecrets, saveSecret, scrubViaApp, secretValues } from '../tools/secrets';
 import {
@@ -30,7 +30,18 @@ import {
 import { mcp, MCP_TOOL_NAMES, wantsMCP } from '../tools/mcp';
 import { extractDocument, prepareImage } from '../tools/documents';
 import { listMemory, listReports, listRules, listSkills, mcpServers } from '../tools/stores';
-import { discardChat, finish as finishRun, restore as restoreRun, summary as runSummary, type RunRef } from '../tools/checkpoints';
+import { changes as runChanges, discardChat, finish as finishRun, restore as restoreRun, summary as runSummary, type RunRef } from '../tools/checkpoints';
+import { diffStats, unifiedDiff } from '../tools/diff';
+import { cleanCommitMessage, commitCommandText, commitFiles, commitPrompt, diffFor, relativeTo, repoFor } from '../tools/gitCommit';
+import {
+  allDone, allowedInPlanMode, PLAN_APPROVED, PLAN_MODE_REFUSAL, planModeFilter, tasksFromPlan, tasksPrompt,
+  tasksTool, type TaskItem,
+} from '../tools/tasks';
+import { insertQueued, SteerQueue, steerText } from './steer';
+import {
+  autoApproval, DEBUG_UNCONFIRMED_CHIP, debugFinishNudge, debugRecord, debugRefusal, debugSaw, debugTasks, debugTick, isWorkMode, modeOf,
+  MODES, newDebugState, WORK_MODES, type DebugState, type WorkMode,
+} from './modes';
 import { isDir, resolvePath as resolveToolPath, tidy } from '../tools/paths';
 import { buildRepoMap } from '../tools/repomap';
 import { DENIED, str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
@@ -39,7 +50,7 @@ import { DIFF_SCHEME, DiffProvider } from './diff';
 import { Candidate, Matcher } from './matcher';
 import { selectTools } from './toolSelection';
 import {
-  chatEffort, defaultEffort, detectCheckCommand, EFFORT, EffortLevel, isEffort, PLAN_HEADING, PLAN_REQUEST, REVIEW_HEADING,
+  chatEffort, defaultEffort, detectCheckCommand, EFFORT, EffortLevel, isEffort, PLAN_REQUEST, REVIEW_HEADING,
   reviewTask, thinkParam, VERIFY_SKIPPED_CHIP, verifyCommand,
 } from './effort';
 import { prettyModel, roleName } from './names';
@@ -295,7 +306,8 @@ function toOllamaHistory(msgs: Stored[], vision: boolean): OllamaMessage[] {
     }
     flush();
     if (m.role === 'user') {
-      const content = m.extraContext ? `${m.content}\n\n${m.extraContext}` : m.content;
+      const typed = m.steer ? steerText(m.content) : m.content;
+      const content = m.extraContext ? `${typed}\n\n${m.extraContext}` : typed;
       out.push({ role: 'user', content, images: vision && m.images?.length ? m.images : undefined });
     } else {
       if (m.failed) continue;
@@ -325,6 +337,8 @@ export class EngineShared implements vscode.Disposable {
   /** Approval scope keys allowed for this session ("Allow for this session", see approvalScope), shared by every Ingle tab until VS Code closes. */
   readonly sessionAllowed = new Set<string>();
   readonly engines = new Set<ChatEngine>();
+  /** Messages typed while a run is going, per chat, until the model's next step. */
+  readonly steer = new SteerQueue();
   private readonly registration: vscode.Disposable;
 
   constructor(context: vscode.ExtensionContext) {
@@ -430,6 +444,10 @@ export class ChatEngine implements vscode.Disposable {
       contextUsage: chat.usage,
       slashItems: this.slashItems(),
       version: String((this.context.extension.packageJSON as { version?: unknown }).version ?? ''),
+      tasks: chat.tasks,
+      workMode: modeOf(chat),
+      modes: WORK_MODES.map((id) => ({ id, label: MODES[id].label, role: MODES[id].role, help: MODES[id].help })),
+      queued: this.shared.steer.peek(chat.id),
     };
   }
 
@@ -460,6 +478,14 @@ export class ChatEngine implements vscode.Disposable {
         case 'undoRun': return await this.undoRun(msg.id, !!msg.force);
         case 'startEngine': await this.server.start(); return;
         case 'openSettings': return await this.openSettings();
+        case 'setWorkMode': return this.setWorkMode(msg.mode);
+        case 'approvePlan': return await this.approvePlan(msg.id);
+        case 'unqueue': return this.unqueue(msg.id);
+        case 'runChanges': return await this.showRunChanges(msg.id);
+        case 'showRunDiff': return await this.showRunDiff(msg.id, msg.path);
+        case 'openFile': return await this.openRunFile(msg.path);
+        case 'draftCommit': return await this.draftCommit(msg.id);
+        case 'commit': return await this.commitRun(msg.id, msg.message);
       }
     } catch (e) {
       void vscode.window.showErrorMessage('Ingle: ' + errMessage(e));
@@ -869,7 +895,7 @@ export class ChatEngine implements vscode.Disposable {
 
   // MARK: tools
 
-  private makeCtx(chatId: string, web: boolean, vision: boolean, signal: AbortSignal, isSubAgent: boolean, toolName: string, args: ToolArgs, onDeny: () => void): ToolContext {
+  private makeCtx(chatId: string, web: boolean, vision: boolean, signal: AbortSignal, isSubAgent: boolean, toolName: string, args: ToolArgs, onDeny: () => void, onAuto?: (note: string) => void): ToolContext {
     return {
       settings: this.settings,
       workspaceRoot: workspaceRoot(),
@@ -880,6 +906,12 @@ export class ChatEngine implements vscode.Disposable {
       run: !isSubAgent && this.activeRun?.chat === chatId ? this.activeRun : undefined,
       setActivity: (t) => this.setActivity(t === null ? null : isSubAgent ? 'Helper: ' + t : t),
       requestApproval: async (req, target) => {
+        // Edit / Auto mode: some calls inside the project go ahead without asking (and say so in the run log).
+        const chat = this.store.get(chatId);
+        const note = !isSubAgent && chat ? autoApproval(modeOf(chat), {
+          kind: req.kind, toolName, target, command: str(args, 'command'), secrets: namesInArgs(args).length > 0,
+        }, workspaceRoot()) : undefined;
+        if (note && !signal.aborted) { onAuto?.(note); return 'allow'; }
         const scope = approvalScope(toolName, args, req.kind, target, workspaceRoot());
         const d = await this.requestApproval(chatId, toolName, args, scope, req, isSubAgent, signal);
         if (d === 'deny') onDeny();
@@ -1060,16 +1092,27 @@ export class ChatEngine implements vscode.Disposable {
       return this.runSlash(body.slice(1).toLowerCase());
     }
     if (!body && !attachments?.length) return;
-    if (this.generating) {
-      if (this.generating.chatId !== this.currentId) {
-        void vscode.window.showInformationMessage('Ingle is still replying in another chat. Stop it or wait a moment.');
-      }
+    if (this.generating && this.generating.chatId !== this.currentId) {
+      void vscode.window.showInformationMessage('Ingle is still replying in another chat. Stop it or wait a moment.');
       return;
     }
     // Looks like a password or key? Ask before it's stored or sent anywhere.
     if (!secretsChecked) {
       const found = detectSecrets(body);
       if (found.length) return this.askAboutSecrets(body, attachments, found);
+    }
+    // Typed while this chat's run is going: it waits and joins the run at the model's next step.
+    if (this.generating) {
+      if (attachments?.length) {
+        this.post({ type: 'notice', text: 'Attach files once the reply has finished.' });
+        this.post({ type: 'attachments', attachments });
+        if (body) this.post({ type: 'prefill', text: body });
+        return;
+      }
+      if (!body) return;
+      this.shared.steer.push(this.currentId, { id: uid(), text: body });
+      this.postQueued(this.currentId);
+      return;
     }
     this.pendingPrefill = undefined;
     this.settings = loadSettings();
@@ -1201,8 +1244,14 @@ export class ChatEngine implements vscode.Disposable {
     if (this.generating) return;
     const chat = this.current();
     const isRealUser = (m: Stored) => m.role === 'user' && !m.hidden;
-    while (chat.messages.length && !isRealUser(chat.messages[chat.messages.length - 1] as Stored)) chat.messages.pop();
+    // A reply that carries a run's checkpoint stays as a small stub, so that run's changes panel (and Undo) stay.
+    const kept: Stored[] = [];
+    while (chat.messages.length && !isRealUser(chat.messages[chat.messages.length - 1] as Stored)) {
+      const m = chat.messages.pop() as Stored;
+      if (m.checkpoint && !m.checkpoint.undone) kept.unshift({ id: m.id, role: 'assistant', content: '', assistantName: m.assistantName, checkpoint: m.checkpoint });
+    }
     if (!chat.messages.length) return;
+    chat.messages.push(...kept);
     this.postInit();
     await this.generate(chat.id);
   }
@@ -1258,6 +1307,154 @@ export class ChatEngine implements vscode.Disposable {
     if (r.message.includes('\n')) void vscode.window.showWarningMessage('Ingle: ' + r.message);
   }
 
+  // MARK: task list, plan mode, steering
+
+  private setTasks(chat: StoredChat, list: TaskItem[]) {
+    chat.tasks = list;
+    this.store.saveSoon();
+    this.postFor(chat.id, { type: 'tasks', tasks: list });
+  }
+
+  private postQueued(chatId: string) {
+    this.postFor(chatId, { type: 'queued', items: this.shared.steer.peek(chatId) });
+  }
+
+  private unqueue(id: string) {
+    if (this.shared.steer.remove(this.currentId, id)) this.postQueued(this.currentId);
+  }
+
+  private setWorkMode(mode: WorkMode) {
+    if (!isWorkMode(mode)) return;
+    const chat = this.current();
+    const was = modeOf(chat);
+    if (mode === 'plan' && was !== 'plan') chat.modeBefore = was;
+    chat.workMode = mode === 'ask' ? undefined : mode;
+    if (chat.messages.length) this.store.save();
+    this.post({ type: 'workMode', mode });
+    this.shared.chatsChanged();
+  }
+
+  /** Approve under a plan reply: plan mode off, the plan becomes the task list, and the work starts. */
+  private async approvePlan(messageId: string) {
+    const chat = this.current();
+    if (this.generating) return;
+    const m = chat.messages.find((x) => x.id === messageId);
+    if (!m || m.role !== 'assistant') return;
+    const back = chat.modeBefore && chat.modeBefore !== 'plan' ? chat.modeBefore : 'ask';
+    chat.modeBefore = undefined;
+    this.setWorkMode(back);
+    const list = tasksFromPlan(m.content);
+    if (list.length) this.setTasks(chat, list);
+    await this.send(PLAN_APPROVED, undefined, true);
+  }
+
+  // MARK: changes panel and commit
+
+  /** The run behind reply `id` in the current chat, with its files (absolute paths). */
+  private runOf(messageId: string): { chat: StoredChat; m: Stored; ref: RunRef } | undefined {
+    const chat = this.current();
+    const m = chat.messages.find((x) => x.id === messageId) as Stored | undefined;
+    if (!m?.checkpoint) return undefined;
+    return { chat, m, ref: { chat: chat.id, run: m.checkpoint.run } };
+  }
+
+  private async showRunChanges(messageId: string) {
+    const r = this.runOf(messageId);
+    if (!r) return;
+    let list: ReturnType<typeof runChanges> = [];
+    try { list = runChanges(r.ref); } catch { list = []; }
+    const actions = new Map(runSummary(r.ref).map((f) => [f.path, f.action]));
+    const files = list.map((c) => {
+      const display = tidy(c.path) || c.path;
+      const before = c.before ?? '', after = c.after ?? '';
+      const st = diffStats(before, after);
+      return {
+        path: c.path, display, action: actions.get(c.path) ?? 'restore',
+        diff: unifiedDiff(before, after, display, 3, 20000), added: st.added, removed: st.removed,
+      };
+    });
+    let repo: string | undefined;
+    let noCommit: string | undefined;
+    if (r.m.checkpoint?.committed) noCommit = undefined;
+    else if (!files.length) noCommit = 'No files to commit.';
+    else {
+      const found = await repoFor(files.map((f) => f.path));
+      if ('repo' in found) repo = found.repo; else noCommit = found.error;
+    }
+    this.post({ type: 'runChanges', id: messageId, files, repo, noCommit });
+  }
+
+  private async showRunDiff(messageId: string, file: string) {
+    const r = this.runOf(messageId);
+    if (!r) return;
+    const c = runChanges(r.ref).find((x) => x.path === file);
+    if (!c) return;
+    await this.diff.show(file, c.after ?? '', `${path.basename(file)} (before ↔ after this run)`, c.before ?? '');
+  }
+
+  private async openRunFile(file: string) {
+    // Only files a run in this chat touched.
+    const chat = this.current();
+    const known = chat.messages.some((m) => m.checkpoint && runSummary({ chat: chat.id, run: m.checkpoint.run }).some((f) => f.path === file));
+    if (!known) return;
+    if (!fs.existsSync(file)) { this.post({ type: 'notice', text: `${path.basename(file)} no longer exists.` }); return; }
+    await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
+  }
+
+  /** The run's files in their repo, or why they can't be committed. */
+  private async commitTarget(messageId: string): Promise<{ repo: string; rel: string[] } | { error: string } | undefined> {
+    const r = this.runOf(messageId);
+    if (!r) return undefined;
+    const files = runSummary(r.ref).map((f) => f.path);
+    if (!files.length) return { error: 'This run has no files to commit.' };
+    const found = await repoFor(files);
+    if ('error' in found) return found;
+    return { repo: found.repo, rel: relativeTo(found.repo, files) };
+  }
+
+  /** Commit: drafts a message from the diff with the current model, for you to edit. */
+  private async draftCommit(messageId: string) {
+    const t = await this.commitTarget(messageId);
+    if (!t) return;
+    if ('error' in t) { this.post({ type: 'commitFailed', id: messageId, message: t.error }); return; }
+    const diff = await diffFor(t.repo, t.rel);
+    let message = '';
+    try {
+      this.settings = loadSettings();
+      const a = assistant(this.settings, this.current().assistantId);
+      const r = await new OllamaClient(this.settings.serverURL).chat({
+        model: a.model, messages: [{ role: 'user', content: commitPrompt(diff) }], think: false,
+        numCtx: Math.min(a.contextLength || 16384, 16384), keepAlive: this.settings.keepAlive,
+      }, AbortSignal.timeout(90000));
+      message = cleanCommitMessage(r.content);
+    } catch { /* fall back below */ }
+    this.post({ type: 'commitDraft', id: messageId, message: message || cleanCommitMessage('', t.rel) });
+  }
+
+  /** Runs `git add` on exactly the run's files and `git commit`, after approval. Never pushes. */
+  private async commitRun(messageId: string, message: string) {
+    const r = this.runOf(messageId);
+    const t = await this.commitTarget(messageId);
+    if (!r || !t) return;
+    const fail = (text: string) => this.post({ type: 'commitFailed', id: messageId, message: text });
+    if ('error' in t) return fail(t.error);
+    if (this.generating?.chatId === r.chat.id) return fail('Wait for the reply to finish (or press Stop), then commit.');
+    if (!message.trim()) return fail('Write a commit message first.');
+    const signOff = vscode.workspace.getConfiguration('ingle').get<boolean>('commitSignOff', false);
+    const abort = new AbortController();
+    const decision = await this.requestApproval(r.chat.id, 'git_commit', {}, { key: '', label: '' }, {
+      kind: 'command', title: `Commit ${t.rel.length} file${t.rel.length === 1 ? '' : 's'} in ${path.basename(t.repo)}`,
+      detail: commitCommandText(t.rel, signOff), preview: message.trim(), noSession: true,
+    }, false, abort.signal);
+    if (decision !== 'allow') return fail('Not committed.');
+    const done = await commitFiles(t.repo, t.rel, message, signOff);
+    if ('error' in done) return fail(done.error);
+    if (r.m.checkpoint) r.m.checkpoint.committed = done.hash;
+    this.store.save();
+    this.postFor(r.chat.id, { type: 'messageUpdate', message: forUI(r.m) });
+    this.post({ type: 'notice', text: `Committed ${done.hash}: ${done.summary}` });
+  }
+
   private stop() {
     if (this.pending) this.pending.resolve('deny');
     this.generating?.abort.abort();
@@ -1273,6 +1470,11 @@ export class ChatEngine implements vscode.Disposable {
     const firstNew = chat.messages.length;
     this.activeRun = run;
     this.activity = null;
+    // A finished task list goes when the next job starts; an unfinished one stays (e.g. "carry on" after Stop).
+    if (chat.tasks && allDone(chat.tasks)) {
+      chat.tasks = undefined;
+      this.postFor(chatId, { type: 'tasks', tasks: [] });
+    }
     this.postStatus();
     try {
       if (!(await this.server.ensure(true))) {
@@ -1291,6 +1493,12 @@ export class ChatEngine implements vscode.Disposable {
       this.activeRun = undefined;
       this.endRun(chat, run, firstNew);
       this.activity = null;
+      // Messages still waiting (Stop, or the run ended between steps) go back in the message box, not lost.
+      const left = this.shared.steer.take(chatId);
+      if (left.length) {
+        this.postQueued(chatId);
+        this.postFor(chatId, { type: 'prefill', text: left.map((q) => q.text).join('\n\n') });
+      }
       chat.updated = Date.now();
       this.store.save();
       this.postStatus();
@@ -1315,6 +1523,10 @@ export class ChatEngine implements vscode.Disposable {
     if (matched.hints.length) parts.push('## Possibly relevant (matched automatically — load one with its tool only if it clearly applies to this request; otherwise ignore them)\n' + matched.hints.join('\n'));
     parts.push(guidancePrompt(this.settings, chat.web, tools.some((t) => t.name === 'delegate')));
     if (effortLine) parts.push('## Effort\n' + effortLine);
+    const modeLine = MODES[modeOf(chat)].promptLine;
+    if (modeLine) parts.push(modeLine);
+    const tasks = tasksPrompt(chat.tasks);
+    if (tasks) parts.push(tasks);
     if (summary) parts.push('## Summary of earlier messages in this chat (they were compacted)\n' + summary);
     return parts.join('\n\n');
   }
@@ -1335,7 +1547,7 @@ export class ChatEngine implements vscode.Disposable {
     const spec = EFFORT[effort];
     const editor = chat.useContext ? this.snapshot() : undefined;
     const lastUser = [...chat.messages].reverse().find((m) => m.role === 'user') as Stored | undefined;
-    const lastText = lastUser?.content ?? '';
+    let lastText = lastUser?.content ?? '';
     const matched = await this.matchContext(client, `${lastText} ${editor?.language ?? ''} ${editor?.fileName ?? ''}`, workspaceRoot());
     // "/skill-name …" always loads that skill, first.
     const forced = this.forcedSkill(lastText);
@@ -1384,11 +1596,32 @@ export class ChatEngine implements vscode.Disposable {
     const changedFiles: string[] = [];
     let verifyChecked = false;
     let verifyMissing = false;
-    let needPlan = spec.plan;
+    // Max: plan first (into the task list). Plan mode makes its own plan instead.
+    const mode = modeOf(chat);
+    const planMode = mode === 'plan';
+    let needPlan = spec.plan && !planMode && mode !== 'debug';
+    // Debug: Reproduce → Find the cause → Fix → Confirm, enforced below.
+    const dbg: DebugState | undefined = mode === 'debug' ? newDebugState() : undefined;
+    if (dbg && allDone(chat.tasks)) this.setTasks(chat, debugTasks());
+    // The task list: offered from Medium up (Low keeps the tool list short), and always while one is going.
+    const tasksDef = tasksTool((list) => this.setTasks(chat, list));
     for (let step = 0; step < maxSteps; step++) {
       if (signal.aborted) return;
+      // Steer: messages typed during the run join it here, after the last step's tool results.
+      const steered = insertQueued(chat.messages as Stored[], this.shared.steer, chat.id, (q): Stored => ({ id: q.id, role: 'user', content: q.text, steer: true }));
+      if (steered) {
+        for (const m of chat.messages.slice(-steered)) {
+          this.postFor(chat.id, { type: 'messageAdd', message: forUI(m as Stored) });
+          lastText += '\n' + m.content;
+        }
+        this.postQueued(chat.id);
+        this.store.saveSoon();
+      }
       const baseCtx = this.makeCtx(chat.id, chat.web, vision, signal, false, '', {}, () => undefined);
-      const tools = this.toolsFor(baseCtx, lastText, delegate, active, spec.tools);
+      let tools = this.toolsFor(baseCtx, lastText, delegate, active, spec.tools);
+      if (spec.tools !== 'strict' || planMode || !allDone(chat.tasks)) tools.push(tasksDef);
+      // Plan mode: only reading and searching (plus the task list and the read-only helper).
+      if (planMode) tools = planModeFilter(tools);
       if (!checkedAvailability) {
         // A command whose required tool can't be offered at all (e.g. web_search with Web off) gets ⚠ now, no nudges.
         checkedAvailability = true;
@@ -1485,13 +1718,20 @@ export class ChatEngine implements vscode.Disposable {
         return;
       }
       if (calls.length && !stopped) reply.toolCalls = calls;
+      if (dbg) {
+        debugSaw(dbg, reply.content);
+        const ticked = debugTick(dbg, chat.tasks);
+        if (ticked) this.setTasks(chat, ticked);
+      }
       this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
       this.store.saveSoon();
       if (stopped || reply.failed) return;
+      // Finished, but you typed something meanwhile: carry on with it rather than ending the run.
+      if (!calls.length && this.shared.steer.has(chat.id) && !signal.aborted) continue;
       if (!calls.length) {
         // Completion check: don't finish while an active command isn't satisfied. Everything owed goes in one
         // nudge; each command gets at most two.
-        const ask = signal.aborted ? undefined : completionCheck(active, done, nudges, ignored);
+        const ask = signal.aborted ? undefined : (completionCheck(active, done, nudges, ignored) ?? (dbg ? debugFinishNudge(dbg) : undefined));
         if (ask) {
           const nudge: Stored = { id: uid(), role: 'user', content: ask, hidden: true };
           chat.messages.push(nudge);
@@ -1500,6 +1740,7 @@ export class ChatEngine implements vscode.Disposable {
         }
         const chips = [...ignored].map(([n, why]) => ignoredChip(n, why));
         if (verifyMissing) chips.push(VERIFY_SKIPPED_CHIP);
+        if (dbg && dbg.edited && !dbg.confirmed) chips.push(DEBUG_UNCONFIRMED_CHIP);
         if (chips.length) {
           reply.usedContext = [...(reply.usedContext ?? []), ...chips];
           this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
@@ -1522,7 +1763,7 @@ export class ChatEngine implements vscode.Disposable {
           ? `You've already made this exact call ${repeats - 1} times and have its result above. Don't repeat it — use that result, try a different approach, or tell the user what's blocking you.`
           : undefined;
         if (skip) skips++;
-        const record = await this.runToolCall(chat, call, tools, vision, signal, skip, active);
+        const record = await this.runToolCall(chat, call, tools, vision, signal, skip, active, planMode, dbg);
         // Show a skill, rule or report on the chip once the assistant has actually opened it.
         const callName = call.function?.name ?? '';
         if (!skip && ['use_skill', 'use_rule', 'report_read'].includes(callName)) {
@@ -1588,10 +1829,14 @@ export class ChatEngine implements vscode.Disposable {
   }
 
   /** Runs one call. Returns what was run (for command checks), or undefined if it was skipped, blocked or unknown. */
-  private async runToolCall(chat: StoredChat, call: RawToolCall, tools: ToolDef[], vision: boolean, signal: AbortSignal, skip?: string, active: CommandEntry[] = []): Promise<CallRecord | undefined> {
+  private async runToolCall(chat: StoredChat, call: RawToolCall, tools: ToolDef[], vision: boolean, signal: AbortSignal, skip?: string, active: CommandEntry[] = [], planMode = false, dbg?: DebugState): Promise<CallRecord | undefined> {
     const name = call.function?.name ?? '';
     const args = parseArgs(call.function?.arguments);
-    const def = tools.find((t) => t.name === name);
+    // Plan mode refuses anything that changes things, even a tool the model names without being offered it.
+    const offered = tools.find((t) => t.name === name);
+    const known = offered ?? toolNamed(name);
+    const refusedByPlan = planMode && !!known && !allowedInPlanMode(known);
+    const def = offered ?? (refusedByPlan ? known : undefined);
     let info: { title: string; detail: string; icon: string };
     try {
       info = def ? def.describe(args) : { title: `Unknown tool ${name}`, detail: JSON.stringify(args).slice(0, 300), icon: 'warning' };
@@ -1603,12 +1848,19 @@ export class ChatEngine implements vscode.Disposable {
     this.postFor(chat.id, { type: 'messageAdd', message: forUI(row) });
 
     let denied = false;
+    let auto: string | undefined;
     let text: string;
     let images: string[] | undefined;
     let ran = false;
     const ban = bannedBy(active, name, args);
     if (skip) {
       text = skip;
+    } else if (refusedByPlan) {
+      text = PLAN_MODE_REFUSAL;
+      denied = true;
+    } else if (dbg && debugRefusal(dbg, name)) {
+      text = debugRefusal(dbg, name) ?? '';
+      denied = true;
     } else if (ban) {
       text = blockedMessage(ban.command, ban.item);
     } else if (!def) {
@@ -1621,7 +1873,7 @@ export class ChatEngine implements vscode.Disposable {
         text = prepared.refusal;
         if (prepared.denied) denied = true;
       } else {
-        const ctx = this.makeCtx(chat.id, chat.web, vision, signal, false, name, prepared.args, () => { denied = true; });
+        const ctx = this.makeCtx(chat.id, chat.web, vision, signal, false, name, prepared.args, () => { denied = true; }, (note) => { auto = note; });
         if (prepared.approved) {
           ctx.requestApproval = async () => 'allow';  // already approved on the secret card
           ctx.env = prepared.env;
@@ -1644,7 +1896,12 @@ export class ChatEngine implements vscode.Disposable {
     }
     // Never let a secret's value reach the model or the history, even one this call didn't use.
     text = (await this.scrubOutput(text, signal)) ?? text;
-    row.tool = { name, ...info, output: truncate(text, TOOL_OUTPUT_LIMIT), denied: denied || undefined };
+    row.tool = { name, ...info, output: truncate(text, TOOL_OUTPUT_LIMIT), denied: denied || undefined, auto: !denied ? auto : undefined };
+    if (dbg && ran && !denied) {
+      debugRecord(dbg, name);
+      const ticked = debugTick(dbg, chat.tasks);
+      if (ticked) this.setTasks(chat, ticked);
+    }
     if (images) row.images = images;
     this.postFor(chat.id, { type: 'messageUpdate', message: forUI(row) });
     return ran ? { name, args, denied } : undefined;
@@ -1680,14 +1937,10 @@ export class ChatEngine implements vscode.Disposable {
 
   // MARK: sub-agents
 
-  /** A helper with a fresh context and read-only tools, on the same model, ≤ 10 steps. */
-  /** Max effort's plan step: asks for a short plan (no tools) and shows it as its own message. Returns false if
-   *  stopped. The plan stays in the history, so the work that follows starts from it. */
-  private async writePlan(chat: StoredChat, a: AssistantSettings, client: OllamaClient, model: string, system: string,
+  /** Max effort's plan step: asks for a short numbered plan (no tools) and makes it the chat's task list, shown
+   *  live under the reply. One line (a simple request) means no list. Returns false if stopped. */
+  private async writePlan(chat: StoredChat, _a: AssistantSettings, client: OllamaClient, model: string, system: string,
     history: OllamaMessage[], effort: EffortLevel, limit: number, signal: AbortSignal): Promise<boolean> {
-    const plan: Stored = { id: uid(), role: 'assistant', content: '', assistantName: a.name, model: prettyModel(model) };
-    chat.messages.push(plan);
-    this.postFor(chat.id, { type: 'messageAdd', message: forUI(plan) });
     this.setActivity('Planning…');
     let text = '';
     try {
@@ -1696,26 +1949,15 @@ export class ChatEngine implements vscode.Disposable {
         signal,
       );
       text = stripThink(r.content).trim();
-    } catch (e) {
-      if (signal.aborted) {
-        chat.messages = chat.messages.filter((m) => m.id !== plan.id);
-        this.postFor(chat.id, { type: 'init', state: this.state() });
-        this.setActivity(null);
-        return false;
-      }
+    } catch {
       text = '';
     }
     this.setActivity(null);
-    if (!text) {
-      // No plan came back: carry on without one rather than stopping the work.
-      chat.messages = chat.messages.filter((m) => m.id !== plan.id);
-      this.postFor(chat.id, { type: 'init', state: this.state() });
-      return true;
-    }
-    plan.content = `${PLAN_HEADING}\n\n${text}`;
-    this.postFor(chat.id, { type: 'messageUpdate', message: forUI(plan) });
-    this.store.saveSoon();
-    return !signal.aborted;
+    if (signal.aborted) return false;
+    // No plan, or a one-liner: carry on without a list rather than stopping the work.
+    const list = tasksFromPlan(text);
+    if (list.length) this.setTasks(chat, list);
+    return true;
   }
 
   /** Max effort's review: a read-only helper looks at the diff (or the files) and its notes are shown. */
@@ -1732,6 +1974,7 @@ export class ChatEngine implements vscode.Disposable {
     this.store.saveSoon();
   }
 
+  /** A helper with a fresh context and read-only tools, on the same model, ≤ 10 steps. */
   private async runSubAgent(task: string, chat: StoredChat, model: string, numCtx: number, vision: boolean, signal: AbortSignal, active: CommandEntry[] = []): Promise<string> {
     task = task.trim();
     if (!task) return 'The helper needs a task.';

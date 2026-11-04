@@ -19,7 +19,7 @@ export interface EffortSpec {
   tools: 'strict' | 'normal' | 'relaxed';
   /** Run the project's check command once after changing files, before finishing. */
   verify: boolean;
-  /** A short plan message first. */
+  /** A short plan first, which becomes the chat's task list. */
   plan: boolean;
   /** A read-only helper reviews the changes at the end. */
   review: boolean;
@@ -46,15 +46,15 @@ export const EFFORT: Record<EffortLevel, EffortSpec> = {
   },
   high: {
     label: 'High', think: 'medium',
-    promptLine: 'Investigate before changing anything: read the related code, then check your work.',
+    promptLine: 'Investigate before changing anything: read the related code, then check your work. For a job of 3 or more steps, keep a task list with update_tasks.',
     tools: 'relaxed', verify: true, plan: false, review: false, repeatLimit: 4, stuckLimit: 6,
     help: 'High: thinks more, reads the related code first, and runs the project’s checks after editing.',
   },
   max: {
     label: 'Max', think: 'high',
-    promptLine: 'Plan first, investigate fully, verify with the project\'s checks, then review your own changes before finishing.',
+    promptLine: 'Plan first, investigate fully, verify with the project\'s checks, then review your own changes before finishing. Work through your task list and keep it current with update_tasks.',
     tools: 'relaxed', verify: true, plan: true, review: true, repeatLimit: 4, stuckLimit: 6,
-    help: 'Max: shows a plan first, thinks hardest, runs the checks, and a helper reviews the changes at the end.',
+    help: 'Max: plans first as a task list, thinks hardest, runs the checks, and a helper reviews the changes at the end.',
   },
 };
 
@@ -170,11 +170,10 @@ export function verifyCommand(check: CheckCommand): CommandEntry {
 /** The chip when High/Max changed files but no check command could be found. */
 export const VERIFY_SKIPPED_CHIP = 'verify skipped: no check command found';
 
-/** The question asked of the model for Max's plan step (not saved in the chat). */
+/** The question asked of the model for Max's plan step (not saved in the chat). The numbered steps become the chat's
+ *  task list (tasks.ts tasksFromPlan); one line means no list. */
 export const PLAN_REQUEST = 'Ingle: before doing anything, write a short plan for this request: 2–6 numbered steps, one line each. Don\'t do the work yet and don\'t call tools. If the request is simple, one line is enough.';
 
-/** Marks the plan message in the chat. */
-export const PLAN_HEADING = '**Plan**';
 export const REVIEW_HEADING = '**Review**';
 
 /** The task given to the read-only helper that reviews Max's changes. */

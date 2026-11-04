@@ -153,6 +153,11 @@
           "minimum": 0,
           "description": "Most steps (model turns) for one request before Ingle pauses and asks. Local models cost nothing per step, so this is only a backstop; 0 means no limit. Ingle also stops early if it keeps repeating itself."
         },
+        "ingle.commitSignOff": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add a Signed-off-by line (git commit -s) when you commit a run's changes with the Commit button."
+        },
         "ingle.ssh.enabled": {
           "type": ["boolean", "null"],
           "default": null,

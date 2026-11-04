@@ -415,7 +415,7 @@ behaviour (task 9's shared fixtures should cover them):
 **Done when.** In a Code chat, "rename `foo` to `bar` everywhere and run the tests" finds the uses, shows diffs to
 approve, edits the files and runs the tests, with the same results as the VS Code extension on the same repo.
 
-### [ ] 32. Code mode — the Claude Code-style workflow (both apps where it fits; after 30)
+### [x] 32. Code mode — the Claude Code-style workflow (both apps where it fits; after 30)
 **Do.**
 - **Task list.** An `update_tasks` tool. The model keeps a short to-do list for bigger jobs, shown pinned under the
   latest reply with ticks as it goes (Mac: under the message; VS Code: in the webview). Max effort uses it for its plan.
@@ -432,6 +432,11 @@ queued messages), `ChatViews.swift`, `MessageViews.swift`. VS Code: `engine/chat
 `shared/protocol.ts`, new `tools/tasks.ts`. Docs: `docs/agent-loop.md`, `docs/features.md`.
 **Done when.** A multi-step job in either app shows a live task list, can be planned first, ends with a changes panel,
 and can be committed (or undone) in one click.
+
+**Revised while building (the user's decision, 4 November 2026).** Plan mode isn't a separate switch: it's one of
+five **modes** in a Mode pill in the message bar (⇧Tab cycles), per chat — Ask, Edit (file changes inside the project
+auto-approved), Auto (also safe commands inside the project; risky ones still ask), Plan, Debug (reproduce → cause →
+fix → confirm, edits refused until the cause is stated). See [agent-loop.md](agent-loop.md#4b-task-list-plan-mode-and-steering).
 
 **Trade-off to note in the docs.** Porting the coding tools to Swift means three agent loops' worth of logic to keep in
 step (Mac Chat, Mac Code, VS Code). Task 9's shared fixtures are what keeps that safe. Longer term, consider moving the

@@ -50,12 +50,21 @@ class ChatTab {
     });
   }
 
+  private baseTitle = 'Ingle';
+  private mode = 'ask';
+
   private post(msg: ToWebview): void {
     // The tab is named after its chat, like Claude's.
     let title: string | undefined;
     if (msg.type === 'init') title = msg.state.chats.find((c) => c.id === msg.state.chatId)?.title;
     if (msg.type === 'chats') title = msg.chats.find((c) => c.id === msg.chatId)?.title;
-    if (title !== undefined) this.panel.title = title && title !== 'New chat' ? title : 'Ingle';
+    if (title !== undefined) this.baseTitle = title && title !== 'New chat' ? title : 'Ingle';
+    // The mode shows on the tab when it isn't Ask ("Fix the parser · Auto").
+    if (msg.type === 'init') this.mode = msg.state.workMode ?? 'ask';
+    if (msg.type === 'workMode') this.mode = msg.mode;
+    if (title !== undefined || msg.type === 'init' || msg.type === 'workMode') {
+      this.panel.title = this.mode === 'ask' ? this.baseTitle : `${this.baseTitle} · ${this.mode.charAt(0).toUpperCase()}${this.mode.slice(1)}`;
+    }
 
     if (this.ready) {
       void this.panel.webview.postMessage(msg);
