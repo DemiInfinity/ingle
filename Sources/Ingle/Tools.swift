@@ -128,6 +128,7 @@ enum MacTools {
         case "memory_rewrite": return Info(title: "Rewrite memory", detail: call.arg("file"), icon: "brain.head.profile")
         case "memory_forget": return Info(title: "Forget from memory", detail: "\(call.arg("file")): \(call.arg("text"))", icon: "brain.head.profile")
         case "ingle_help": return Info(title: "Check Ingle's help", detail: call.arg("topic"), icon: "questionmark.circle")
+        case "secret_list": return Info(title: "List saved secrets", detail: "names only", icon: "key")
         case "mcp_tools": return Info(title: "Look inside an MCP server", detail: call.arg("server"), icon: "puzzlepiece.extension")
         case "mcp_call":
             let args = mcpArguments(call).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
@@ -161,6 +162,8 @@ enum MacTools {
     /// Keep in step with `approvalScope` in Extensions/vscode/src/engine/chatEngine.ts.
     @MainActor
     static func approvalScope(_ call: ToolCall) -> ApprovalScope {
+        // A call that uses a secret asks every time: no session scope at all.
+        if !Secrets.names(in: call).isEmpty { return ApprovalScope(key: "", label: "") }
         switch call.name {
         case "run_command":
             let command: String = call.arg("command").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,7 +225,7 @@ enum MacTools {
         switch call.name {
         case "list_files", "read_file":
             return !(Prefs.autoReadWorkspace && Prefs.inWorkspace(call.arg("path")))
-        case "use_skill", "use_rule", "ingle_help", "mcp_tools", "web_search", "web_fetch", "memory_search", "memory_read",
+        case "use_skill", "use_rule", "ingle_help", "mcp_tools", "secret_list", "web_search", "web_fetch", "memory_search", "memory_read",
              "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate":
             return false
         case "memory_save", "memory_rewrite", "memory_forget":
@@ -236,7 +239,7 @@ enum MacTools {
     }
 
     @MainActor
-    static func run(_ call: ToolCall) async -> String {
+    static func run(_ call: ToolCall, env: [String: String] = [:]) async -> String {
         if call.name.hasPrefix("mcp_") { return await MCPManager.shared.call(call) }
         switch call.name {
         case "use_skill": return SkillStore.read(call.arg("name"))
@@ -267,7 +270,8 @@ enum MacTools {
         case "list_files": return listFiles(call.arg("path"))
         case "read_file": return readFile(call.arg("path"))
         case "write_file": return writeFile(call.arg("path"), call.arg("content"))
-        case "run_command": return await shell(call.arg("command"), cwd: call.arg("cwd"))
+        case "run_command": return await shell(call.arg("command"), cwd: call.arg("cwd"), env: env)
+        case "secret_list": return Secrets.listText()
         case "ssh_command": return await SSH.run(host: call.arg("host"), command: call.arg("command"), cwd: call.arg("cwd"))
         case "open": return await shell("open \(quoteForOpen(call.arg("target")))", cwd: "")
         case "applescript": return await appleScript(call.arg("script"))
@@ -328,7 +332,7 @@ enum MacTools {
     }
 
     /// zsh login shell, with the limits in `CommandRunner` (timeout, output cap, ANSI removal, Stop).
-    private static func shell(_ command: String, cwd: String) async -> String {
-        await CommandRunner.run("/bin/zsh", ["-lc", command], cwd: cwd).text
+    private static func shell(_ command: String, cwd: String, env: [String: String] = [:]) async -> String {
+        await CommandRunner.run("/bin/zsh", ["-lc", command], cwd: cwd, env: env).text
     }
 }

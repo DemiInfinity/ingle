@@ -7,6 +7,7 @@ import { knowledgeTools } from './knowledge';
 import { mcpTools } from './mcp';
 import { memoryTools } from './memory';
 import { repoMapTool } from './repomap';
+import { secretTools } from './secrets';
 import { sshTools } from './ssh';
 import type { ToolDef } from './types';
 import { webTools } from './web';
@@ -20,7 +21,7 @@ export { enabledSSHHosts } from './ssh';
 
 /** All tools, in the order they're offered. Filter with `available(ctx)` (and `readOnly` for helpers). */
 export function allTools(): ToolDef[] {
-  return [repoMapTool, ...fileTools, ...documentTools, ...commandTools, ...sshTools, ...webTools, ...memoryTools, ...knowledgeTools, commandCreateTool, ...mcpTools];
+  return [repoMapTool, ...fileTools, ...documentTools, ...commandTools, ...sshTools, ...secretTools, ...webTools, ...memoryTools, ...knowledgeTools, commandCreateTool, ...mcpTools];
 }
 
 /** One tool by name. */

@@ -25,6 +25,9 @@ enum ToolSelection {
     static func wantsHelper(_ t: String) -> Bool {
         mentions(t, ["research", "compare", "look into", "investigate", "summarise", "summarize", "find out", "dig into", "go through", "sub-agent", "subagent", "helper", "in parallel"])
     }
+    static func wantsSecrets(_ t: String) -> Bool {
+        t.range(of: #"secret|password|passcode|token|api[ _-]?key|credential|log ?in|auth|sign ?in"#, options: .regularExpression) != nil
+    }
     static func wantsMCP(_ t: String) -> Bool {
         if mentions(t, ["mcp"]) { return true }
         let names = MCPManager.shared.servers.map { $0.name.lowercased() }
@@ -44,6 +47,7 @@ enum ToolSelection {
             case "report_search": return !ReportStore.all().isEmpty
             case "mcp_tools", "mcp_call": return wantsMCP(t)
             case "ssh_command": return SSH.mentioned(in: t)
+            case "secret_list": return wantsSecrets(t) && !Secrets.all().isEmpty
             default: return true
             }
         }

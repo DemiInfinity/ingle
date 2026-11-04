@@ -16,7 +16,13 @@ import type {
 } from '../shared/protocol';
 import { assistant, AssistantSettings, expandHome, IngleSettings, loadSettings, paths } from '../shared/settings';
 import { allTools, enabledSSHHosts } from '../tools';
-import { sshScope } from '../tools/sshConfig';
+import { allowedHost, sshScope } from '../tools/sshConfig';
+import { listSecrets, saveSecret, scrubViaApp, secretValues } from '../tools/secrets';
+import {
+  detectSecrets, namesInArgs, replaceValues, scrub, SECRET_REFUSED, SECRET_TOOLS, secretUse, substituteArgs, uniqueName,
+  unknownSecretMessage, type Detected,
+} from '../tools/secretsCore';
+import { secretApprovalRequest } from '../tools/secretsApproval';
 import {
   activeCommands, bannedBy, blockedMessage, CallRecord, CommandEntry, commandsBlock, commandsNotice, completionCheck,
   ignoredChip, isNudgeText, listCommands, unavailableReason,
@@ -26,7 +32,7 @@ import { extractDocument, prepareImage } from '../tools/documents';
 import { listMemory, listReports, listRules, listSkills, mcpServers } from '../tools/stores';
 import { isDir, resolvePath as resolveToolPath, tidy } from '../tools/paths';
 import { buildRepoMap } from '../tools/repomap';
-import { str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
+import { DENIED, str, toOllama, ToolArgs, ToolContext, ToolDef, ToolResult } from '../tools/types';
 import { ChatStore, NEW_TITLE, StoredChat, StoredMessage, uid } from './chatStore';
 import { DIFF_SCHEME, DiffProvider } from './diff';
 import { Candidate, Matcher } from './matcher';
@@ -68,6 +74,8 @@ export interface ApprovalScope { key: string; label: string }
  *  covers the exact same call again, so a new tool must add a case to get a wider scope.
  *  Keep in step with `MacTools.approvalScope` in Sources/Ingle/Tools.swift. */
 export function approvalScope(toolName: string, args: ToolArgs, kind: ApprovalRequest['kind'], target: string | undefined, root: string | undefined): ApprovalScope {
+  // A call that uses a secret asks every time: no session scope at all.
+  if (namesInArgs(args).length) return { key: '', label: '' };
   const clip = (t: string) => { const f = t.replace(/\n/g, ' '); return f.length > 80 ? f.slice(0, 79) + '…' : f; };
   const where = (folder: string) => tidy(folder) || path.basename(folder) || folder;
   if (kind === 'read') {
@@ -329,6 +337,8 @@ export class ChatEngine implements vscode.Disposable {
   private pending?: PendingApproval;
   private readonly visionCache: Map<string, boolean>;
   private pendingPrefill?: string;
+  /** A message held back by the secrets check until the user picks Save as secret / Send anyway / Cancel. */
+  private pendingSecret?: { id: string; text: string; attachments?: Attachment[]; found: Detected[] };
   private contextTimer?: NodeJS.Timeout;
   private disposed = false;
 
@@ -392,6 +402,7 @@ export class ChatEngine implements vscode.Disposable {
       switch (msg.type) {
         case 'ready': return this.onReady();
         case 'send': return await this.send(msg.text, msg.attachments);
+        case 'secretDecision': return await this.secretDecision(msg.requestId, msg.decision, msg.items);
         case 'compact': return await this.compactNow();
         case 'slash': return await this.runSlash(msg.name);
         case 'mcpRefresh': return this.showMcp(true);
@@ -496,6 +507,7 @@ export class ChatEngine implements vscode.Disposable {
     // chatView posts 'init' itself; this adds what init doesn't carry.
     this.postStatus();
     if (this.pending && this.pending.chatId === this.currentId) this.post({ type: 'approval', approval: this.pending.request });
+    if (this.pendingSecret) this.askAboutSecrets(this.pendingSecret.text, this.pendingSecret.attachments, this.pendingSecret.found);
     const prefill = this.pendingPrefill;
     if (prefill !== undefined) {
       this.pendingPrefill = undefined;
@@ -580,6 +592,7 @@ export class ChatEngine implements vscode.Disposable {
     { name: 'mcp', detail: "MCP servers Ingle knows about, and whether they're connected", kind: 'command' },
     { name: 'commands', detail: 'Commands Ingle enforces, and which apply to your last message', kind: 'command' },
     { name: 'skill-reload', detail: 'Re-read skills, rules and MCP servers from disk', kind: 'command' },
+    { name: 'secret', detail: 'Save a password or key in the Keychain, for the assistant to use with your approval', kind: 'command' },
   ];
 
   private slashItems(): SlashItem[] {
@@ -628,6 +641,7 @@ export class ChatEngine implements vscode.Disposable {
         this.post({ type: 'notice', text: `Reloaded · ${plural(skills, 'skill')} · ${plural(rules, 'rule')} · ${plural(commands, 'command')} · ${plural(servers, 'MCP server')}` });
         return;
       }
+      case 'secret': return this.addSecretInteractively();
       default:
         this.post({ type: 'notice', text: `There's no /${name} command.` });
     }
@@ -854,9 +868,10 @@ export class ChatEngine implements vscode.Disposable {
 
   private requestApproval(chatId: string, toolName: string, args: ToolArgs, scope: ApprovalScope, req: Omit<ApprovalRequest, 'id' | 'sessionScope'>, isSub: boolean, signal: AbortSignal): Promise<'allow' | 'deny'> {
     if (signal.aborted) return Promise.resolve('deny');
-    if (this.shared.sessionAllowed.has(scope.key)) return Promise.resolve('allow');
+    if (scope.key && this.shared.sessionAllowed.has(scope.key)) return Promise.resolve('allow');
     if (this.pending) this.pending.resolve('deny'); // only one card at a time
-    const request: ApprovalRequest = { ...req, id: uid(), title: isSub ? 'Helper: ' + req.title : req.title, sessionScope: scope.label };
+    const request: ApprovalRequest = { ...req, id: uid(), title: isSub ? 'Helper: ' + req.title : req.title, sessionScope: scope.key ? scope.label : undefined };
+    if (!scope.key) request.noSession = true;
     return new Promise((resolve) => {
       let settled = false;
       const onAbort = () => finish('deny');
@@ -879,7 +894,7 @@ export class ChatEngine implements vscode.Disposable {
   private approve(id: string, decision: 'allow' | 'deny' | 'always') {
     const p = this.pending;
     if (!p || p.id !== id) return;
-    if (decision === 'always') {
+    if (decision === 'always' && p.scopeKey) {
       this.shared.sessionAllowed.add(p.scopeKey);
     }
     p.resolve(decision === 'deny' ? 'deny' : 'allow');
@@ -984,9 +999,9 @@ export class ChatEngine implements vscode.Disposable {
 
   // MARK: sending
 
-  private async send(text: string, attachments?: Attachment[]) {
+  private async send(text: string, attachments?: Attachment[], secretsChecked = false) {
     const body = text.trim();
-    if (!attachments?.length && /^\/(compact|new|mcp|commands|skill-reload|skills-reload|reload)$/i.test(body)) {
+    if (!attachments?.length && /^\/(compact|new|mcp|commands|skill-reload|skills-reload|reload|secret)$/i.test(body)) {
       return this.runSlash(body.slice(1).toLowerCase());
     }
     if (!body && !attachments?.length) return;
@@ -995,6 +1010,11 @@ export class ChatEngine implements vscode.Disposable {
         void vscode.window.showInformationMessage('Ingle is still replying in another chat. Stop it or wait a moment.');
       }
       return;
+    }
+    // Looks like a password or key? Ask before it's stored or sent anywhere.
+    if (!secretsChecked) {
+      const found = detectSecrets(body);
+      if (found.length) return this.askAboutSecrets(body, attachments, found);
     }
     this.pendingPrefill = undefined;
     this.settings = loadSettings();
@@ -1028,6 +1048,67 @@ export class ChatEngine implements vscode.Disposable {
     this.postChats();
     await this.generate(chat.id);
     if (!chat.autoTitled) void this.summariseTitle(chat);
+  }
+
+  /** Shows Save as secret / Send anyway / Cancel. The message waits here (in memory only) until the user answers. */
+  private askAboutSecrets(text: string, attachments: Attachment[] | undefined, found: Detected[]) {
+    const taken = listSecrets().map((s) => s.name);
+    const items = found.map((f) => {
+      const suggested = uniqueName(f.suggested, taken);
+      taken.push(suggested);
+      const shown = f.value.slice(0, Math.min(4, Math.floor(f.value.length / 4)));
+      return { kind: f.kind, suggested, preview: shown + '…' };
+    });
+    const requestId = uid();
+    this.pendingSecret = { id: requestId, text, attachments, found };
+    this.post({ type: 'secretPrompt', requestId, found: items });
+  }
+
+  private async secretDecision(id: string, decision: 'save' | 'send' | 'cancel', items?: { name: string; description: string }[]) {
+    const p = this.pendingSecret;
+    if (!p || p.id !== id) return;
+    this.pendingSecret = undefined;
+    this.post({ type: 'secretPromptClear' });
+    const putBack = (text: string) => {
+      this.post({ type: 'prefill', text });
+      if (p.attachments?.length) this.post({ type: 'attachments', attachments: p.attachments });
+    };
+    if (decision === 'cancel') return putBack(p.text);
+    if (decision === 'send') return this.send(p.text, p.attachments, true);
+    const saved = new Map<string, string>();
+    for (let i = 0; i < p.found.length; i++) {
+      const f = p.found[i];
+      if (saved.has(f.value)) continue;
+      const name = (items?.[i]?.name ?? '').trim().toLowerCase() || f.suggested;
+      const description = (items?.[i]?.description ?? '').trim() || f.kind.charAt(0).toUpperCase() + f.kind.slice(1);
+      const error = await saveSecret(name, description, f.value);
+      if (error) {
+        // Put the message back (with anything already saved swapped out), so nothing is sent by mistake.
+        void vscode.window.showErrorMessage('Ingle: ' + error);
+        return putBack(replaceValues(p.text, saved));
+      }
+      saved.set(f.value, name);
+    }
+    const names = [...new Set(saved.values())];
+    this.post({ type: 'notice', text: `Saved ${names.join(', ')} in the Keychain. The message uses ${names.map((n) => `{{secret:${n}}}`).join(', ')} instead.` });
+    return this.send(replaceValues(p.text, saved), p.attachments, true);
+  }
+
+  /** /secret: name, description and value (hidden), then into the Keychain. */
+  private async addSecretInteractively() {
+    const name = await vscode.window.showInputBox({
+      title: 'Save a secret (1/3)', prompt: 'A short name, e.g. github-token', ignoreFocusOut: true,
+      validateInput: (v) => /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v.trim()) ? (listSecrets().some((s) => s.name === v.trim()) ? 'There’s already a secret with that name.' : undefined)
+        : 'Lower-case letters, digits, dots and dashes.',
+    });
+    if (!name) return;
+    const description = await vscode.window.showInputBox({ title: 'Save a secret (2/3)', prompt: 'What it is for (the assistant sees this)', ignoreFocusOut: true });
+    if (description === undefined) return;
+    const value = await vscode.window.showInputBox({ title: 'Save a secret (3/3)', prompt: `The value of ${name.trim()} — stored only in the macOS Keychain`, password: true, ignoreFocusOut: true });
+    if (!value) return;
+    const error = await saveSecret(name.trim(), description.trim(), value);
+    if (error) { void vscode.window.showErrorMessage('Ingle: ' + error); return; }
+    this.post({ type: 'notice', text: `Saved ${name.trim()}. The assistant can use it as {{secret:${name.trim()}}}, with your approval each time.` });
   }
 
   /** Like Claude: after the first reply, the model names the chat in a few words (shown on the tab and in history). */
@@ -1109,7 +1190,7 @@ export class ChatEngine implements vscode.Disposable {
 
   private buildSystem(chat: StoredChat, a: AssistantSettings, tools: ToolDef[], editor: EditorSnapshot | undefined, matched: Matched, summary: string, repoMap = '', active: CommandEntry[] = []): string {
     const root = workspaceRoot();
-    const parts = [personaPrompt(this.settings, a, chat.web, enabledSSHHosts(this.settings))];
+    const parts = [personaPrompt(this.settings, a, chat.web, enabledSSHHosts(this.settings), listSecrets().map((s) => s.name))];
     const commands = commandsBlock(active);
     if (commands) parts.push(commands);
     parts.push(indexPrompt(this.settings, tools, root, chat.web));
@@ -1389,25 +1470,67 @@ export class ChatEngine implements vscode.Disposable {
       text = `There's no tool called "${name}" here. Use only the tools you were given.`;
     } else {
       ran = true;
-      const ctx = this.makeCtx(chat.id, chat.web, vision, signal, false, name, args, () => { denied = true; });
-      this.setActivity(info.title + '…');
-      try {
-        const out: string | ToolResult = await def.run(args, ctx);
-        if (typeof out === 'string') {
-          text = out;
-        } else {
-          text = out.text;
-          if (vision && out.images?.length) images = out.images;
+      // Secrets: asked for every time (no session allowance), values fetched only after Allow, then put in.
+      const prepared = await this.prepareSecrets(chat.id, name, args, info, signal);
+      if ('refusal' in prepared) {
+        text = prepared.refusal;
+        if (prepared.denied) denied = true;
+      } else {
+        const ctx = this.makeCtx(chat.id, chat.web, vision, signal, false, name, prepared.args, () => { denied = true; });
+        if (prepared.approved) {
+          ctx.requestApproval = async () => 'allow';  // already approved on the secret card
+          ctx.env = prepared.env;
         }
-      } catch (e) {
-        text = 'The tool failed: ' + errMessage(e);
+        this.setActivity(info.title + '…');
+        try {
+          const out: string | ToolResult = await def.run(prepared.args, ctx);
+          if (typeof out === 'string') {
+            text = out;
+          } else {
+            text = out.text;
+            if (vision && out.images?.length) images = out.images;
+          }
+        } catch (e) {
+          text = 'The tool failed: ' + errMessage(e);
+        }
+        this.setActivity(null);
+        text = scrub(text, prepared.used);
       }
-      this.setActivity(null);
     }
+    // Never let a secret's value reach the model or the history, even one this call didn't use.
+    text = (await this.scrubOutput(text, signal)) ?? text;
     row.tool = { name, ...info, output: truncate(text, TOOL_OUTPUT_LIMIT), denied: denied || undefined };
     if (images) row.images = images;
     this.postFor(chat.id, { type: 'messageUpdate', message: forUI(row) });
     return ran ? { name, args, denied } : undefined;
+  }
+
+  /** For a call with {{secret:…}} placeholders: refuses tools that can't take one and unknown names, otherwise shows
+   *  the secret approval card and, on Allow, gets the values and puts them in. A call with no secrets passes through. */
+  private async prepareSecrets(chatId: string, name: string, args: ToolArgs, info: { title: string; detail: string }, signal: AbortSignal):
+    Promise<{ refusal: string; denied?: boolean } | { args: ToolArgs; env?: Record<string, string>; used: { name: string; value: string }[]; approved: boolean }> {
+    const use = secretUse(name, args);
+    if (!use) return { args, used: [], approved: false };
+    if (!(name in SECRET_TOOLS)) return { refusal: SECRET_REFUSED };
+    const known = new Set(listSecrets().map((s) => s.name));
+    const missing = use.names.filter((n) => !known.has(n));
+    if (missing.length) return { refusal: unknownSecretMessage(missing) };
+    // A host that isn't set up runs nothing: let ssh_command refuse it without asking or reading any secret.
+    if (name === 'ssh_command' && !allowedHost(str(args, 'host'), enabledSSHHosts(this.settings))) return { args, used: [], approved: false };
+    const req = secretApprovalRequest(info, name, use);
+    const d = await this.requestApproval(chatId, name, args, { key: '', label: '' }, req, false, signal);
+    if (d !== 'allow') return { refusal: DENIED, denied: true };
+    this.setActivity('Getting ' + use.names.join(', ') + ' from the Keychain…');
+    const got = await secretValues(use.names, info.title, info.detail, signal).finally(() => this.setActivity(null));
+    if ('error' in got) return { refusal: `Couldn't use ${use.names.join(', ')}: ${got.error} Nothing was run.`, denied: true };
+    const sub = substituteArgs(name, args as Record<string, unknown>, got.values);
+    const used = Object.entries(got.values).map(([n, value]) => ({ name: n, value }));
+    return { args: sub.args, env: Object.keys(sub.env).length ? sub.env : undefined, used, approved: true };
+  }
+
+  /** Scrubs text with every saved secret via the Mac app (values never leave it). Undefined if there's nothing to do. */
+  private async scrubOutput(text: string, signal: AbortSignal): Promise<string | undefined> {
+    try { return await scrubViaApp(text, signal); } catch { return undefined; }
   }
 
   // MARK: sub-agents
@@ -1448,6 +1571,8 @@ export class ChatEngine implements vscode.Disposable {
             text = blockedMessage(ban.command, ban.item);
           } else if (!def) {
             text = 'Helpers can only read, so that tool isn’t available.';
+          } else if (namesInArgs(args).length) {
+            text = 'Helpers can’t use secrets. ' + SECRET_REFUSED;
           } else {
             let title = name;
             try { title = def.describe(args).title; } catch { /* keep the name */ }
@@ -1464,6 +1589,7 @@ export class ChatEngine implements vscode.Disposable {
               text = 'The tool failed: ' + errMessage(e);
             }
           }
+          text = (await this.scrubOutput(text, signal)) ?? text;
           messages.push({ role: 'tool', content: truncate(text, TOOL_OUTPUT_LIMIT), tool_name: name });
         }
         if (imgs.length) messages.push({ role: 'user', content: TOOL_IMAGE_NOTE, images: imgs });

@@ -726,6 +726,14 @@ body.vscode-high-contrast .used-chip { border-color: var(--ember-line); }
 }
 .approval-detail { max-height: 120px; }
 .approval-preview { max-height: 240px; }
+.approval-secret, .approval-warning { margin: 0; display: flex; gap: 6px; align-items: flex-start; font-weight: 600; overflow-wrap: anywhere; }
+.approval-secret { color: var(--ember); }
+.approval-warning { color: var(--vscode-editorWarning-foreground, #cca700); }
+.secret-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.secret-kind { flex: 1 1 100%; font-size: 0.9em; opacity: 0.8; }
+.secret-row input { flex: 1 1 140px; min-width: 0; background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; padding: 4px 6px; font: inherit; }
+.secret-row input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .approval-scope { margin: 0; font-size: 0.9em; opacity: 0.75; overflow-wrap: anywhere; }
 .approval-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .btn {

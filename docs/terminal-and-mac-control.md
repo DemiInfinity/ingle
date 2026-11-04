@@ -154,10 +154,13 @@ with the same scope run without asking. The card says what the button covers, e.
 | `ssh_command` | host + exact command + `cwd` | `df -h` on `homelab` again | `df -h` on `nas`, `rm -rf /tmp/x` on `homelab` |
 | `mcp_call` and MCP tools | `server/tool` | `github/list_issues` with any arguments | `github/create_issue` |
 | anything else | exact arguments | the identical call | any other arguments |
+| **any call using a `{{secret:…}}`** | **nothing** — no session scope | — | every use, with a "Uses secret" line (and Touch ID if on) |
 
 The scope is built in one place per app — `MacTools.approvalScope(_:)` in `Tools.swift` and `approvalScope()` in
 `chatEngine.ts` — and the two must match. A tool that isn't listed gets the safe default (exact arguments), so a new
-tool only gets a wider scope if someone adds a case for it on purpose.
+tool only gets a wider scope if someone adds a case for it on purpose. Calls that use a secret return an empty
+scope before any case is checked, and the card has no "Allow for This Session" button
+(see [security-and-privacy.md](security-and-privacy.md#the-secrets-store)).
 
 Where the allowances live:
 

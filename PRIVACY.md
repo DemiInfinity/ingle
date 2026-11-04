@@ -16,12 +16,20 @@ Everything Ingle keeps is stored on your own Mac, in ordinary files you can open
 | Chats (VS Code) | VS Code's private storage for the extension |
 | Memory, rules, skills, commands, research reports, MCP server settings | `~/.ingle/` |
 | Settings | macOS preferences for the app; `~/.ingle/settings.json` (shared with VS Code) |
+| Secrets you save (passwords, tokens, keys) | The macOS Keychain only; `~/.ingle/secrets.json` lists their names, never the values |
 | AI models | `~/.ollama/models` |
 | Engine log | `~/Library/Logs/Ingle/ollama.log` |
 
 **Memory** is written by the assistant when it learns something useful about you (you can turn memory off, or
 make it ask first, in Settings → Web & Memory). It skips things that look like passwords, keys or card numbers.
 You can read, edit or delete any memory file yourself.
+
+**Secrets.** If a message looks like it contains a password or key, Ingle offers to save it in your Keychain instead,
+so the chat only says `{{secret:name}}`. The AI model never sees a saved value. When the assistant wants to use one,
+you approve that use each time (with Touch ID, if it's on), and Ingle puts the value in only then — for example into
+a command you approved, which sends it wherever that command sends it. Output that shows the value is changed back to
+the name before it's kept. Ingle for VS Code gets values from the Mac app on your Mac (or from macOS's Keychain
+prompt), never over the network.
 
 The AI models run on your Mac through the built-in Ollama engine. Your messages are processed on your Mac and
 are not sent to an AI company.

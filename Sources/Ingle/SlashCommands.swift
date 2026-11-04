@@ -19,6 +19,7 @@ enum SlashCommands {
         SlashItem(name: "mcp", detail: "MCP servers Ingle knows about, and whether they're connected", kind: .command, icon: "puzzlepiece.extension"),
         SlashItem(name: "skill-reload", detail: "Re-read skills, rules and MCP servers from disk", kind: .command, icon: "arrow.clockwise"),
         SlashItem(name: "commands", detail: "Commands Ingle enforces (rules the assistant must obey)", kind: .command, icon: "exclamationmark.shield"),
+        SlashItem(name: "secret", detail: "Save a password or key in the Keychain, for the assistant to use with your approval", kind: .command, icon: "key"),
     ]
 
     static func items(skills: [Skill]) -> [SlashItem] {

@@ -4,7 +4,7 @@ import ServiceManagement
 
 struct SettingsView: View {
     private enum Tab: String, CaseIterable, Identifiable {
-        case general = "General", models = "Models", web = "Web & Memory", mac = "Mac Access", ext = "Extensions", about = "About"
+        case general = "General", models = "Models", web = "Web & Memory", mac = "Mac Access", secrets = "Secrets", ext = "Extensions", about = "About"
         var id: String { rawValue }
         var icon: String {
             switch self {
@@ -12,6 +12,7 @@ struct SettingsView: View {
             case .models: return "cpu"
             case .web: return "globe"
             case .mac: return "macbook"
+            case .secrets: return "key"
             case .ext: return "puzzlepiece.extension"
             case .about: return "info.circle"
             }
@@ -50,6 +51,7 @@ struct SettingsView: View {
                 case .models: ModelSettings()
                 case .web: WebMemorySettings()
                 case .mac: MacAccessSettings()
+                case .secrets: SecretsSettings()
                 case .ext: ExtensionsSettings()
                 case .about: AboutSettings()
                 }
@@ -630,6 +632,212 @@ private struct SSHSection: View {
         let gone: [String] = Prefs.sshHosts.filter { old in !hosts.contains { $0.lowercased() == old.lowercased() } }
         names += gone.filter { ticked.contains($0.lowercased()) }
         Prefs.sshHosts = names
+    }
+}
+
+// MARK: Secrets
+
+struct SecretsSettings: View {
+    @AppStorage(Prefs.K.secretsTouchID) private var touchID = true
+    @State private var list: [SecretEntry] = Secrets.all()
+    @State private var adding = false
+    @State private var editing: SecretEntry?
+    @State private var deleting: SecretEntry?
+    /// Values on show after Touch ID (hidden again after 30 seconds).
+    @State private var shown: [String: String] = [:]
+    @State private var problem: String?
+
+    var body: some View {
+        EmberForm {
+            Section {
+                Toggle(isOn: $touchID) {
+                    TitleAndHint(title: "Ask for Touch ID each time a secret is used",
+                                 hint: "After you press Allow on the card. Uses your Mac’s password if there’s no Touch ID.")
+                }
+            } footer: {
+                Text("Assistants can use a secret by name ({{secret:name}}) but never see its value. Every use asks first, and output that shows a value is changed back to its name.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Ember.secondary)
+            }
+            Section("Saved secrets") {
+                if list.isEmpty {
+                    Text("None yet. Add one here, type /secret in a chat, or paste a key in a message and choose Save as Secret.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Ember.secondary)
+                }
+                ForEach(list) { s in row(s) }
+                if let problem {
+                    Text(problem).font(.system(size: 12)).foregroundStyle(Color.red)
+                }
+                HStack {
+                    Text("Values are kept only in your Keychain. ~/.ingle/secrets.json lists the names.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Ember.secondary)
+                    Spacer()
+                    Button("Add Secret…") { adding = true }
+                }
+            }
+            Section("VS Code") {
+                Text("Ingle for VS Code asks this app for a value when you allow a use, so Touch ID (or a dialog) appears here. If this app isn’t open, macOS asks for your Keychain password instead.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Ember.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .sheet(isPresented: $adding, onDismiss: reload) { AddSecretSheet() }
+        .sheet(item: $editing, onDismiss: reload) { EditSecretSheet(entry: $0) }
+        .confirmationDialog("Delete \(deleting?.name ?? "this secret")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let d = deleting { Secrets.delete(d.name); shown[d.name] = nil }
+                deleting = nil
+                reload()
+            }
+        } message: {
+            Text("It’s removed from your Keychain. Chats that use {{secret:\(deleting?.name ?? "")}} won’t be able to any more.")
+        }
+        .onAppear(perform: reload)
+    }
+
+    private func row(_ s: SecretEntry) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.name).font(.system(size: 13, design: .monospaced))
+                    if !s.description.isEmpty {
+                        Text(s.description).font(.system(size: 11)).foregroundStyle(Ember.secondary)
+                    }
+                }
+                Spacer()
+                if shown[s.name] != nil {
+                    Button("Hide") { shown[s.name] = nil }
+                } else {
+                    Button("Show") { reveal(s.name) }
+                }
+                Button("Edit…") { editing = s }
+                Button("Delete…") { deleting = s }
+            }
+            if let value = shown[s.name] {
+                Text(value)
+                    .font(.system(size: 12, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Ember.code))
+            }
+        }
+    }
+
+    /// Values are shown only after Touch ID (or the Mac's password), whatever the setting above.
+    private func reveal(_ name: String) {
+        Task { @MainActor in
+            guard await Secrets.confirmPresence("show the secret \(name)") else { return }
+            let values: [String: String] = await Secrets.values([name])
+            guard let value = values[name] else {
+                problem = "Couldn’t read \(name) from the Keychain."
+                return
+            }
+            problem = nil
+            shown[name] = value
+            try? await Task.sleep(for: .seconds(30))
+            shown[name] = nil
+        }
+    }
+
+    private func reload() { list = Secrets.all() }
+}
+
+/// Name, description and value for a new secret (Settings → Secrets, and /secret in a chat).
+struct AddSecretSheet: View {
+    var onSaved: (String) -> Void = { _ in }
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var description = ""
+    @State private var value = ""
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Save a secret", systemImage: "key.fill")
+                .font(.system(size: 15, weight: .semibold))
+            Text("Stored only in your Keychain. Assistants use it by name and you approve each use.")
+                .font(.system(size: 12))
+                .foregroundStyle(Ember.secondary)
+            TextField("Name, e.g. github-token", text: $name)
+            TextField("What it’s for (the assistant sees this)", text: $description)
+            SecureField("Value", text: $value)
+            if let problem {
+                Text(problem).font(.system(size: 12)).foregroundStyle(Color.red)
+            }
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Save") {
+                    let clean: String = name.trimmingCharacters(in: .whitespaces).lowercased()
+                    if let p = Secrets.add(name: clean, description: description.trimmingCharacters(in: .whitespacesAndNewlines), value: value) {
+                        problem = p
+                    } else {
+                        value = ""
+                        onSaved(clean)
+                        dismiss()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || value.isEmpty)
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(20)
+        .frame(width: 420)
+        .background(Ember.bg)
+    }
+}
+
+/// Rename a secret or change its description (the value stays as it is).
+private struct EditSecretSheet: View {
+    let entry: SecretEntry
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var description: String
+    @State private var problem: String?
+
+    init(entry: SecretEntry) {
+        self.entry = entry
+        _name = State(initialValue: entry.name)
+        _description = State(initialValue: entry.description)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Edit \(entry.name)", systemImage: "key")
+                .font(.system(size: 15, weight: .semibold))
+            TextField("Name", text: $name)
+            TextField("What it’s for", text: $description)
+            Text("Renaming means chats that use {{secret:\(entry.name)}} need the new name.")
+                .font(.system(size: 11))
+                .foregroundStyle(Ember.secondary)
+            if let problem {
+                Text(problem).font(.system(size: 12)).foregroundStyle(Color.red)
+            }
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Save") {
+                    if let p = Secrets.rename(entry.name, to: name) { problem = p; return }
+                    let finalName: String = name.trimmingCharacters(in: .whitespaces).lowercased()
+                    Secrets.setDescription(finalName, description.trimmingCharacters(in: .whitespacesAndNewlines))
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(20)
+        .frame(width: 420)
+        .background(Ember.bg)
     }
 }
 

@@ -18,14 +18,14 @@ function shell(): string {
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[()][A-Z0-9]/g, '');
 
-export function runShell(command: string, cwd: string, signal: AbortSignal): Promise<string> {
+export function runShell(command: string, cwd: string, signal: AbortSignal, env?: Record<string, string>): Promise<string> {
   const sh = shell();
-  return runProcess(sh, [sh.endsWith('zsh') || sh.endsWith('bash') ? '-lc' : '-c', command], cwd, signal);
+  return runProcess(sh, [sh.endsWith('zsh') || sh.endsWith('bash') ? '-lc' : '-c', command], cwd, signal, env);
 }
 
 /** Runs a program with an argument array (no shell): 2-minute limit, output capped and ANSI-free, stops on Stop.
  *  Resolves "<status>\n<output>"; never rejects. */
-export function runProcess(file: string, args: string[], cwd: string, signal: AbortSignal): Promise<string> {
+export function runProcess(file: string, args: string[], cwd: string, signal: AbortSignal, extraEnv?: Record<string, string>): Promise<string> {
   return new Promise((resolve) => {
     let out = '';
     let size = 0;
@@ -36,7 +36,7 @@ export function runProcess(file: string, args: string[], cwd: string, signal: Ab
     try {
       child = spawn(file, args, {
         cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', CI: process.env.CI ?? '1' },
+        env: { ...process.env, TERM: 'dumb', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', CI: process.env.CI ?? '1', ...(extraEnv ?? {}) },
       });
     } catch (e) {
       resolve(`Couldn't start the command: ${(e as Error).message}`);
@@ -109,7 +109,7 @@ const runCommand: ToolDef = {
     }, cwd);
     if (answer !== 'allow') return DENIED;
     ctx.setActivity('Running a command…');
-    try { return await runShell(command, cwd, ctx.signal); } finally { ctx.setActivity(null); }
+    try { return await runShell(command, cwd, ctx.signal, ctx.env); } finally { ctx.setActivity(null); }
   },
 };
 

@@ -39,6 +39,7 @@ enum Prefs {
         static let profiles = "modelProfiles"
         static let sshOn = "sshEnabled"
         static let sshHosts = "sshHosts"
+        static let secretsTouchID = "secretsTouchID"
     }
 
     static let defaults: [String: Any] = [
@@ -59,6 +60,7 @@ enum Prefs {
         K.webDefault: true,
         K.memoryOn: true,
         K.memoryAsk: false,
+        K.secretsTouchID: true,
         K.warnBattery: true,
         K.showName: false,
         K.server: "http://localhost:11434",
@@ -102,6 +104,8 @@ enum Prefs {
     static var braveKey: String { str(K.brave) }
     static var webOnByDefault: Bool { d.object(forKey: K.webDefault) as? Bool ?? true }
     static var memoryEnabled: Bool { d.object(forKey: K.memoryOn) as? Bool ?? true }
+    /// Ask for Touch ID (or the Mac's password) each time a secret is used. On by default.
+    static var secretsTouchID: Bool { d.object(forKey: K.secretsTouchID) as? Bool ?? true }
     static var memoryAskFirst: Bool { d.object(forKey: K.memoryAsk) as? Bool ?? false }
     static var unloadOnSwitch: Bool { str(K.switchMode) != "keep" }
     /// Fallback for models other than the two assistants.
@@ -221,6 +225,7 @@ enum Persona {
         - You mostly help with software development, but you're happy to help with anything.
         - Terminal: you can always list and read files (inside the workspace folders without asking) and, with the user's approval, run Terminal commands and write files ("Allow for This Session" covers only the same command in the same folder, or writes in the same folder). Never work around a denial.
         - SSH: \(SSH.promptFact)
+        - \(Secrets.promptFact)
         - Mac control: when the "Mac" button in the message bar (next to Think and Web) is on, you can also open and drive apps with AppleScript and take screenshots to see the screen, each with approval. If asked to control an app or look at the screen while it's off, tell the user to switch on the Mac button.
         - The user can set Commands — rules Ingle enforces. If a COMMANDS block appears below, follow it exactly; Ingle checks what you did and will send you back to redo work that ignores it.
         - \(Companion.vscodeFact)

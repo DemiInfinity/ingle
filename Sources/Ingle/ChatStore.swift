@@ -71,8 +71,10 @@ struct PendingApproval: Identifiable {
     let conversation: Conversation.ID
     let call: ToolCall
     let info: MacTools.Info
-    /// What "Allow for This Session" would cover.
+    /// What "Allow for This Session" would cover (empty key: not offered).
     let scope: MacTools.ApprovalScope
+    /// Set when the call uses secrets: the card names them, and there's no "Allow for This Session".
+    var secretUse: Secrets.Use? = nil
 }
 
 /// Text handed over from the editor ("Ask Ingle about this"), waiting for the chat view to pick it up.
@@ -104,6 +106,8 @@ final class ChatStore {
     var showMCP = false
     /// A short note under the message box, e.g. after /skill-reload.
     var notice: String?
+    /// /secret opens the "Save a secret" sheet.
+    var showAddSecret = false
     /// Skills for the "/" menu; refreshed by /skill-reload.
     var skills: [Skill] = SkillStore.all()
 
@@ -256,6 +260,7 @@ final class ChatStore {
         case "/compact": compactNow()
         case "/new": newChat()
         case "/mcp": showMCP = true
+        case "/secret", "/secrets": showAddSecret = true
         case "/skill-reload", "/skills-reload", "/reload": reloadSkills()
         case "/commands":
             let list = CommandStore.all(project: EditorBridge.shared.freshContext?.workspace).filter(\.enabled)
@@ -299,7 +304,7 @@ final class ChatStore {
     // MARK: Approvals
 
     func resolve(_ allow: Bool, always: Bool = false) {
-        if always, let p = pending {
+        if always, let p = pending, !p.scope.key.isEmpty, p.secretUse == nil {
             sessionAllowed[p.scope.key] = p.scope.label
         }
         approval?.resume(returning: allow)
@@ -307,13 +312,37 @@ final class ChatStore {
         pending = nil
     }
 
-    private func requestApproval(_ id: Conversation.ID, _ call: ToolCall, _ info: MacTools.Info) async -> Bool {
+    private func requestApproval(_ id: Conversation.ID, _ call: ToolCall, _ info: MacTools.Info, secretUse: Secrets.Use? = nil) async -> Bool {
         let scope: MacTools.ApprovalScope = MacTools.approvalScope(call)
-        if sessionAllowed[scope.key] != nil { return true }
+        // Secrets are approved one use at a time: never from a session allowance.
+        if secretUse == nil, !scope.key.isEmpty, sessionAllowed[scope.key] != nil { return true }
         return await withCheckedContinuation { continuation in
             approval = continuation
-            pending = PendingApproval(conversation: id, call: call, info: info, scope: scope)
+            pending = PendingApproval(conversation: id, call: call, info: info, scope: scope, secretUse: secretUse)
         }
+    }
+
+    /// Asks for a call that uses secrets (card, then Touch ID if on), reads the values and runs it with them put in.
+    /// The output comes back with the values scrubbed. Returns nil if the user said no.
+    private func runWithSecrets(_ call: ToolCall, _ use: Secrets.Use, info: MacTools.Info, chat id: Conversation.ID,
+                                model: String, web: Bool, mac: Bool, commands: [IngleCommand]) async -> String? {
+        guard await requestApproval(id, call, info, secretUse: use) else { return nil }
+        if Prefs.secretsTouchID {
+            let ok: Bool = await Secrets.confirmPresence("use \(use.names.joined(separator: ", ")) for \(use.destination)")
+            if !ok { return nil }
+        }
+        activity = "Getting \(use.names.joined(separator: ", ")) from the Keychain…"
+        let values: [String: String] = await Secrets.values(use.names)
+        activity = nil
+        let missing: [String] = use.names.filter { values[$0] == nil }
+        if !missing.isEmpty {
+            return "Couldn’t read \(missing.joined(separator: ", ")) from the Keychain (macOS may have asked and been refused). Nothing was run."
+        }
+        let prepared = Secrets.substitute(call, values)
+        activity = info.title + "…"
+        let output: String = await runTool(prepared.call, chat: id, model: model, web: web, mac: mac, commands: commands, env: prepared.env)
+        activity = nil
+        return Secrets.Scrubber(values).scrub(output)
     }
 
     /// Ask again for everything allowed this session.
@@ -414,6 +443,8 @@ final class ChatStore {
 
             // Local models cost nothing per step: keep going until done, stopped, or clearly stuck (200 is a backstop).
             let maxSteps = 200
+            // Scrubs every saved secret's value from tool output; read from the Keychain at the first tool result.
+            var scrubber: Secrets.Scrubber?
             var callCounts: [String: Int] = [:]
             var skips = 0
             for _ in 0..<maxSteps {
@@ -461,6 +492,7 @@ final class ChatStore {
                 let lastText = (conv.messages.last(where: { $0.isRealUser })?.content ?? "").lowercased()
                 if lastText.contains("skill") || lastText.contains("rule") { tools += KnowledgeTools.builderDefinitions }
                 if !SkillStore.all().isEmpty { tools.append(SkillStore.toolDefinition) }
+                if !Secrets.all().isEmpty { tools.append(Secrets.listDefinition) }
                 if RuleStore.all(project: project).contains(where: { !$0.always }) { tools.append(RuleStore.toolDefinition) }
                 // Terminal (files, commands) is always available and asks first; controlling the Mac needs the Mac button.
                 system.append(MacTools.systemPrompt)
@@ -614,18 +646,37 @@ final class ChatStore {
                         continue
                     }
                     let info = MacTools.describe(call)
+                    let deniedText = "The user denied this action. Don't retry it; ask them what they'd like instead."
                     var allowed = true
-                    if MacTools.needsApproval(call) {
-                        allowed = await requestApproval(id, call, info)
-                    }
-                    var output = "The user denied this action. Don't retry it; ask them what they'd like instead."
+                    var ran = true
+                    var output = deniedText
                     lastToolImages = []
-                    if allowed {
-                        activity = info.title + "…"
-                        output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess, commands: tracker.commands)
-                        activity = nil
+                    switch Secrets.check(call) {
+                    case .refuse(let why):
+                        output = why
+                        ran = false
+                    case .use(let use):
+                        if let result = await runWithSecrets(call, use, info: info, chat: id, model: model, web: conv.webOn, mac: conv.macAccess, commands: tracker.commands) {
+                            output = result
+                        } else {
+                            allowed = false
+                        }
+                    case .none, .passThrough:
+                        if MacTools.needsApproval(call) {
+                            allowed = await requestApproval(id, call, info)
+                        }
+                        if allowed {
+                            activity = info.title + "…"
+                            output = await runTool(call, chat: id, model: model, web: conv.webOn, mac: conv.macAccess, commands: tracker.commands)
+                            activity = nil
+                        }
                     }
-                    tracker.record(call, succeeded: allowed)
+                    // Never let a secret's value reach the model or the history, even one this call didn't use.
+                    if !Secrets.all().isEmpty {
+                        if scrubber == nil { scrubber = await Secrets.scrubber() }
+                        output = scrubber?.scrub(output) ?? output
+                    }
+                    tracker.record(call, succeeded: allowed && ran)
                     // Show a skill, rule or report on the chip once the assistant has actually opened it.
                     if allowed, ["use_skill", "use_rule", "report_read"].contains(call.name) {
                         let opened = call.arg("name").trimmingCharacters(in: .whitespaces)
@@ -669,7 +720,7 @@ final class ChatStore {
 
     // MARK: Tools that need the chat store
 
-    private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool, commands: [IngleCommand] = []) async -> String {
+    private func runTool(_ call: ToolCall, chat id: Conversation.ID, model: String, web: Bool, mac: Bool, commands: [IngleCommand] = [], env: [String: String] = [:]) async -> String {
         if ["open", "applescript", "screenshot"].contains(call.name) && !mac {
             return "Mac control is off in this chat. Ask the user to switch on the Mac button in the message bar (next to Think and Web) if they want you to control apps or see the screen."
         }
@@ -705,7 +756,7 @@ final class ChatStore {
         case "delegate":
             return await runSubAgent(task: call.arg("task"), model: model, web: web, mac: mac, parent: id, commands: commands)
         default:
-            return await MacTools.run(call)
+            return await MacTools.run(call, env: env)
         }
     }
 
@@ -785,6 +836,7 @@ final class ChatStore {
         var messages: [[String: Any]] = [["role": "system", "content": system.joined(separator: "\n\n")],
                                          ["role": "user", "content": task]]
         var lastContent = ""
+        var scrubber: Secrets.Scrubber?
         for _ in 0..<10 {
             if Task.isCancelled { return "Stopped." }
             activity = "Helper is thinking…"
@@ -819,6 +871,8 @@ final class ChatStore {
                     result = CommandTracker.blockedMessage(ban.command, ban.item)
                 } else if !KnowledgeTools.subAgentAllowed.contains(c.name) {
                     result = "Helpers can only read, so that tool isn't available."
+                } else if !Secrets.names(in: c).isEmpty {
+                    result = "Helpers can’t use secrets. " + Secrets.refused
                 } else if (c.name == "list_files" || c.name == "read_file") && (!mac || !Prefs.inWorkspace(c.arg("path"))) {
                     result = "Helpers can only read inside the workspace folders."
                 } else if c.name.hasPrefix("chat_") {
@@ -827,7 +881,12 @@ final class ChatStore {
                     activity = "Helper: " + MacTools.describe(c).title + "…"
                     result = await MacTools.run(c)
                 }
-                messages.append(["role": "tool", "content": result, "tool_name": c.name])
+                var clean: String = result
+                if !Secrets.all().isEmpty {
+                    if scrubber == nil { scrubber = await Secrets.scrubber() }
+                    clean = scrubber?.scrub(result) ?? result
+                }
+                messages.append(["role": "tool", "content": clean, "tool_name": c.name])
             }
         }
         let partial = ThinkSplitter.split(lastContent, extra: "").body

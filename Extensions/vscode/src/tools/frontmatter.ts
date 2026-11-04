@@ -2,6 +2,7 @@
 // RuleStore.stripFrontmatter) and Memory.swift (MemoryStore.slug, looksSecret). Pure, no vscode import.
 import * as fs from 'fs';
 import * as path from 'path';
+import { detectSecrets } from './secretsCore';
 
 const trimWS = (s: string) => s.replace(/^[ \t\r]+|[ \t\r]+$/g, '');
 
@@ -44,6 +45,7 @@ export function slug(name: string): string {
 
 /** Passwords, keys and card numbers — never stored. Same as MemoryStore.looksSecret. */
 export function looksSecret(s: string): boolean {
+  if (detectSecrets(s).length) return true;
   const lower = s.toLowerCase();
   if (['password', 'passcode', 'pin code', 'api key', 'secret key', 'private key', 'token:'].some((w) => lower.includes(w))) return true;
   const digits = s.replace(/[ -]/g, '');
