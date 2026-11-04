@@ -31,9 +31,10 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 
 | Round | Tasks | Starts when |
 |---|---|---|
-| A0 | 8 (unify commands) | now, alongside the secrets store (28) |
+| A0 | 8 (unify commands), 33 (code intelligence MCP, new folder only) | now, alongside the secrets store (28) |
 | A | 29 (effort), 30 (Code mode foundation) | 28 is merged |
 | B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
+| B2 | 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
 | C | 9 (shared spec + `IngleCore`), 10 (benchmark), 11 (model picker) | round B is merged |
 
 Then waves 5–8. Task 12 (signing) waits for the user's Apple Developer account. Nothing is pushed without the user.
@@ -347,6 +348,88 @@ agent loop into one shared core.
 
 ---
 
+## Wave 4c — don't miss anything, and know when to ask for help
+
+The harness can't make a small model cleverer, but it can stop it **missing things**: a caller it didn't look at, a
+file it skipped, half a log it never read. And when a job really is beyond it, Ingle should say so and help you get a
+second opinion, **only when needed**.
+
+### [ ] 33. Code intelligence MCP server (`ingle-code`) — can start any time (new folder only)
+**Why.** Today the model finds code with text search and the repo map, and it misses things. Language servers
+already know every definition, reference and type error exactly. Wrapping them as an **MCP server** means both apps
+use it through their existing MCP clients, with no new agent-loop code. It also works in any other MCP client
+(Claude Desktop, Claude Code, Cursor).
+**Design.**
+- A new Node/TypeScript package in `Extensions/mcp-code/`. MCP over stdio, written by hand like `MCPConnection`. No
+  runtime npm deps.
+- It **drives language servers that are already installed** over LSP: `sourcekit-lsp` (comes with Xcode/CLT),
+  `typescript-language-server`/`tsserver`, `pyright`, `gopls`, `rust-analyzer`. It finds them on `PATH` and reports
+  which languages are available. With no server for a language, it falls back to a fast symbol scan (`git grep` +
+  patterns) and labels results "approximate".
+- Tools. They are complete and deterministic, and each says whether its answer is **exact** (from LSP) or
+  **approximate**:
+  - `outline(file)`: symbols with line ranges.
+  - `definition(symbol | file:line:col)`.
+  - `references(symbol)`: **every** use, grouped by file, with a total count.
+  - `callers(symbol)` / `callees(symbol)`: one or two levels deep.
+  - `impact(symbol)`: references + callers + the tests that cover those files. This is the list of everything a
+    change to this symbol could affect.
+  - `diagnostics(paths?)`: compiler/type errors without a full build.
+  - `read_exhaustively(path, question)`: for huge files and logs, walks the file in chunks and returns a structured
+    note for every chunk, so nothing is skipped (the model reads the notes, not 50,000 lines).
+- Output is short and capped, with "showing 40 of 212, ask for page 2". Small context windows come first.
+- Read-only. It never edits files.
+- Settings → Extensions gets a one-click **Add Ingle Code** that writes the entry to `~/.ingle/mcp.json`. Docs explain
+  installing a language server for each language.
+**Files.** `Extensions/mcp-code/**` (new, with its own `package.json`, `tsconfig.json` and `node:test` tests against
+small fixture projects), `SettingsViews.swift` (the add button only), `docs/ingle-code.md` (new),
+`docs/README.md`.
+**Done when.** In this repo, `references` for `approvalScope` finds every use in both the Swift and TypeScript code,
+`diagnostics` reports a deliberately broken file, and Ember using it in Ingle answers "what calls `runSubAgent`?"
+correctly and completely.
+
+### [ ] 34. Coverage checks: the harness notices what was missed (both apps; after round B)
+**Why.** Having `impact` isn't enough if the model ignores half the list. This is the obedience-layer idea applied to
+completeness.
+**Design.** When a run calls `impact`/`references` and then changes code, Ingle remembers the affected files. Before
+the model finishes, it checks which of them it neither read nor edited. If some are left, it nudges once ("You changed
+`approvalScope` but didn't look at 3 places that use it: … Check them or say why they don't need changing."). If
+they're still unvisited, the reply gets a chip: **⚠ 3 affected places not checked**. It's on at High and Max effort
+(task 29), and a command can switch it on with `must_use: coverage`.
+**Files.** A small `Coverage` module per app, hooks in the completion check (`ChatStore.swift`, `chatEngine.ts`),
+the chip in `MessageViews.swift`/`chat.js`, tests, `docs/agent-loop.md`.
+**Done when.** Renaming a function used in five files, with the model "forgetting" one, produces the nudge and then
+either the fix or the chip.
+
+### [ ] 35. Second opinion: when to ask a cloud AI (both apps; replaces task 23; after round B)
+**Why.** Some problems are beyond a local model. Ingle should be honest about that and make getting help easy, but
+**only when needed**, and nothing ever leaves your Mac unless you choose.
+**When it's offered.** This is decided by the harness from what happened, never by the model saying it's unsure:
+- the stuck stop fires, or the same check (tests/build) fails 3 times in a run;
+- a command still ends in ⚠ after its nudges;
+- at Max effort the review step finds problems it can't fix;
+- coverage (task 34) leaves affected places unresolved.
+It's never offered for quick chats, and at most once per run.
+**What it offers.** A card under the reply: **This might need a stronger model.**
+- **Try with Flint**: the same chat continues on the bigger local model with a short summary of what was tried
+  (the old task 23).
+- **Prepare a brief for a cloud AI**: Ingle writes a short, self-contained Markdown brief with the goal, what was
+  tried, the errors, and only the relevant code (using `impact` from task 33). Secrets are scrubbed with the secrets
+  store's scrubber (task 28), and home paths and usernames are optionally redacted. You see the full brief before
+  **Copy**. Nothing is sent anywhere. Paste it into Claude or another assistant yourself.
+- **Keep going**.
+- Later, an optional "send with your own API key" (roadmap), off by default and clearly labelled as leaving your
+  Mac, with the same preview.
+**Prompt fact** (both apps): *"If a task is beyond you after real attempts, say so plainly; Ingle can offer a second
+opinion. Don't suggest it for ordinary work."*
+**Files.** A small `Escalation` module per app, stop paths in `ChatStore.swift` / `runLoop` in `chatEngine.ts`,
+`MessageViews.swift`, `media/chat.js`, `shared/protocol.ts`, brief builder + tests, `PRIVACY.md` (states that briefs
+are copy-only), `docs/agent-loop.md`.
+**Done when.** A run that fails its tests three times shows the card. The brief contains the goal, attempts, errors and
+the relevant code with no secrets or private paths. Ordinary chats never show it.
+
+---
+
 ## Waves 5–8 — making it better to use
 
 These are proposals, not commitments. Their order is flexible, but within a wave the tasks don't share files. The same rules
@@ -438,7 +521,7 @@ log lines and settings with anything secret-looking removed. Shown before copyin
 template that asks for it. **Files:** new `Diagnostics.swift`, `SettingsViews.swift` (About),
 `.github/ISSUE_TEMPLATE/bug.yml`, `docs/troubleshooting.md`.
 
-#### [ ] 23. Escalate when stuck
+#### [ ] 23. Escalate when stuck — *now part of task 35*
 When a run hits the stuck stop or a command's ⚠, offer **Try with Flint**: the same chat continues on the bigger
 model with a short summary of what was tried. Roadmap's optional bring-your-own-key fallback can plug in here later.
 **Files:** stop paths in `ChatStore.swift` and `runLoop` in `chatEngine.ts`, `MessageViews.swift`,
