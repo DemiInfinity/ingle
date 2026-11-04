@@ -48,6 +48,11 @@ enum ChatSettingsPrompt {
             (Prefs.hardName, "hard jobs", Prefs.hardModel),
         ]
         var lines: [String] = []
+        let mates: [String] = team.filter { $0.tag != model && !$0.tag.isEmpty && $0.name != me }.map(\.name)
+        if !mates.isEmpty {
+            let names: String = mates.joined(separator: " and ")
+            lines.append("- You and \(names) are one team inside Ingle: different models with your own characters, but you share the same memory, rules, skills, commands and this chat's history. Talk about the team as \"we\" (\"we both remember…\", \"we share…\"). Never call yourselves separate, unconnected instances or say you don't know \(names).")
+        }
         for other in team where other.tag != model && !other.tag.isEmpty && other.name != me {
             let awake: Bool = ModelManager.current?.isLoaded(other.tag) ?? false
             lines.append("- \(other.name) (\(other.role)): \(awake ? "awake too" : "asleep") right now.")

@@ -41,3 +41,11 @@ test('settingsPrompt: knows who the user was talking to before switching', () =>
   assert.match(t, /now you, Ember, have taken over/);
   assert.doesNotMatch(settingsPrompt({ ...base, me: 'Ember', earlier: ['Ember'] }), /Earlier in this chat/);
 });
+
+test('settingsPrompt: Ember and Flint talk about themselves as a team ("we")', () => {
+  const t = settingsPrompt({ ...base, me: 'Ember', others: [{ name: 'Flint', role: 'hard jobs', awake: false }] });
+  assert.match(t, /You and Flint are one team inside Ingle/);
+  assert.match(t, /share the same memory, rules, skills, commands and this chat's history/);
+  assert.match(t, /Talk about the team as "we"/);
+  assert.match(t, /Never call yourselves separate, unconnected instances/);
+});

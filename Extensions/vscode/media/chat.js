@@ -1084,7 +1084,10 @@
   });
 
   function renderActivity() {
-    const text = S.streaming && S.activity ? S.activity : '';
+    // Between Enter and the reply's first step there's no reply bubble yet: say it's working, so it never looks idle.
+    const waiting = S.streaming && !liveInfo().liveId;
+    const who = (currentAssistant() || {}).name || 'Ingle';
+    const text = S.streaming ? (S.activity || (waiting ? `${who} is working…` : '')) : '';
     activity.classList.toggle('idle', !text);
     setText(activityText, text);
   }
@@ -2481,7 +2484,7 @@
     if (!msg || typeof msg.type !== 'string') return;
     switch (msg.type) {
       case 'init': applyInit(msg.state); break;
-      case 'messageAdd': addMessage(msg.message); break;
+      case 'messageAdd': addMessage(msg.message); renderActivity(); break;
       case 'messageDelta': deltaMessage(msg.id, msg.content, msg.thinking); break;
       case 'messageUpdate': updateMessage(msg.message); break;
       case 'status': {

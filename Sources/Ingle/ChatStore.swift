@@ -672,6 +672,14 @@ final class ChatStore {
             ]
             conversations[i].messages.append(progress)
             save()
+        } else if let i = index(id) {
+            // Reasoning off: a reply bubble with typing dots straight away, so it's clear the assistant is working.
+            // The real reply replaces it when it starts; it's never sent to the model or kept.
+            var placeholder = ChatMessage(role: .assistant, content: "", model: conversations[i].model)
+            placeholder.id = progressMessageID
+            placeholder.workflowProgress = true
+            placeholder.reasoned = false
+            conversations[i].messages.append(placeholder)
         }
         activeRuns[id] = run
         // A finished task list goes when the next job starts; an unfinished one stays (e.g. "carry on" after Stop).
@@ -1100,8 +1108,14 @@ final class ChatStore {
                 }
                 var reply = ChatMessage(role: .assistant, content: "", model: model)
                 reply.reasoned = reasoning
-                reply.workflowHidden = true
-                reply.thinkingPhases = phaseRows(thinking: "", pending: true)
+                if reasoning {
+                    // Reasoning on: the reply streams inside the phases panel until the final answer.
+                    reply.workflowHidden = true
+                    reply.thinkingPhases = phaseRows(thinking: "", pending: true)
+                } else if let ph = conversations[i].messages.firstIndex(where: { $0.id == progressMessageID }) {
+                    // Reasoning off: the typing-dots placeholder makes way for the reply, which streams visibly.
+                    conversations[i].messages.remove(at: ph)
+                }
                 conversations[i].messages.append(reply)
                 let chip = attachedNames + usedNames
                 if !chip.isEmpty { reply.usedContext = chip }
@@ -1188,9 +1202,11 @@ final class ChatStore {
                     if !split.body.isEmpty {
                         turnActionEntries.append("### Assistant step\n\n" + split.body)
                     }
-                    conversations[j].messages[k].workflowHidden = true
-                    conversations[j].messages[k].thinkingPhases = phaseRows(thinking: split.thinking)
-                    conversations[j].messages[k].thinking = ""
+                    if reasoning {
+                        conversations[j].messages[k].workflowHidden = true
+                        conversations[j].messages[k].thinkingPhases = phaseRows(thinking: split.thinking)
+                        conversations[j].messages[k].thinking = ""
+                    }
                     updateThinkingStage(id, messageID: progressMessageID, title: "Thinking", status: "Done",
                                         content: split.thinking.isEmpty ? "The model requested an action." : split.thinking)
                     if !split.body.isEmpty {
@@ -1725,6 +1741,7 @@ final class ChatStore {
         let start = min(conv.messages.count, max(compactedStart, requestedStart ?? compactedStart))
         return conv.messages[start...].compactMap { m -> [String: Any]? in
             if m.role == .assistant, m.content.isEmpty, m.toolCalls.isEmpty, m.thinkingPhases != nil { return nil }
+            if m.workflowProgress == true, m.content.isEmpty, m.toolCalls.isEmpty { return nil }   // the typing-dots placeholder
             var json = m.ollamaJSON
             // A reply from the other assistant (the user switched mid-chat) is labelled, so this one knows who said it.
             if m.role == .assistant, let author = m.model, !author.isEmpty, author != conv.model {

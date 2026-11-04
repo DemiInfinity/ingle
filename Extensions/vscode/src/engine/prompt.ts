@@ -264,6 +264,11 @@ export function settingsPrompt(s: {
       : '- Web: Off — no web access. If current information is needed, suggest switching on Web.',
     s.sshHosts.length ? `- SSH: On — hosts: ${s.sshHosts.join(', ')}.` : '- SSH: Off.',
   ];
+  const mates = (s.others ?? []).map((o) => o.name);
+  if (mates.length) {
+    const names = mates.join(' and ');
+    lines.push(`- You and ${names} are one team inside Ingle: different models with your own characters, but you share the same memory, rules, skills, commands and this chat's history. Talk about the team as "we" ("we both remember…", "we share…"). Never call yourselves separate, unconnected instances or say you don't know ${names}.`);
+  }
   for (const o of s.others ?? []) {
     const state = o.awake ? 'awake' : 'asleep';
     lines.push(`- ${o.name} (${o.role}): ${o.awake ? 'awake too' : 'asleep'} right now.`);

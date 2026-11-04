@@ -41,6 +41,8 @@ releases. Every change people can notice gets a line here. Ask the assistant "wh
   while talking to Ember (or the other way round) and you'll hear, in their own words, whether the other is up, with
   an offer to switch. Switch assistant mid-chat and the new one knows who you were talking to before, and which replies
   were theirs.
+- **Ember and Flint talk as a team:** they share memory, rules, skills, commands and the chat's history, and now say
+  "we" instead of describing themselves as separate, unconnected assistants.
 
 ### Changed
 - **Settings apply when you press Enter:** changing Model, Effort, Mode, Reasoning, Web or Mac while a reply is
@@ -60,6 +62,8 @@ releases. Every change people can notice gets a line here. Ask the assistant "wh
   tool-call format automatically.
 
 ### Fixed
+- With Reasoning off, replies were hidden until they finished, and nothing showed while the assistant got ready. Now
+  a reply bubble with typing dots appears the moment you press Enter, and the answer streams in as it's written.
 - The context meter showed about 18% on a brand-new chat; it now starts at 0%.
 - Three VS Code extension bugs found by the new test suite.
 - Auto mode now also checks commands hidden in backticks or `$( )`, and one-line `python -c` / `node -e` scripts.
