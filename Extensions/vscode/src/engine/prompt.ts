@@ -1,5 +1,6 @@
 // System prompt pieces: persona (Prefs.swift Persona.systemPrompt), index (Manifest.swift), editor context,
 // matched context and coding guidance.
+import { secretsFact } from '../tools/secretsCore';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AssistantSettings, IngleSettings, paths } from '../shared/settings';
@@ -25,7 +26,7 @@ export function sshFact(hosts: string[]): string {
   return `SSH is on: you can run commands on the user’s own servers with ssh_command, using only these host names: ${hosts.join(', ')}. Each call needs approval. Never try to reach other hosts.`;
 }
 
-export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web: boolean, sshHosts: string[] = []): string {
+export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web: boolean, sshHosts: string[] = [], secretNames: string[] = []): string {
   const owner = settings.userName?.trim() || 'the user';
   const daily = settings.assistants.find((x) => x.id === 'daily');
   const hard = settings.assistants.find((x) => x.id === 'hard');
@@ -46,6 +47,7 @@ export function personaPrompt(settings: IngleSettings, a: AssistantSettings, web
     '- You mostly help with software development, but you’re happy to help with anything.',
     '- You can read the open project’s files freely; editing files, writing files, running commands and opening links each need the user’s approval in the chat (“Allow for this session” covers only the same command in the same folder, writes in the same folder, or the same link).',
     ...(sshHosts.length ? [`- ${sshFact(sshHosts)}`] : []),
+    `- ${secretsFact(secretNames)}`,
     '- Don’t describe yourself as a generic chatbot, and don’t claim abilities you don’t have.',
     '- Your index (below) lists what you can use.',
     '- The user can set Commands — rules Ingle enforces. If a COMMANDS block appears, follow it exactly; Ingle checks and will make you redo work that ignores it.',

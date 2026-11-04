@@ -13,7 +13,7 @@ A local-first AI assistant for Apple Silicon Macs, in two parts that share one b
 2. **VS Code extension** (`Extensions/vscode/`, TypeScript, **no runtime npm deps**) — coding chat as editor tabs.
    Talks to the same engine directly; works without the Mac app open.
 
-Shared state lives in **`~/.ingle/`** (rules, skills, commands, memory, research, `mcp.json`, generated `INGLE.md`
+Shared state lives in **`~/.ingle/`** (rules, skills, commands, memory, research, `mcp.json`, `secrets.json` names only, generated `INGLE.md`
 index, `settings.json` written by the Mac app). Status: **early preview**. Licence: **PolyForm Noncommercial 1.0.0**
 (not MIT — see `LICENSING.md`). Default assistants: **Ember** (daily coding) and **Flint** (hard jobs).
 
@@ -51,6 +51,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `EngineUpdater.swift` | Checks GitHub releases daily, notifications, download (progress) → sha256 verify → stage → slim → swap `current`/`previous`, roll back |
 | `ModelManager.swift` / `ModelCatalog.swift` | Model state, switching, sleep timer, smart autocomplete pausing, downloads |
 | `Extensions.swift` | `IngleHome` paths, `RuleStore`, `SkillStore`, `MCPManager` + `MCPConnection` (stdio JSON-RPC) |
+| `Secrets.swift` | Secrets store: Keychain (service `Ingle`), `secrets.json` names, composer detection, `{{secret:name}}` substitution (env vars for commands), output scrubbing, Touch ID, `secret_list` |
 | `Knowledge.swift` / `Memory.swift` / `WebTools.swift` | Research reports + builders (skill/rule create); memory store (secret filter, index); read-only web search/fetch with private-host blocking |
 | `Documents.swift` | Document→text (PDFKit, NSAttributedString, xlsx), `ImageStore` (HEIC→JPEG, Vision OCR), attachments |
 | `SemanticMatcher.swift` | Attaches matching rules/skills/memory/reports (nomic-embed-text embeddings, keyword fallback) |
@@ -71,6 +72,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `engine/toolSelection.ts` | Per-turn tool filtering (`selectTools`, pure — called by `toolsFor`) |
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
+| `tools/secretsCore.ts`, `secrets.ts` | Secrets store (pure logic, tested) and `secret_list` + getting values from the Mac app / `security` |
 | `tools/*.ts` | `ToolDef`s: files (read/list/find/search/problems/edit with diff/write), command, documents/images (macOS tools), web, memory, knowledge, `commands.ts`, `mcp.ts`, `repomap.ts`, `stores.ts` (reads `~/.ingle`) |
 | `shared/protocol.ts` | **Webview ↔ extension message contract** — both sides must match |
 | `shared/settings.ts` | Reads `~/.ingle/settings.json` with defaults |
@@ -80,6 +82,8 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 
 - **Approvals:** every command, file write, app action, MCP call and out-of-workspace read asks: Deny / Allow for This
   Session / Allow. Session allowances are in memory only (until the app quits).
+- **Secrets:** values only in the Keychain; the model sees `{{secret:name}}`. Calls using one always ask (no session
+  allowance, Touch ID if on), values are put in after approval, and tool output is scrubbed back to placeholders.
 - **Terminal vs Mac control:** Terminal tools always on; the Mac button only gates `open`/`applescript`/`screenshot`.
 - **Commands:** `~/.ingle/commands/*.md` with `when`, `must_use` (tool | `mcp:server[/tool]` | `skill:name`), `never_use`,
   `then_run`, `enabled`. Enforced: required tools offered, banned blocked, ≤2 nudges before finishing, ⚑/⚠ chips.

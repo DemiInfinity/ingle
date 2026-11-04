@@ -21,6 +21,8 @@ export interface ToolContext {
   signal: AbortSignal;
   /** True if the current model can see images. Image tools can return OCR text instead when false. */
   vision: boolean;
+  /** Extra environment variables for a command (secrets, after approval). Never logged or stored. */
+  env?: Record<string, string>;
 }
 
 /** A tool may return plain text, or text plus images (base64 JPEG/PNG, no data: prefix) for vision models.

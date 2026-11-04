@@ -58,6 +58,11 @@ export interface ApprovalRequest {
   preview?: string;     // e.g. a unified diff for edits, or file content for writes
   canShowDiff?: boolean; // true for edits: the webview shows a "View Diff" button
   sessionScope?: string; // what "Allow for this session" covers, e.g. "“npm test” in Ingle"
+  /** Secrets this call uses (names only). Such a card never offers "Allow for this session". */
+  secrets?: string[];
+  secretLine?: string;    // "Uses secret: github-token → a command on this Mac"
+  secretWarning?: string; // "This writes github-token to disk in plain text."
+  noSession?: boolean;    // hide "Allow for this session"
 }
 
 /** An entry in the "/" menu. Commands: compact, new, mcp, skill-reload. Skills: every skill by name. */
@@ -109,12 +114,19 @@ export type ToWebview =
   | { type: 'contextUsage'; used: number; limit: number }                        // estimated tokens, for a small meter
   | { type: 'slashItems'; items: SlashItem[] }                                   // after /skill-reload
   | { type: 'mcp'; servers: MCPServerInfo[] }                                    // open the /mcp dialog with this list
-  | { type: 'notice'; text: string };                                            // short note under the composer (fades after ~4 s)                                           // put text in the message box
+  | { type: 'notice'; text: string }                                            // short note under the composer (fades after ~4 s)
+  /** The message looks like it has a secret in it: ask Save as secret / Send anyway / Cancel. Nothing is stored or
+   *  sent until the user answers. `preview` is a masked hint ("ghp_…"), never the value. */
+  | { type: 'secretPrompt'; requestId: string; found: { kind: string; suggested: string; preview: string }[] }
+  | { type: 'secretPromptClear' };
 
 // Webview → extension
 export type FromWebview =
   | { type: 'ready' }
   | { type: 'send'; text: string; attachments?: Attachment[] }
+  /** The answer to a secretPrompt. 'save' stores each value in the Keychain (names in the same order as `found`) and
+   *  sends the message with placeholders; 'send' sends it as typed; 'cancel' puts it back in the message box. */
+  | { type: 'secretDecision'; requestId: string; decision: 'save' | 'send' | 'cancel'; items?: { name: string; description: string }[] }
   | { type: 'compact' }                                   // "Compact chat" button or the /compact command
   | { type: 'slash'; name: string }                       // a command picked from the "/" menu: 'new' | 'mcp' | 'skill-reload' | 'compact'
   | { type: 'mcpRefresh' }                                // Reload button in the /mcp dialog

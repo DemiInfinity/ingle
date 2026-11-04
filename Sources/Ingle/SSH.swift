@@ -250,7 +250,8 @@ enum CommandRunner {
         }
     }
 
-    static func run(_ executable: String, _ arguments: [String], cwd: String?) async -> Result {
+    /// `env` adds environment variables (secrets for run_command, after approval).
+    static func run(_ executable: String, _ arguments: [String], cwd: String?, env: [String: String] = [:]) async -> Result {
         let run = Run()
         return await withTaskCancellationHandler {
             await Task.detached(priority: .userInitiated) { () -> Result in
@@ -258,6 +259,11 @@ enum CommandRunner {
                 process.executableURL = URL(fileURLWithPath: executable)
                 process.arguments = arguments
                 if let cwd, !cwd.isEmpty { process.currentDirectoryURL = URL(fileURLWithPath: Prefs.expand(cwd)) }
+                if !env.isEmpty {
+                    var merged: [String: String] = ProcessInfo.processInfo.environment
+                    merged.merge(env) { _, new in new }
+                    process.environment = merged
+                }
                 let pipe = Pipe()
                 process.standardOutput = pipe
                 process.standardError = pipe

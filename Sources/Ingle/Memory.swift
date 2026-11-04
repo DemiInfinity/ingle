@@ -61,7 +61,7 @@ enum MemoryStore {
     static func save(file: String, fact: String, description: String?) -> String {
         let fact = fact.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !fact.isEmpty else { return "Nothing to save." }
-        if looksSecret(fact) { return "Not saved: that looks like a password, key or card number, which Ingle never stores." }
+        if looksSecret(fact) { return notSaved }
         let name = slug(file)
         let existing = all().first { $0.name == name }
         let line = fact.hasPrefix("- ") ? fact : "- " + fact
@@ -75,7 +75,7 @@ enum MemoryStore {
     }
 
     static func rewrite(file: String, content: String, description: String?) -> String {
-        if looksSecret(content) { return "Not saved: that includes something that looks like a password, key or card number." }
+        if looksSecret(content) { return notSaved }
         let name = slug(file)
         let existing = all().first { $0.name == name }
         let desc = description?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? existing?.description ?? "Things to remember"
@@ -120,7 +120,11 @@ enum MemoryStore {
         return hits.sorted { $0.score > $1.score }.prefix(15).map(\.line).joined(separator: "\n")
     }
 
+    /// Memory never holds secrets; they belong in the secrets store (Keychain).
+    static let notSaved = "Not saved: that looks like a password, key or card number, and memory never stores those. Ask the user to save it in the secrets store instead (/secret, or Settings → Secrets); then use it as {{secret:name}} in a tool, with their approval."
+
     private static func looksSecret(_ s: String) -> Bool {
+        if !Secrets.detect(s).isEmpty { return true }
         let lower = s.lowercased()
         if ["password", "passcode", "pin code", "api key", "secret key", "private key", "token:"].contains(where: { lower.contains($0) }) { return true }
         // 13–19 digit runs (card numbers), allowing spaces or dashes.

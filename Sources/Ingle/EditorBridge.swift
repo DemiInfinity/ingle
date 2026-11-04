@@ -173,8 +173,16 @@ final class EditorBridge {
                 var buf = buffer
                 if let data { buf.append(data) }
                 if let request = HTTPRequest.parse(buf) {
-                    let (status, body) = self.route(request)
-                    self.respond(connection, status: status, body: body)
+                    if request.path.hasPrefix("/secret/") && request.headers["x-ingle-token"] == self.token {
+                        // Secret requests wait for the user (Touch ID or a dialog), so they're answered later.
+                        Task { @MainActor in
+                            let (status, body) = await self.routeSecret(request)
+                            self.respond(connection, status: status, body: body)
+                        }
+                    } else {
+                        let (status, body) = self.route(request)
+                        self.respond(connection, status: status, body: body)
+                    }
                 } else if isComplete || error != nil || buf.count > 2_000_000 {
                     connection.cancel()
                 } else {
@@ -207,8 +215,77 @@ final class EditorBridge {
         }
     }
 
+    // MARK: Secrets for VS Code
+
+    private struct SecretUseRequest: Decodable {
+        let names: [String]
+        let purpose: String?
+        let detail: String?
+        let editor: String?
+    }
+    private struct SecretScrubRequest: Decodable { let text: String }
+    private struct SecretSaveRequest: Decodable {
+        let name: String
+        let description: String?
+        let value: String
+    }
+
+    private static func json(_ object: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// /secret/use hands values to the editor only after the user confirms here (Touch ID, or a dialog when that's
+    /// off), so having the bridge token isn't enough. /secret/scrub scrubs text without any value leaving the app.
+    private func routeSecret(_ request: HTTPRequest) async -> (Int, String) {
+        let decoder = JSONDecoder()
+        switch (request.method, request.path) {
+        case ("POST", "/secret/use"):
+            guard let r = try? decoder.decode(SecretUseRequest.self, from: request.body), !r.names.isEmpty else {
+                return (400, #"{"error":"bad json"}"#)
+            }
+            let names: [String] = r.names.map { $0.lowercased() }
+            let saved: Set<String> = Set(Secrets.names())
+            if let missing = names.first(where: { !saved.contains($0) }) {
+                return (404, Self.json(["error": "There's no secret called \(missing)."]))
+            }
+            let who: String = r.editor ?? "VS Code"
+            let list: String = names.joined(separator: ", ")
+            let what: String = (r.purpose ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let ok: Bool
+            if Prefs.secretsTouchID {
+                let reason: String = what.isEmpty ? "let \(who) use \(list)" : "let \(who) use \(list) to \(what.prefix(1).lowercased() + what.dropFirst())"
+                ok = await Secrets.confirmPresence(reason)
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                alert.messageText = "\(who) wants to use \(list)"
+                alert.informativeText = ([what, String((r.detail ?? "").prefix(600))].filter { !$0.isEmpty }).joined(separator: "\n\n")
+                alert.addButton(withTitle: "Allow")
+                alert.addButton(withTitle: "Deny")
+                ok = alert.runModal() == .alertFirstButtonReturn
+            }
+            guard ok else { return (403, #"{"error":"Not confirmed in the Ingle app, so nothing was run."}"#) }
+            let values: [String: String] = await Secrets.values(names)
+            guard values.count == names.count else { return (500, #"{"error":"Couldn't read it from the Keychain."}"#) }
+            return (200, Self.json(["values": values]))
+        case ("POST", "/secret/scrub"):
+            guard let r = try? decoder.decode(SecretScrubRequest.self, from: request.body) else { return (400, #"{"error":"bad json"}"#) }
+            let scrubber: Secrets.Scrubber = await Secrets.scrubber()
+            return (200, Self.json(["text": scrubber.scrub(r.text)]))
+        case ("POST", "/secret/save"):
+            guard let r = try? decoder.decode(SecretSaveRequest.self, from: request.body) else { return (400, #"{"error":"bad json"}"#) }
+            if let problem = Secrets.add(name: r.name, description: r.description ?? "", value: r.value) {
+                return (409, Self.json(["error": problem]))
+            }
+            return (200, #"{"ok":true}"#)
+        default:
+            return (404, #"{"error":"not found"}"#)
+        }
+    }
+
     private func respond(_ connection: NWConnection, status: Int, body: String) {
-        let reason = [200: "OK", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found"][status] ?? "OK"
+        let reason = [200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 409: "Conflict", 500: "Server Error"][status] ?? "OK"
         let bytes = Data(body.utf8)
         var response = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         response += body

@@ -36,6 +36,7 @@
     attachments: [],
     slashItems: [],
     mcpServers: null,   // non-null while the /mcp dialog is open
+    secretPrompt: null, // non-null while "This looks like a secret" is asked
     draft: typeof saved.draft === 'string' ? saved.draft : '',
   };
 
@@ -121,6 +122,7 @@
     link: '<path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2A2.6 2.6 0 0 0 9 3.3l-.9.9"/><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9A2.6 2.6 0 0 0 7 12.7l.9-.9"/>',
     sparkle: '<path d="M7 1.9l1.3 3.5 3.5 1.3-3.5 1.3L7 11.5 5.7 8 2.2 6.7l3.5-1.3z"/><path d="M12.4 10.4l.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z"/>',
     warning: '<path d="M8 2.2l6.2 10.9H1.8z"/><path d="M8 6.4v3M8 11.5v.1"/>',
+    key: '<circle cx="5" cy="10.5" r="2.8"/><path d="M7 8.5l6-6M11 4.5l1.6 1.6M9.4 6.1l1.4 1.4"/>',
     wrench: '<path d="M10.4 2a3.3 3.3 0 0 0-3 4.5l-5.1 5a1.3 1.3 0 0 0 1.9 1.9l5-5.1A3.3 3.3 0 0 0 13.8 5l-2 2-1.9-.5-.5-1.9 2-2a3.3 3.3 0 0 0-1-.6z"/>',
     copy: '<rect x="5.3" y="5.3" width="8.2" height="8.2" rx="1.5"/><path d="M10.7 5.3V3.8a1.3 1.3 0 0 0-1.3-1.3H3.8a1.3 1.3 0 0 0-1.3 1.3v5.6a1.3 1.3 0 0 0 1.3 1.3h1.5"/>',
     check: '<path d="M3 8.4l3.2 3.1L13 4.7"/>',
@@ -753,6 +755,7 @@
 
   // Approval card
   const approvalSlot = h('div', { class: 'approval-slot' });
+  const secretSlot = h('div', { class: 'approval-slot' });
 
   // Context chip
   const chip = h('button', { class: 'ctx-chip', type: 'button', hidden: true });
@@ -824,7 +827,7 @@
 
   const announcer = h('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' });
 
-  app.append(header, banner, main, activity, approvalSlot,
+  app.append(header, banner, main, activity, secretSlot, approvalSlot,
     h('div', { class: 'bottom' }, slashMenu, chip, composer, hint), mcpModal, announcer);
 
   function announce(text) {
@@ -1091,9 +1094,10 @@
     if (preview) { preview.tabIndex = 0; preview.setAttribute('aria-label', 'Preview'); }
 
     const allow = h('button', { class: 'btn primary', type: 'button', onclick: () => decide('allow'), onkeydown: noEnter }, 'Allow');
-    const always = h('button', { class: 'btn', type: 'button', onclick: () => decide('always'), onkeydown: noEnter }, 'Allow for this session');
-    const scope = a.sessionScope ? `Allow for this session covers ${a.sessionScope}, until VS Code closes.` : '';
-    if (scope) always.title = scope;
+    // A call that uses a secret asks every time: no "Allow for this session".
+    const always = a.noSession ? null : h('button', { class: 'btn', type: 'button', onclick: () => decide('always'), onkeydown: noEnter }, 'Allow for this session');
+    const scope = a.noSession ? '' : a.sessionScope ? `Allow for this session covers ${a.sessionScope}, until VS Code closes.` : '';
+    if (scope && always) always.title = scope;
     const deny = h('button', { class: 'btn', type: 'button', onclick: () => decide('deny') }, 'Deny');
     const diff = a.canShowDiff
       ? h('button', { class: 'btn ghost', type: 'button', onclick: () => post({ type: 'showDiff', id: a.id }) }, icon('diff'), 'View Diff')
@@ -1105,8 +1109,11 @@
       h('div', { class: 'approval-head' },
         h('span', { class: 'approval-ic' }, icon(APPROVAL_ICONS[a.kind] || 'warning')),
         h('span', { class: 'approval-title', id: titleId, text: a.title || 'Allow this action?' })),
+      a.secretLine ? h('p', { class: 'approval-secret' }, icon('key'), h('span', { text: a.secretLine })) : null,
       a.detail ? detail : null,
       preview,
+      a.secretWarning ? h('p', { class: 'approval-warning' }, icon('warning'), h('span', { text: a.secretWarning })) : null,
+      a.noSession && a.secrets ? h('p', { class: 'approval-scope', text: 'Secrets are approved one use at a time.' }) : null,
       scope ? h('p', { class: 'approval-scope', text: scope }) : null,
       h('div', { class: 'approval-actions' },
         deny, diff, h('span', { class: 'grow' }), always, allow));
@@ -1114,6 +1121,49 @@
     announce(`Approval needed: ${a.title || 'an action'}`);
     // Don't pull focus out of the message box; otherwise park it on the card (not a button).
     if (document.activeElement === document.body || !document.activeElement) card.focus();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // "This looks like a secret" card (before a message is stored or sent)
+  // ---------------------------------------------------------------------------------------------
+
+  function renderSecretPrompt() {
+    const p = S.secretPrompt;
+    secretSlot.replaceChildren();
+    if (!p) return;
+    const rows = p.found.map((f) => {
+      const name = h('input', { class: 'secret-name', type: 'text', value: f.suggested, 'aria-label': 'Name for this ' + f.kind, spellcheck: 'false' });
+      const desc = h('input', { class: 'secret-desc', type: 'text', placeholder: 'What it’s for (optional)', 'aria-label': 'Description' });
+      return { name, desc, el: h('div', { class: 'secret-row' },
+        h('span', { class: 'secret-kind', text: `${f.kind} (${f.preview})` }), name, desc) };
+    });
+    const decide = (decision) => {
+      if (!S.secretPrompt || S.secretPrompt.requestId !== p.requestId) return;
+      const items = rows.map((r) => ({ name: r.name.value.trim().toLowerCase(), description: r.desc.value.trim() }));
+      if (decision === 'save' && items.some((i) => !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(i.name))) {
+        showNotice('Names can use lower-case letters, digits, dots and dashes.');
+        return;
+      }
+      post({ type: 'secretDecision', requestId: p.requestId, decision, items: decision === 'save' ? items : undefined });
+      S.secretPrompt = null;
+      renderSecretPrompt();
+      input.focus();
+    };
+    const many = p.found.length > 1;
+    const card = h('section', { class: 'approval secret-prompt', role: 'group', 'aria-label': 'Possible secret', tabindex: '-1' },
+      h('div', { class: 'approval-head' },
+        h('span', { class: 'approval-ic' }, icon('key')),
+        h('span', { class: 'approval-title', text: many ? 'These look like secrets' : 'This looks like a secret' })),
+      h('p', { class: 'approval-scope', text: 'Save it in the Keychain and the message will use a placeholder instead. The assistant never sees the value; you approve each use.' }),
+      rows.map((r) => r.el),
+      h('div', { class: 'approval-actions' },
+        h('button', { class: 'btn', type: 'button', onclick: () => decide('cancel') }, 'Cancel'),
+        h('span', { class: 'grow' }),
+        h('button', { class: 'btn', type: 'button', onclick: () => decide('send') }, 'Send anyway'),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => decide('save') }, many ? 'Save as secrets' : 'Save as secret')));
+    secretSlot.append(card);
+    announce('That looks like a secret. Save it as a secret, send anyway, or cancel.');
+    rows[0]?.name.focus();
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -2066,6 +2116,8 @@
       case 'slashItems': S.slashItems = Array.isArray(msg.items) ? msg.items : []; renderSlash(); break;
       case 'mcp': S.mcpServers = Array.isArray(msg.servers) ? msg.servers : []; mcpReloading = false; renderMcp(); break;
       case 'notice': showNotice(msg.text); break;
+      case 'secretPrompt': S.secretPrompt = msg; stick(renderSecretPrompt); break;
+      case 'secretPromptClear': S.secretPrompt = null; renderSecretPrompt(); break;
       case 'contextUsage': S.contextUsage = { used: Number(msg.used) || 0, limit: Number(msg.limit) || 0 }; renderMeter(); break;
       default: break;
     }

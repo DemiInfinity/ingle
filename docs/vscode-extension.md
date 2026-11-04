@@ -464,6 +464,9 @@ open-source remote extensions); test them separately.
 | [`src/tools/repomap.ts`](../Extensions/vscode/src/tools/repomap.ts) | Symbol extraction, ranking, `buildRepoMap`, `repo_map` |
 | [`src/tools/stores.ts`](../Extensions/vscode/src/tools/stores.ts) | Reading and writing `~/.ingle`: rules, skills, memory, reports, MCP config, notes |
 | [`src/tools/frontmatter.ts`](../Extensions/vscode/src/tools/frontmatter.ts) | Frontmatter, slugs, `looksSecret`, atomic writes (ports of the Swift helpers) |
+| [`src/tools/secretsCore.ts`](../Extensions/vscode/src/tools/secretsCore.ts) | Secrets store, pure: detection, `{{secret:name}}` placeholders, substitution (env vars for `run_command`), scrubbing, `secrets.json` (port of `Secrets.swift`) |
+| [`src/tools/secrets.ts`](../Extensions/vscode/src/tools/secrets.ts) | `secret_list`; values from the Mac app over the bridge (`/secret/use`, `/secret/scrub`, `/secret/save`) or `/usr/bin/security`; never cached |
+| [`src/tools/secretsApproval.ts`](../Extensions/vscode/src/tools/secretsApproval.ts) | The "Uses secret" approval card (no "Allow for this session") |
 | [`src/shared/protocol.ts`](../Extensions/vscode/src/shared/protocol.ts) | Webview message contract |
 | [`src/shared/settings.ts`](../Extensions/vscode/src/shared/settings.ts) | `IngleSettings`, defaults, `loadSettings`, `paths` |
 | [`media/chat.js`](../Extensions/vscode/media/chat.js), [`media/chat.css`](../Extensions/vscode/media/chat.css) | The webview UI |

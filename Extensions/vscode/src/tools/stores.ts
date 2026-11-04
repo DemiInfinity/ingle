@@ -8,6 +8,9 @@ import type { IngleSettings } from '../shared/settings';
 import { paths } from '../shared/settings';
 import { cmp, frontmatter, listDir, looksSecret, readText, searchWords, slug, stripFrontmatter, today, writeAtomic } from './frontmatter';
 
+/** Memory never holds secrets; they belong in the secrets store (Keychain). Same as MemoryStore.notSaved. */
+export const MEMORY_NOT_SAVED = 'Not saved: that looks like a password, key or card number, and memory never stores those. Ask the user to save it in the secrets store instead (/secret, or Settings → Secrets); then use it as {{secret:name}} in a tool, with their approval.';
+
 export interface RuleEntry { name: string; description: string; always: boolean; body: string; file: string }
 export interface SkillEntry { name: string; description: string; body: string; file: string; source: 'ingle' | 'claude' }
 export interface MemoryEntry { name: string; description: string; body: string; file: string }
@@ -123,7 +126,7 @@ export function writeMemoryIndex(): void {
 export function memorySave(file: string, factIn: string, description?: string): string {
   const fact = factIn.trim();
   if (!fact) return 'Nothing to save.';
-  if (looksSecret(fact)) return 'Not saved: that looks like a password, key or card number, which Ingle never stores.';
+  if (looksSecret(fact)) return MEMORY_NOT_SAVED;
   const name = slug(file);
   const existing = listMemory().find((m) => m.name === name);
   const line = fact.startsWith('- ') ? fact : '- ' + fact;
@@ -135,7 +138,7 @@ export function memorySave(file: string, factIn: string, description?: string): 
 }
 
 export function memoryRewrite(file: string, content: string, description?: string): string {
-  if (looksSecret(content)) return 'Not saved: that includes something that looks like a password, key or card number.';
+  if (looksSecret(content)) return MEMORY_NOT_SAVED;
   const name = slug(file);
   const existing = listMemory().find((m) => m.name === name);
   const desc = description?.trim() || existing?.description || 'Things to remember';

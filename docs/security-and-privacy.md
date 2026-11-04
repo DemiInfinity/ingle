@@ -66,11 +66,70 @@ open item ([weaknesses-and-mitigations.md](weaknesses-and-mitigations.md#6-safet
   memory can be switched off or set to **Ask before saving** (Settings → Web & Memory).
 - **Secret filter** (`MemoryStore.looksSecret`, `looksSecret` in
   [`frontmatter.ts`](../Extensions/vscode/src/tools/frontmatter.ts)): `memory_save` and `memory_rewrite` refuse text
-  containing "password", "passcode", "pin code", "api key", "secret key", "private key" or "token:", or a run of
-  13–19 digits after removing spaces and dashes (card numbers).
-- **Limits:** it's a heuristic. It won't recognise a bare API key such as `sk-…` or `ghp_…` without one of those
-  words, an IBAN or a short PIN. The prompt also tells models never to save passwords, keys, card or bank numbers.
-  Research reports and skills have no filter.
+  containing "password", "passcode", "pin code", "api key", "secret key", "private key" or "token:", a run of
+  13–19 digits after removing spaces and dashes (card numbers), or anything the secrets store's detector finds (below).
+  The refusal tells the model to point the user at the secrets store.
+- **Limits:** it's a heuristic. It won't recognise an IBAN or a short PIN. The prompt also tells models never to save
+  passwords, keys, card or bank numbers. Research reports and skills have no filter.
+
+### The secrets store
+
+Passwords, tokens and keys the assistant needs (for a CLI login, an SSH command, an MCP server) go in the **secrets
+store**. The model can *use* a secret but never *see* it.
+
+- **Where values live.** Only in the macOS **Keychain**: service `Ingle`, one generic-password item per secret
+  (account = the name, label `Ingle: <name>`, comment = the description). Never in chats, memory, logs,
+  `settings.json` or `~/.ingle`. `~/.ingle/secrets.json` (mode `0600`) lists **names and descriptions only**, so both
+  apps and the model know what exists. Code: [`Secrets.swift`](../Sources/Ingle/Secrets.swift),
+  [`secretsCore.ts`](../Extensions/vscode/src/tools/secretsCore.ts) (pure, tested) and
+  [`secrets.ts`](../Extensions/vscode/src/tools/secrets.ts).
+- **Caught before sending.** Before a message is stored or sent, the composer checks it for known key formats
+  (`ghp_`/`github_pat_`, `sk-`/`sk-ant-`, Stripe, `AKIA`, Slack `xox…`, Google `AIza…`, PEM private keys), card
+  numbers that pass the Luhn check, long random-looking strings (32+ characters, mixed case and digits, not hex, not a
+  path) and phrases such as "my password is …" or `api_key=…`. If it finds one it asks **Save as secret / Send anyway /
+  Cancel**. Saving puts the value in the Keychain and replaces every copy in the message with `{{secret:name}}`
+  *before* the message is stored or sent, so the model and the chat history only ever see the placeholder. Attached
+  files are not checked.
+- **Adding and managing.** `/secret` in either app, or **Settings → Secrets** in the Mac app (add, rename, describe,
+  delete). A value is shown there only after Touch ID (or the Mac's password), whatever the setting below.
+- **How the model uses one.** `secret_list` returns names and descriptions. **No tool returns a value.** The model
+  writes the placeholder in a tool argument, e.g. `run_command: gh auth login --with-token <<< {{secret:github-token}}`.
+  Only `run_command`, `ssh_command`, `write_file`, `edit_file` (VS Code), `open`/`open_url`, `applescript` (Mac) and
+  MCP calls may carry one; any other tool with a placeholder is refused and nothing runs. Unknown names are refused too.
+  Helpers (`delegate`) can't use secrets.
+- **Approval every time.** A call with a placeholder always shows the approval card with a **"Uses secret:
+  github-token → a command on this Mac"** line (or the host, file, link or MCP server). There is **no "Allow for This
+  Session"** for it: the approval scope is empty (`MacTools.approvalScope` / `approvalScope`), so nothing is
+  remembered. In the Mac app, **Touch ID** (or the Mac's password, via `LocalAuthentication`) follows Allow when
+  Settings → Secrets → *Ask for Touch ID each time* is on — the default.
+- **Put in only after approval, at run time.** The value is read from the Keychain after Allow (and Touch ID), the
+  call runs with it, and it's forgotten. The stored call keeps the placeholder.
+  - `run_command`: each placeholder becomes an environment variable reference that works inside the quoting it sits
+    in (`"${INGLE_SECRET_GITHUB_TOKEN}"`, or `'…'"${…}"'…'` inside single quotes), and the variable is set only for that
+    process, so the value isn't in the command line or `ps`.
+  - `ssh_command`: environment variables don't reach the server, so the value is shell-quoted into the remote command.
+    It briefly appears in the local `ssh` process's arguments.
+  - Files, links, AppleScript (escaped for a string literal) and MCP arguments get the value as it is.
+- **Writing a secret to a file** is allowed, with a warning on the card: "This writes github-token to disk in plain
+  text."
+- **Never echoed back.** Before tool output reaches the model or the history, every saved secret's value — as typed,
+  base64 (with and without padding), URL-encoded and JSON-escaped — is replaced with `{{secret:name}}`. Values
+  shorter than 4 characters aren't scrubbed (they'd match ordinary text). The Mac app reads all values once per reply
+  for this; helpers' results are scrubbed too.
+- **VS Code.** The extension asks the Mac app over the editor bridge (`POST /secret/use`) after you press Allow in
+  VS Code. The Mac app then confirms itself — Touch ID if it's on, otherwise its own Allow/Deny dialog — so having the
+  bridge token isn't enough to get a value. Output is scrubbed with the values the call used, then by the Mac app
+  (`POST /secret/scrub`, which never returns values). If the Mac app isn't running, the extension falls back to
+  `/usr/bin/security find-generic-password`, which shows **macOS's own Keychain prompt** for each value (you may need
+  your login password); then only the values that call used are scrubbed. Saving from VS Code without the Mac app
+  uses `security -i` (the value goes in on stdin, not the command line); values with line breaks need the Mac app.
+  The extension never caches values.
+- **Limits.** Detection is a heuristic: it can miss an unusual secret and sometimes flags something that isn't one
+  (Send anyway is always there). Anything you send anyway is in the chat like any other text. A model can still
+  misuse an approved secret in the command it writes (for example `echo` it into a file) — read the card. The
+  app is ad-hoc signed, so after each rebuild macOS asks once whether Ingle may read its own Keychain items
+  ("Always Allow" stops that). Any process running as you that has the bridge token can call `/secret/scrub` to test
+  a guess against your saved values.
 
 ## MCP servers and commands
 
@@ -90,8 +149,10 @@ open item ([weaknesses-and-mitigations.md](weaknesses-and-mitigations.md#6-safet
 - Listens on **127.0.0.1:47123**, loopback interface only (`NWParameters.requiredInterfaceType = .loopback`).
 - Every request must carry `X-Ingle-Token` equal to `~/.ingle/bridge-token` — 64 random hex characters (two UUIDs),
   file mode `0600`. Requests without it get `401`.
-- It accepts only editor context and "ask" requests (text and a selection to start a new chat). It can't run tools
-  or approve anything.
+- It accepts editor context and "ask" requests (text and a selection to start a new chat), plus the secrets
+  requests from Ingle for VS Code: `/secret/use` (values, only after you confirm in the Mac app with Touch ID or its
+  dialog), `/secret/scrub` (scrubs text; no values returned) and `/secret/save` (adds a new secret; never overwrites
+  one). It can't run tools or approve tool calls.
 - **Limits:** any process running as you can read the token. The comparison isn't constant-time (low risk on
   loopback). Requests are capped at 2 MB.
 

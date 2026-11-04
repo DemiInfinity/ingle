@@ -107,6 +107,8 @@ struct ChatDetail: View {
     @State private var slashIndex = 0
     @State private var slashDismissed = false
     @State private var unreadable: String?
+    /// Set when the message looks like it has a secret in it: Save as Secret / Send Anyway / Cancel.
+    @State private var secretPrompt: SecretPromptState?
     @FocusState private var focused: Bool
 
     private var streaming: Bool { store.streamingID == conversation.id }
@@ -172,6 +174,21 @@ struct ChatDetail: View {
         }
         .sheet(isPresented: Binding(get: { store.showMCP }, set: { store.showMCP = $0 })) {
             MCPSheet()
+        }
+        .sheet(isPresented: Binding(get: { store.showAddSecret }, set: { store.showAddSecret = $0 })) {
+            AddSecretSheet { name in
+                store.notice = "Saved \(name). The assistant can use it as {{secret:\(name)}}, with your approval each time."
+            }
+        }
+        .sheet(item: $secretPrompt) { state in
+            SecretPromptSheet(found: state.found) { choice in
+                secretPrompt = nil
+                switch choice {
+                case .cancel: focused = true
+                case .sendAnyway: deliver(draft)
+                case .saved(let names): deliver(Secrets.replaceValues(draft, names))
+                }
+            }
         }
     }
 
@@ -410,7 +427,17 @@ struct ChatDetail: View {
     private func send() {
         guard canSend else { return }
         if isHard && mm.state != .hard && !mm.confirmHardOnBattery() { return }
-        store.send(draft, attachments: attachments)
+        // Looks like a password or key? Ask before it's stored or sent anywhere.
+        let found: [DetectedSecret] = Secrets.detectWithNames(draft)
+        if !found.isEmpty {
+            secretPrompt = SecretPromptState(found: found)
+            return
+        }
+        deliver(draft)
+    }
+
+    private func deliver(_ text: String) {
+        store.send(text, attachments: attachments)
         draft = ""
         attachments = []
     }
@@ -580,6 +607,12 @@ struct ApprovalCard: View {
                     .font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(Ember.text)
+            if let use = pending.secretUse {
+                Label(use.line, systemImage: "key.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Ember.accent)
+                    .textSelection(.enabled)
+            }
             if pending.call.name == "ssh_command" {
                 (Text("on ") + Text(pending.call.arg("host")).bold().foregroundColor(Ember.accent) + Text(" over SSH"))
                     .font(.system(size: 15))
@@ -600,16 +633,29 @@ struct ApprovalCard: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Ember.secondary)
             }
-            Text("Allow for This Session covers \(pending.scope.label), until Ingle quits.")
-                .font(.system(size: 11))
-                .foregroundStyle(Ember.secondary)
-                .textSelection(.enabled)
+            if let warning = pending.secretUse?.warning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.yellow)
+            }
+            if pending.secretUse != nil {
+                Text("Secrets are approved one use at a time\(Prefs.secretsTouchID ? " — Touch ID comes next" : "").")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Ember.secondary)
+            } else if !pending.scope.key.isEmpty {
+                Text("Allow for This Session covers \(pending.scope.label), until Ingle quits.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Ember.secondary)
+                    .textSelection(.enabled)
+            }
             HStack(spacing: 8) {
                 Button("Deny") { store.resolve(false) }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Allow for This Session") { store.resolve(true, always: true) }
-                    .help("Don’t ask again for \(pending.scope.label) until Ingle quits")
+                if pending.secretUse == nil && !pending.scope.key.isEmpty {
+                    Button("Allow for This Session") { store.resolve(true, always: true) }
+                        .help("Don’t ask again for \(pending.scope.label) until Ingle quits")
+                }
                 Button("Allow") { store.resolve(true) }
                     .buttonStyle(.borderedProminent)
             }
@@ -692,5 +738,90 @@ struct EmptyChat: View {
         if model == Prefs.hardModel { return "\(Prefs.hardName) · Hard jobs on \(ModelNames.pretty(model)) — smarter, slower" }
         if model == Prefs.dailyModel { return "\(Prefs.dailyName) · Daily coding on \(ModelNames.pretty(model)) — fast, low power" }
         return ModelNames.pretty(model)
+    }
+}
+
+// MARK: Secrets in the composer
+
+struct SecretPromptState: Identifiable {
+    let id = UUID()
+    let found: [DetectedSecret]
+}
+
+enum SecretPromptChoice {
+    case cancel, sendAnyway
+    /// value → name, for every value saved in the Keychain.
+    case saved([String: String])
+}
+
+/// "This looks like a secret": save each value in the Keychain (the message then uses placeholders), send as typed, or go back.
+struct SecretPromptSheet: View {
+    let found: [DetectedSecret]
+    let finish: (SecretPromptChoice) -> Void
+
+    @State private var names: [String]
+    @State private var descriptions: [String]
+    @State private var saved: [String: String] = [:]
+    @State private var error: String?
+
+    init(found: [DetectedSecret], finish: @escaping (SecretPromptChoice) -> Void) {
+        self.found = found
+        self.finish = finish
+        _names = State(initialValue: found.map(\.suggested))
+        _descriptions = State(initialValue: found.map { $0.kind.prefix(1).uppercased() + $0.kind.dropFirst() })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(found.count > 1 ? "These look like secrets" : "This looks like a secret", systemImage: "key.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Ember.text)
+            Text("Save it in your Keychain and the message will use a placeholder instead. The assistant never sees the value, and you approve each use.")
+                .font(.system(size: 12))
+                .foregroundStyle(Ember.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(found.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(found[i].kind) (\(Secrets.preview(found[i].value)))")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Ember.secondary)
+                    HStack {
+                        TextField("Name", text: $names[i]).frame(width: 180)
+                        TextField("What it’s for (optional)", text: $descriptions[i])
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(saved[found[i].value] != nil)
+                }
+            }
+            if let error {
+                Text(error).font(.system(size: 12)).foregroundStyle(Color.red)
+            }
+            HStack {
+                Button("Cancel") { finish(.cancel) }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Send Anyway") { finish(.sendAnyway) }
+                Button(found.count > 1 ? "Save as Secrets" : "Save as Secret") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+        .background(Ember.bg)
+    }
+
+    private func save() {
+        for i in found.indices {
+            let value: String = found[i].value
+            if saved[value] != nil { continue }
+            let name: String = names[i].trimmingCharacters(in: .whitespaces).lowercased()
+            if let problem = Secrets.add(name: name, description: descriptions[i], value: value) {
+                error = problem
+                return
+            }
+            saved[value] = name
+        }
+        finish(.saved(saved))
     }
 }

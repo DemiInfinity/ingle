@@ -14,6 +14,7 @@ export const TOOL_WANTS: Record<string, RegExp> = {
   read_document: /pdf|docx?\b|word doc|xlsx|excel|spreadsheet|document|\.pages|keynote|numbers file|rtf/,
   view_image: /image|screenshot|png|jpe?g|heic|gif|webp|picture|photo|diagram|mock-?up|icon/,
   open_url: /\bopen\b.*(url|link|browser|http|site|page)|https?:\/\//,
+  secret_list: /secret|password|passcode|token|api[ _-]?key|credential|log ?in|auth|sign ?in/,
   memory_read: /remember|memory|memories|forget|about me|preference/,
   memory_rewrite: /remember|memory|memories|forget|about me|preference/,
   memory_forget: /remember|memory|memories|forget|about me|preference/,
