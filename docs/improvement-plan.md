@@ -158,7 +158,7 @@ type check passes. Add tests for host checking and quoting if task 2 has merged.
 
 ## Wave 2b — secrets store (after wave 2 merges; one task, both apps)
 
-### [ ] 28. Secrets store: the model uses secrets, but never sees them
+### [x] 28. Secrets store: the model uses secrets, but never sees them
 **Why.** Today memory refuses anything that looks like a password (`Memory.looksSecret`). But a password you type in
 chat still goes into the model's context and into saved chat history (`chats.json`, VS Code's chat storage), and there's
 nowhere safe to keep it. SSH, MCP servers and API calls all need secrets sooner or later.
@@ -209,7 +209,7 @@ shows the placeholder instead. Both apps behave the same.
 
 ## Wave 3 — make the apps agree (after waves 1–2)
 
-### [ ] 8. Unify command behaviour
+### [x] 8. Unify command behaviour
 **Do.** Remove every row in the "Mac vs VS Code differences" table in [commands.md](commands.md). Suggested choices:
 `always` must be the only value; `never_use` accepts `mcp:` in both apps; a required tool that isn't available is added
 anyway, and if it can't be, the command gets ⚠ straight away; `then_run` is triggered by every file-changing tool;
