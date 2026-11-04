@@ -18,8 +18,8 @@ import { assistant, AssistantSettings, expandHome, IngleSettings, loadSettings, 
 import { allTools, enabledSSHHosts } from '../tools';
 import { sshScope } from '../tools/sshConfig';
 import {
-  activeCommands, bannedBy, blockedMessage, CallRecord, CommandEntry, commandsBlock, commandsNotice, listCommands,
-  requirementMet, requirementWords, thenRunOwed,
+  activeCommands, bannedBy, blockedMessage, CallRecord, CommandEntry, commandsBlock, commandsNotice, completionCheck,
+  ignoredChip, isNudgeText, listCommands, unavailableReason,
 } from '../tools/commands';
 import { mcp, MCP_TOOL_NAMES, wantsMCP } from '../tools/mcp';
 import { extractDocument, prepareImage } from '../tools/documents';
@@ -49,8 +49,6 @@ const TOOL_OUTPUT_LIMIT = 12000;
 const IMAGE_TOKENS = 800;
 const COMPACT_AT = 0.75;
 const TOOL_IMAGE_NOTE = '(Image from view_image)';
-/** Start of a command nudge (a hidden user message). */
-const NUDGE_PREFIX = 'Ingle: the command "';
 
 interface PendingApproval {
   id: string;
@@ -1166,7 +1164,9 @@ export class ChatEngine implements vscode.Disposable {
     const used = [...active.map((c) => `⚑ ${c.name}`), ...matched.names, ...(lastUser?.notes ?? [])];
     const done: CallRecord[] = [];
     const nudges = new Map<string, number>();
-    const ignored = new Set<string>();
+    /** Commands given up on: name → reason ('' = still owed after the nudges). */
+    const ignored = new Map<string, string>();
+    let checkedAvailability = false;
     // The project at a glance, ranked for this request (about a tenth of the context, at most ~1,500 tokens).
     let repoMap = '';
     const root = workspaceRoot();
@@ -1189,6 +1189,14 @@ export class ChatEngine implements vscode.Disposable {
       if (signal.aborted) return;
       const baseCtx = this.makeCtx(chat.id, chat.web, vision, signal, false, '', {}, () => undefined);
       const tools = this.toolsFor(baseCtx, lastText, delegate, active);
+      if (!checkedAvailability) {
+        // A command whose required tool can't be offered at all (e.g. web_search with Web off) gets ⚠ now, no nudges.
+        checkedAvailability = true;
+        for (const c of active) {
+          const why = unavailableReason(c, tools.map((t) => t.name));
+          if (why) ignored.set(c.name, why);
+        }
+      }
       const toolJSON = tools.map(toOllama);
       const toolChars = JSON.stringify(toolJSON).length;
 
@@ -1274,36 +1282,17 @@ export class ChatEngine implements vscode.Disposable {
       this.store.saveSoon();
       if (stopped || reply.failed) return;
       if (!calls.length) {
-        // Completion check: don't finish while an active command isn't satisfied (≤ 2 nudges per command).
-        const asks: string[] = [];
-        for (const c of active) {
-          if (ignored.has(c.name)) continue;
-          const missing: string[] = [];
-          let possible = true;
-          for (const r of c.mustUse) {
-            if (requirementMet(r, done)) continue;
-            missing.push(requirementWords(r));
-            const needs = r.kind === 'mcp' ? 'mcp_call' : r.kind === 'tool' ? r.tool.toLowerCase() : '';
-            if (needs && !tools.some((x) => x.name.toLowerCase() === needs)) possible = false;
-          }
-          if (c.thenRun && thenRunOwed(c.thenRun, done)) {
-            missing.push(`run \`${c.thenRun}\` with run_command (files changed since it last ran)`);
-            if (!tools.some((x) => x.name === 'run_command')) possible = false;
-          }
-          if (!missing.length) continue;
-          const n = nudges.get(c.name) ?? 0;
-          if (!possible || n >= 2) { ignored.add(c.name); continue; }
-          nudges.set(c.name, n + 1);
-          asks.push(`${NUDGE_PREFIX}${c.name}" requires you to ${missing.join(', and ')} before finishing. Do that now.`);
-        }
-        if (asks.length && !signal.aborted) {
-          const nudge: Stored = { id: uid(), role: 'user', content: asks.join('\n'), hidden: true };
+        // Completion check: don't finish while an active command isn't satisfied. Everything owed goes in one
+        // nudge; each command gets at most two.
+        const ask = signal.aborted ? undefined : completionCheck(active, done, nudges, ignored);
+        if (ask) {
+          const nudge: Stored = { id: uid(), role: 'user', content: ask, hidden: true };
           chat.messages.push(nudge);
           this.store.saveSoon();
           continue;
         }
         if (ignored.size) {
-          reply.usedContext = [...(reply.usedContext ?? []), ...[...ignored].map((n) => `⚠ didn't follow ${n}`)];
+          reply.usedContext = [...(reply.usedContext ?? []), ...[...ignored].map(([n, why]) => ignoredChip(n, why))];
           this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
           this.store.saveSoon();
         }
@@ -1359,7 +1348,7 @@ export class ChatEngine implements vscode.Disposable {
     let h = history.slice();
     let lastUser = -1;
     for (let i = h.length - 1; i >= 0; i--) {
-      if (h[i].role === 'user' && h[i].content !== TOOL_IMAGE_NOTE && !h[i].content.startsWith(NUDGE_PREFIX)) { lastUser = i; break; }
+      if (h[i].role === 'user' && h[i].content !== TOOL_IMAGE_NOTE && !isNudgeText(h[i].content)) { lastUser = i; break; }
     }
     while (estimate(h) > budget && lastUser > 0) {
       h.shift();

@@ -11,7 +11,9 @@ From then on, when a message mentions a component:
 - the Figma MCP tools are **guaranteed to be offered**, even if the per-turn tool filter would have dropped them;
 - tools the command bans are **removed and blocked**;
 - the assistant **can't finish** until it has done what the command says — Ingle sends it back (up to twice);
-- the reply shows **⚑ components-via-figma**, or **⚠ didn't follow components-via-figma** if it still didn't comply.
+- the reply shows **⚑ components-via-figma**, or **⚠ didn’t follow components-via-figma** if it still didn't comply.
+
+Both apps behave the same way; everything below applies to the Mac app and VS Code alike.
 
 Code: [`../Sources/Ingle/Commands.swift`](../Sources/Ingle/Commands.swift) (`IngleCommand`, `CommandStore`,
 `CommandTracker`) and the loop in [`../Sources/Ingle/ChatStore.swift`](../Sources/Ingle/ChatStore.swift);
@@ -42,12 +44,19 @@ Match the spacing tokens from the Figma file exactly. Put new components in src/
 |---|---|
 | `name` | Optional; defaults to the file name without `.md`. |
 | `description` | One line saying what it enforces (shown in the index and Settings). |
-| `when` | Comma-separated **trigger phrases**. The command applies when the latest message **contains** any of them (case-insensitive substring). `always` or empty = every request. |
+| `when` | Comma-separated **trigger phrases**. The command applies when the latest message **contains** any of them (case-insensitive substring). `always` on its own, or empty, = every request (`always, deploy` is just two phrases). |
 | `must_use` | Comma-separated requirements, each one of: a **tool name** (`search_code`, `run_command`, `web_search`…); `mcp:server` (any tool of that MCP server via `mcp_call`); `mcp:server/tool` (that specific tool); `skill:name` (the skill is attached in full). |
-| `never_use` | Comma-separated tool names that must not be used. VS Code also accepts `mcp:server` and `mcp:server/tool` here. |
+| `never_use` | Comma-separated items that must not be used: tool names, `mcp:server` (any tool of that server) or `mcp:server/tool`. |
 | `then_run` | A command line that must be run with `run_command` **after any file change**, e.g. `npm run lint` or `swift build`. Matching is "the command run contains this text". |
 | `enabled` | `true` (default) or `false` / `no` / `0` / `off`. Toggled in Settings → Extensions → Commands. |
 | Body | Extra instructions, shown to the model in the COMMANDS block. |
+
+A command with none of `must_use`, `never_use` or `then_run` still loads and shows its body (it's then really a
+rule), but `command_create` won't make one.
+
+If two commands end up with the same name (say two project files both set `name: same`, or one of yours is called
+`project/x`), the first is kept — yours before the project's — and the other is skipped, with a "Skipped …" line in
+the `INGLE.md` index saying which file.
 
 Values are single-line `key: value`; quotes around a value are stripped. The parser is the same small frontmatter
 reader used for rules and skills (`SkillStore.frontmatter`, `frontmatter()`), not full YAML — so no lists, no
@@ -75,17 +84,23 @@ flowchart TD
    requirements in plain words ("You MUST use the figma MCP server (mcp_tools, then mcp_call with server "figma")
    before you finish", "Never use write_file", "After changing any file you MUST run: npm run lint"). The `INGLE.md`
    index also lists all enabled commands and their triggers.
-3. **Tools.** Required tools are always offered (still approved per call as usual); banned ones are removed.
-4. **Blocking.** If the model calls a banned tool anyway, the call isn't run; it gets "Blocked by the command "X":
-   you must not use Y. Use Z instead."
+3. **Tools.** Required tools are always offered, even when the per-turn filter would have left them out (still
+   approved per call as usual); banned tool names are removed. Required tools come from everything this chat may
+   use, so a switch you turned off stays off: if a required tool still can't be offered (e.g. `web_search` with
+   Web off, `mcp:` with no MCP server, or a tool another command bans), the command is given up on **straight
+   away** — no nudges — and the reply shows `⚠ didn’t follow X (web_search isn’t available)`.
+4. **Blocking.** If the model calls a banned tool anyway (or an `mcp_call` to a banned server/tool), the call isn't
+   run; it gets "Blocked by the command "X": you must not use Y. Instead, use Z."
 5. **Recording.** Successful (approved) calls are recorded. An `mcp:` requirement is only met by an actual
    `mcp_call` to that server (and tool), not by just looking with `mcp_tools`. `skill:` requirements count as met
    because Ingle loads that skill into the prompt itself.
-6. **`then_run`.** Any approved file change (Mac: `write_file`; VS Code: `edit_file`, `write_file`) makes the
-   `then_run` command **owed**; a later `run_command` whose text contains it clears the debt.
-7. **Completion check.** When the model tries to finish (a turn with no tool calls), anything still owed produces a
-   hidden **nudge** message and another turn. Each command gets **at most 2 nudges**. After that the reply gets a
-   `⚠ didn't follow <name>` chip, so you know.
+6. **`then_run`.** Any approved call to a file-changing tool (`edit_file`, `write_file` — one list per app,
+   `CommandStore.fileChangingTools` and `FILE_CHANGING_TOOLS`, so new ones are added there) makes the `then_run`
+   command **owed**; a later `run_command` whose text contains it clears the debt.
+7. **Completion check.** When the model tries to finish (a turn with no tool calls), everything still owed — by
+   every command — goes into **one** hidden **nudge** message ("Ingle: before you finish, you still need to: …")
+   and another turn. Each command gets **at most 2 nudges**. After that the reply gets a `⚠ didn’t follow <name>`
+   chip, so you know.
 
 Nudges are stored as user messages marked `nudge: true` (Mac, shown as a small note) or `hidden: true` (VS Code,
 not shown). Regenerate removes them.
@@ -94,7 +109,8 @@ not shown). Regenerate removes them.
 
 Ask in a chat: *"write a command to always run the tests after editing"* or *"never let it use write_file in this
 project"*. The assistant drafts it with **`command_create`** (offered when your message contains "command") and you
-approve the card, which shows the exact file text. Or write the file yourself and run `/skill-reload` (VS Code) or
+approve the card, which shows the exact file text. `command_create` refuses a command with no `must_use`,
+`never_use` or `then_run` — that's advice, so it suggests `rule_create` instead. Or write the file yourself and run `/skill-reload` (VS Code) or
 just send the next message.
 
 `/commands` lists your commands (VS Code marks the ones that apply to your last message with ⚑). Settings →
@@ -154,21 +170,10 @@ must_use: mcp:tracker/create_issue
 ---
 ```
 
-## Mac vs VS Code differences
+## Helpers and projects
 
-| | Mac app | VS Code |
-|---|---|---|
-| `when: always` | only when `always` is the sole value (or empty) | if `always` appears anywhere in the list (or empty) |
-| `never_use` with `mcp:` | not supported (tool names only) | supported (`mcp:server`, `mcp:server/tool`) |
-| Required tool not available (e.g. `web_search` with Web off) | the tool is **added anyway** from the full tool pool | the command is given up on immediately and marked ⚠ (no nudges) |
-| File-changing tools for `then_run` | `write_file` | `edit_file`, `write_file` |
-| Nudges | one command per nudge message | all owed commands in one nudge message |
-| `command_create` | saves any command | refuses a command with no `must_use`, `never_use` or `then_run` ("that's just advice — use rule_create") |
-
-The same in both: helpers (`delegate`) obey `never_use` (banned tools are hidden from them and blocked), and project
-commands are listed alongside yours as `project/<name>`.
-
-These differences are worth unifying; see [roadmap.md](roadmap.md).
+Helpers (`delegate`) obey `never_use` too: banned tools are hidden from them and blocked if called. Project commands
+are listed alongside yours as `project/<name>`.
 
 ## Trade-offs
 

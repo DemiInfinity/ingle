@@ -170,7 +170,9 @@ memory, `repo_map` needs an open folder, MCP tools need an enabled server…), t
 MCP (`wantsMCP`), and `delegate` (research, compare, investigate…).
 
 **Commands override selection.** Tools a command's `must_use` names are always added (for `mcp:` requirements,
-`mcp_tools` and `mcp_call`; for `then_run`, `run_command`); tools in `never_use` are removed. See
+`mcp_tools` and `mcp_call`; for `then_run`, `run_command`); tools in `never_use` are removed (`mcp:` bans are blocked per call instead). Required tools come from
+everything the chat may use, so a switched-off tool (e.g. `web_search` with Web off) is never brought back; a command
+that needs one is marked ⚠ straight away. See
 [commands.md](commands.md#how-enforcement-works).
 
 ## 4. The loop and its guards
@@ -182,7 +184,7 @@ check below). Otherwise each call is processed in order:
    by key; VS Code: name plus the JSON of the arguments). The **third identical call** isn't run; the model gets
    "You've already made this exact call N times… use that result, try a different approach, or tell the user
    what's blocking you", shown as *Skipped a repeated step*.
-2. **Command ban.** A tool in an active command's `never_use` returns "Blocked by the command …" (with what to use
+2. **Command ban.** A tool (or `mcp:server[/tool]`) in an active command's `never_use` returns "Blocked by the command …" (with what to use
    instead), shown with a raised-hand icon.
 3. **Approval.** If the tool needs it and it isn't allowed for this session, the approval card appears and the
    loop waits. A denial returns "The user denied this action. Don't retry it; ask them what they'd like instead."
@@ -197,10 +199,11 @@ After the calls:
 - **Stop** cancels the stream, denies any open approval card and ends the loop.
 
 **Completion check (commands).** When a turn has no tool calls, every active command's requirements are checked
-against the calls made during this request. If something is missing, Ingle adds a hidden "nudge" message —
-"Ingle: the command "X" requires you to … before finishing. Do that now." — and loops. Each command gets **at
-most 2 nudges**; after that (or, in VS Code, if the required tool isn't available at all) the reply is marked
-`⚠ didn't follow X`. Details in [commands.md](commands.md#how-enforcement-works).
+against the calls made during this request. If something is missing, Ingle adds one hidden "nudge" message listing
+everything owed — "Ingle: before you finish, you still need to: - the command "X": … Do that now, then finish your
+answer." — and loops. Each command gets **at most 2 nudges**; after that the reply is marked `⚠ didn’t follow X`.
+A command whose required tool can't be offered at all gets `⚠ didn’t follow X (web_search isn’t available)` with no
+nudges. Details in [commands.md](commands.md#how-enforcement-works).
 
 **Errors** are turned into plain sentences (`ChatStore.friendly`, `friendly()`): engine unreachable, model not
 downloaded, model can't use tools.

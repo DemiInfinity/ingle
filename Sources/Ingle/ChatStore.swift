@@ -466,16 +466,27 @@ final class ChatStore {
                     system.append(MacTools.controlPrompt)
                     tools += MacTools.controlDefinitions
                 }
+                // Everything this chat may use (the Web and Mac switches still apply). A command can bring back
+                // any of it, but never a tool that's switched off.
+                var pool: [[String: Any]] = tools
+                pool += KnowledgeTools.builderDefinitions
+                pool.append(CommandStore.toolDefinition)
                 tools = ToolSelection.filter(tools, lastUserText: lastText)
                 if lastText.contains("command") { tools.append(CommandStore.toolDefinition) }
                 // Commands: tools they require are always offered (still approved
                 // per call); tools they ban are taken away.
-                let have = Set(tools.map(ToolSelection.name))
-                for def in Self.toolPool where tracker.requiredTools.contains(ToolSelection.name(def)) && !have.contains(ToolSelection.name(def)) {
+                var have = Set(tools.map(ToolSelection.name))
+                let required: Set<String> = tracker.requiredTools
+                for def in pool {
+                    let name = ToolSelection.name(def)
+                    guard required.contains(name), !have.contains(name) else { continue }
                     tools.append(def)
+                    have.insert(name)
                 }
                 let banned = tracker.blocked
                 if !banned.isEmpty { tools.removeAll { banned.contains(ToolSelection.name($0).lowercased()) } }
+                // A command that still can't get its tool (e.g. web_search with Web off) gets ⚠ now, no nudges.
+                tracker.checkAvailability(offered: Set(tools.map(ToolSelection.name)))
                 // Long chat? Summarise the older part first, like Claude's compacting.
                 // The tool list counts too: it's sent with every request.
                 let toolChars: Int = (try? JSONSerialization.data(withJSONObject: tools))?.count ?? 0
@@ -555,20 +566,18 @@ final class ChatStore {
                 guard !stopLoop, !Task.isCancelled, let j = index(id), let k = conversations[j].messages.indices.last else { break }
                 conversations[j].messages[k].toolCalls = calls
                 if calls.isEmpty {
-                    // Finished — unless a command hasn't been obeyed. Then send it back (twice at most).
-                    let owed = tracker.unmet()
-                    if let item = owed.first(where: { (tracker.nudges[$0.0.name] ?? 0) < 2 }) {
-                        let cmd = item.0, what = item.1
-                        tracker.nudges[cmd.name, default: 0] += 1
-                        var nudge = ChatMessage(role: .user, content: "Ingle: the command \"\(cmd.name)\" requires you to \(what) before finishing. Do that now, then finish your answer.")
+                    // Finished — unless a command hasn't been obeyed. Then send it back: everything owed in one
+                    // nudge, each command twice at most.
+                    if let ask = tracker.completionCheck() {
+                        var nudge = ChatMessage(role: .user, content: ask)
                         nudge.nudge = true
                         conversations[j].messages.append(nudge)
                         save()
                         continue
                     }
-                    if !owed.isEmpty {
-                        conversations[j].messages[k].usedContext = (conversations[j].messages[k].usedContext ?? [])
-                            + owed.map { "⚠ didn’t follow " + $0.0.name }
+                    let chips: [String] = tracker.chips
+                    if !chips.isEmpty {
+                        conversations[j].messages[k].usedContext = (conversations[j].messages[k].usedContext ?? []) + chips
                     }
                     break
                 }
@@ -587,11 +596,17 @@ final class ChatStore {
                             toolName: call.name, toolTitle: "Skipped a repeated step", toolDetail: call.name, toolIcon: "arrow.triangle.2.circlepath"))
                         continue
                     }
-                    if let cmd = tracker.blockingCommand(for: call.name), let jb = index(id) {
-                        let instead = cmd.mustUse.first.map { " Use \($0.hasPrefix("mcp:") ? "the \($0.dropFirst(4)) MCP server" : $0) instead." } ?? ""
+                    if let ban = tracker.blockingCommand(for: call), let jb = index(id) {
                         conversations[jb].messages.append(ChatMessage(
-                            role: .tool, content: "Blocked by the command \"\(cmd.name)\": you must not use \(call.name).\(instead)",
-                            toolName: call.name, toolTitle: "Blocked by a command", toolDetail: "\(cmd.name) · \(call.name)", toolIcon: "hand.raised", denied: true))
+                            role: .tool, content: CommandTracker.blockedMessage(ban.command, ban.item),
+                            toolName: call.name, toolTitle: "Blocked by a command", toolDetail: "\(ban.command.name) · \(ban.item)", toolIcon: "hand.raised", denied: true))
+                        continue
+                    }
+                    // command_create refuses advice-only commands before asking the user to approve anything.
+                    if call.name == "command_create", let refusal = CommandStore.refusal(call), let jc = index(id) {
+                        conversations[jc].messages.append(ChatMessage(
+                            role: .tool, content: refusal,
+                            toolName: call.name, toolTitle: "Create a command", toolDetail: refusal, toolIcon: "exclamationmark.shield"))
                         continue
                     }
                     let info = MacTools.describe(call)
@@ -796,8 +811,8 @@ final class ChatStore {
             }
             for c in calls {
                 let result: String
-                if let cmd = commandCheck.blockingCommand(for: c.name) {
-                    result = "Blocked by the command \"\(cmd.name)\": you must not use \(c.name)."
+                if let ban = commandCheck.blockingCommand(for: c) {
+                    result = CommandTracker.blockedMessage(ban.command, ban.item)
                 } else if !KnowledgeTools.subAgentAllowed.contains(c.name) {
                     result = "Helpers can only read, so that tool isn't available."
                 } else if (c.name == "list_files" || c.name == "read_file") && (!mac || !Prefs.inWorkspace(c.arg("path"))) {
@@ -824,24 +839,6 @@ final class ChatStore {
         if lower.contains("not found") { return "That model isn’t downloaded yet. Use Download Models in Settings → Models." }
         if lower.contains("does not support tools") { return "This model can’t use tools, so it can only chat. Switch to Daily coding or Hard jobs." }
         return "Something went wrong: \(text)"
-    }
-
-    /// Every tool definition, so a command can bring back one the per-turn filter left out.
-    static var toolPool: [[String: Any]] {
-        var pool: [[String: Any]] = [MacTools.helpTool]
-        pool += MemoryStore.definitions
-        pool += WebTools.definitions
-        pool += KnowledgeTools.chatDefinitions
-        pool += KnowledgeTools.reportDefinitions
-        pool.append(KnowledgeTools.delegateDefinition)
-        pool += KnowledgeTools.builderDefinitions
-        pool.append(SkillStore.toolDefinition)
-        pool.append(RuleStore.toolDefinition)
-        pool += MacTools.definitions
-        pool += MacTools.controlDefinitions
-        pool += MacTools.mcpTools
-        pool.append(CommandStore.toolDefinition)
-        return pool
     }
 
     // MARK: Images and compacting

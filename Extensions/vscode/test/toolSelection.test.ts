@@ -18,8 +18,8 @@ function pick(lastUser: string, over: Partial<SelectionInput<SelectableTool>> = 
     mcpWanted: false, delegate: DELEGATE, ...over,
   }).map((t) => t.name);
 }
-const cmd = (mustUse: string[], neverUse: string[] = []) => ({
-  mustUse: mustUse.map(parseRequirement).filter((r): r is Requirement => !!r), neverUse,
+const cmd = (mustUse: string[], neverUse: string[] = [], thenRun = '') => ({
+  mustUse: mustUse.map(parseRequirement).filter((r): r is Requirement => !!r), neverUse, thenRun,
 });
 
 test('a plain coding message gets only the core tools', () => {

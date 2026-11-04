@@ -2,7 +2,7 @@
 // are available and whether MCP is wanted, and this decides which of them the model sees this turn.
 // Local models pick tools far less reliably as the list grows (≈85% right with 5 tools, ≈45% with 20),
 // so optional tools are only offered when the message plausibly needs them.
-import type { CommandEntry } from '../tools/commands';
+import { bannedToolNames, requiredTools, type CommandEntry } from '../tools/commands';
 import { wantsSSH } from '../tools/sshConfig';
 
 /** Optional tools and the words in the user's message that make them worth offering. */
@@ -29,8 +29,8 @@ export interface SelectionInput<T extends SelectableTool> {
   available: T[];
   lastUser: string;
   isSubAgent: boolean;
-  /** Active commands (only must_use and never_use are read). */
-  active: Pick<CommandEntry, 'mustUse' | 'neverUse'>[];
+  /** Active commands (only must_use, never_use and then_run are read). */
+  active: (Pick<CommandEntry, 'mustUse' | 'neverUse'> & { thenRun?: string })[];
   /** Names of the MCP tools (mcp_tools, mcp_call). */
   mcpToolNames: string[];
   /** Whether the message asks for MCP ("mcp" or a configured server's name). */
@@ -44,20 +44,14 @@ export interface SelectionInput<T extends SelectableTool> {
 export function selectTools<T extends SelectableTool>(input: SelectionInput<T>): T[] {
   const { available, isSubAgent, active, mcpToolNames, mcpWanted, delegate } = input;
   const t = input.lastUser.toLowerCase();
-  // Commands: tools a must_use needs are always offered; never_use tools are removed.
-  const forced = new Set<string>();
-  const banned = new Set<string>();
-  for (const c of active) {
-    for (const r of c.mustUse) {
-      if (r.kind === 'tool') forced.add(r.tool.toLowerCase());
-      else if (r.kind === 'mcp') mcpToolNames.forEach((n) => forced.add(n));
-    }
-    for (const n of c.neverUse) if (!n.toLowerCase().startsWith('mcp:')) banned.add(n.trim().toLowerCase());
-  }
+  // Commands: tools a must_use (or then_run) needs are always offered, from everything available; never_use
+  // tools are removed (mcp: bans are blocked per call instead).
+  const forced = requiredTools(active, mcpToolNames);
+  const banned = bannedToolNames(active);
   // Helpers: read-only tools only, and never_use applies to them too.
   if (isSubAgent) return available.filter((tool) => tool.readOnly && !banned.has(tool.name.toLowerCase()));
   const list = available.filter((tool) => {
-    if (forced.has(tool.name)) return true;
+    if (forced.has(tool.name.toLowerCase())) return true;
     if (mcpToolNames.includes(tool.name)) return mcpWanted;
     if (tool.name === 'ssh_command') return wantsSSH(t, input.sshHosts ?? []);
     return !TOOL_WANTS[tool.name] || TOOL_WANTS[tool.name].test(t);
