@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How Ingle works (docs)
+    url: https://github.com/DemiInfinity/ingle/tree/main/docs
+    about: Architecture, file formats, commands, the engine and troubleshooting.
