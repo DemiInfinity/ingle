@@ -1,0 +1,287 @@
+# The agent loop
+
+The agent loop is the heart of Ingle: it turns your message into a prompt, chooses the tools, streams the model's
+reply, runs the tools it asks for (with your approval), and keeps going until the job is done. It exists twice,
+with the same behaviour:
+
+| | Mac app | VS Code extension |
+|---|---|---|
+| Entry point | `ChatStore.send` → `generate(in:)` | `ChatEngine.send` → `generate` → `runLoop` |
+| File | [`../Sources/Ingle/ChatStore.swift`](../Sources/Ingle/ChatStore.swift) | [`../Extensions/vscode/src/engine/chatEngine.ts`](../Extensions/vscode/src/engine/chatEngine.ts) |
+| Tools | [`Tools.swift`](../Sources/Ingle/Tools.swift), [`ToolSelection.swift`](../Sources/Ingle/ToolSelection.swift), [`Memory.swift`](../Sources/Ingle/Memory.swift), [`WebTools.swift`](../Sources/Ingle/WebTools.swift), [`Knowledge.swift`](../Sources/Ingle/Knowledge.swift), [`Extensions.swift`](../Sources/Ingle/Extensions.swift) | [`src/tools/`](../Extensions/vscode/src/tools/) |
+| Prompts | [`Prefs.swift`](../Sources/Ingle/Prefs.swift) (`Persona`), [`Manifest.swift`](../Sources/Ingle/Manifest.swift) (`IngleManifest`) | [`src/engine/prompt.ts`](../Extensions/vscode/src/engine/prompt.ts) |
+| Commands | [`Commands.swift`](../Sources/Ingle/Commands.swift) | [`src/tools/commands.ts`](../Extensions/vscode/src/tools/commands.ts) |
+
+```mermaid
+flowchart TD
+    A[send] --> B{slash command?}
+    B -- yes --> Z[run it, no model call]
+    B -- no --> C[attachments → text / images / OCR]
+    C --> D[engine up? start it]
+    D --> E[active commands · matched rules, skills, memory, reports · forced /skill]
+    E --> F[[step]]
+    F --> G[build system prompt]
+    G --> H[choose tools · add required · remove banned]
+    H --> I{over 75% of context?}
+    I -- yes --> J[compact older messages] --> K
+    I -- no --> K[fit history to 90%]
+    K --> L[stream /api/chat]
+    L --> M{tool calls?}
+    M -- no --> N{commands satisfied?}
+    N -- no, nudges left --> O[hidden nudge] --> F
+    N -- yes / gave up --> Y[done · ⚠ chip if ignored]
+    M -- yes --> P[for each call: repeat guard → command ban → approval → run]
+    P --> Q{4+ skipped repeats?}
+    Q -- yes --> X[stop: going round in circles]
+    Q -- no --> R{backstop reached?}
+    R -- no --> F
+    R -- yes --> X
+```
+
+## 1. Prompt assembly
+
+Everything the model needs to know goes into **one system message** at the start of the history. Order matters
+for small models (earlier text weighs more), so the persona and any COMMANDS come first.
+
+### Before the first step (once per request)
+
+1. **Active commands** — `CommandStore.active(for:project:)` / `activeCommands(listCommands(root), lastText)`.
+   Any `skill:` requirement is attached in full (up to 12,000 characters). See [commands.md](commands.md).
+2. **Forced skill** — a message starting `/skill-name` attaches that skill in full (`SlashCommands.skill(in:)`,
+   `forcedSkill`).
+3. **Matching** — `SemanticMatcher` / `Matcher` picks up to **3** candidates from memory files, research reports
+   (newest 60), non-always rules and skills, using the last real user message plus the current file name and
+   language. See [Matching](#matching-rules-skills-memory-and-reports) below.
+4. **Editor context** — Mac: `EditorBridge.freshContext` (if the chat's editor chip is on). VS Code: a snapshot of
+   the active editor (if the context chip is on).
+5. **Repo map** (VS Code only) — `buildRepoMap` with a budget of `min(6000, 0.4 × context)` characters
+   (about a tenth of the context, at most ~1,500 tokens). See [vscode-extension.md](vscode-extension.md#repo-map).
+
+### The system message, Mac app
+
+Built fresh every step in `generate(in:)`:
+
+1. `## Summary of the earlier conversation` — if the chat has been compacted.
+2. `Persona.systemPrompt(for:web:)` — name, the **facts every model gets** (it's local; Web on/off; Terminal is
+   always available and asks first; the Mac button gates app control; Commands exist and are enforced; the
+   companion app; use `ingle_help` for questions about Ingle) and then the user's character text.
+3. `CommandStore.promptBlock` — the `## COMMANDS — you must obey these` block, if any apply.
+4. `IngleManifest.refresh(...)` — the `INGLE.md` index (tools, always-on rules in full, rules index, skills,
+   MCP servers, commands, research index, recent chat titles, memory index, your notes). Also saved to
+   `~/.ingle/INGLE.md`.
+5. `editor.promptSection` and `editor.projectInstructions` — what you're working on, and the project's
+   `AGENTS.md` / `CLAUDE.md` / `.cursorrules` (8,000 characters each).
+6. `## Loaded for this request` — matched and forced rules, skills, memories and reports.
+7. `MemoryStore.systemPrompt` (if memory is on), `WebTools.systemPrompt` (if Web is on),
+   `KnowledgeTools.systemPrompt`, `MacTools.systemPrompt` (Terminal rules), and `MacTools.controlPrompt`
+   (if the Mac button is on).
+
+### The system message, VS Code
+
+`ChatEngine.buildSystem`:
+
+1. `personaPrompt` — same facts in meaning, worded for VS Code ("You're inside VS Code, helping them code").
+2. `commandsBlock(active)`.
+3. `indexPrompt` — built from the **tools actually offered this turn** plus rules, skills, commands, MCP servers,
+   research and memory indexes and the notes at the bottom of `~/.ingle/INGLE.md`.
+4. `editorPrompt` and `projectInstructions`.
+5. `## Repo map`.
+6. `## Loaded for this request`.
+7. `guidancePrompt` — how to work (read before editing, prefer small `edit_file` replacements, one tool at a
+   time, don't retry denials, web and memory guidance).
+8. `## Summary of earlier messages` — if compacted.
+
+### Matching rules, skills, memory and reports
+
+`SemanticMatcher` ([`../Sources/Ingle/SemanticMatcher.swift`](../Sources/Ingle/SemanticMatcher.swift)) and
+`Matcher` ([`../Extensions/vscode/src/engine/matcher.ts`](../Extensions/vscode/src/engine/matcher.ts)):
+
+- **With `nomic-embed-text` installed:** embeds each candidate as `search_document: …` (cached by text) and the
+  query as `search_query: …`, ranks by cosine similarity, keeps the top 3 **at or above 0.58**.
+- **Without it:** keyword overlap (words over 3 letters, minus stop words), plus 2 if a word from the candidate's
+  name matches; keeps the top 3 scoring **2 or more**.
+- Off entirely when **Smart matching** is off (Settings → Extensions).
+- Attached sizes: memory 4,000 characters, reports 5,000, skills 12,000, rules in full.
+
+The names of everything attached appear as chips under the reply ("Rules and skills Ingle matched to your
+message").
+
+## 2. The tool catalogue
+
+| Group | Mac app | VS Code | Approval |
+|---|---|---|---|
+| Files | `list_files`, `read_file`, `write_file` | `list_files`, `read_file`, `find_files`, `search_code`, `get_problems`, `edit_file`, `write_file`, `read_document`, `view_image`, `repo_map` | Reads: free inside workspace folders, else asks. Writes and edits: always ask. |
+| Commands | `run_command` | `run_command`, `open_url` | Always ask |
+| Mac control | `open`, `applescript`, `screenshot` (only with the Mac button on) | — | Always ask |
+| Web | `web_search`, `web_fetch` (only with Web on) | same | No (read-only) |
+| Memory | `memory_search`, `memory_read`, `memory_save`, `memory_rewrite`, `memory_forget` | same | Saves/rewrites/forgets ask only if "Ask before saving" is on |
+| Knowledge | `use_skill`, `use_rule`, `report_search`, `report_read`, `report_save` (Web on only) | same | No |
+| Builders | `skill_create`, `rule_create`, `command_create` | same | Always ask |
+| MCP | `mcp_tools`, `mcp_call` | same | `mcp_call` always asks |
+| Past chats | `chat_list`, `chat_search`, `chat_read` | — | No |
+| Help | `ingle_help` | — | No |
+| Helpers | `delegate` | `delegate` | No (helpers are read-only) |
+
+Full approval rules: [terminal-and-mac-control.md](terminal-and-mac-control.md#approvals).
+
+Tool output sent back to the model is capped: Mac `run_command` 20,000 characters, `read_file` 100,000, documents
+60,000, MCP 30,000, web pages 20,000; VS Code caps every tool result at 12,000 characters (`TOOL_OUTPUT_LIMIT`),
+and `run_command` keeps the start and mostly the end (build errors are usually at the bottom).
+
+## 3. Tool selection
+
+Local models choose tools far less reliably as the list grows: in the RAG-MCP study, baseline selection accuracy
+fell from about 85% with 5 tools to about 45% with 20. So each turn only offers what the message plausibly
+needs. This is keyword-based, deliberately simple, and runs every step against the **last real user message**.
+
+**Mac** — `ToolSelection.filter` ([`ToolSelection.swift`](../Sources/Ingle/ToolSelection.swift)) plus rules in
+`generate`:
+
+| Tools | Offered when |
+|---|---|
+| `memory_read`, `memory_rewrite`, `memory_forget` | the message mentions remember, memory, forget, "about me", "my preference", "note that"… (`memory_search` and `memory_save` are always there when memory is on) |
+| `chat_list`, `chat_search`, `chat_read` | chat, conversation, earlier, last time, yesterday, "we talked", "you said", before… |
+| `ingle_help` | ingle, setting, "how do I", "where is", shortcut, "menu bar", feature… |
+| `delegate` | research, compare, "look into", investigate, summarise, "find out", helper, "in parallel"… |
+| `report_read`, `report_search` | there is at least one research report |
+| `mcp_tools`, `mcp_call` | the message says "mcp" or names a configured server |
+| `skill_create`, `rule_create` | the message mentions "skill" or "rule" |
+| `command_create` | the message mentions "command" |
+| `use_skill` / `use_rule` | you have skills / non-always rules |
+| `open`, `applescript`, `screenshot` | the Mac button is on |
+| web tools, `report_save` | Web is on |
+
+**VS Code** — `ChatEngine.toolsFor`: each `ToolDef.available(ctx)` first (web tools need Web, memory tools need
+memory, `repo_map` needs an open folder, MCP tools need an enabled server…), then regular expressions for
+`skill_create`/`rule_create` (`skill|rule`), `command_create` (`command`), `read_document` (pdf, docx, excel…),
+`view_image` (image, screenshot, png…), `open_url` ("open … url/link/browser" or a URL), the memory editing tools,
+MCP (`wantsMCP`), and `delegate` (research, compare, investigate…).
+
+**Commands override selection.** Tools a command's `must_use` names are always added (for `mcp:` requirements,
+`mcp_tools` and `mcp_call`; for `then_run`, `run_command`); tools in `never_use` are removed. See
+[commands.md](commands.md#how-enforcement-works).
+
+## 4. The loop and its guards
+
+Each step streams one model turn. If it contains no tool calls, the request is finishing (after the command
+check below). Otherwise each call is processed in order:
+
+1. **Repeat guard.** A signature of the tool name and its arguments is counted (Mac: name plus arguments sorted
+   by key; VS Code: name plus the JSON of the arguments). The **third identical call** isn't run; the model gets
+   "You've already made this exact call N times… use that result, try a different approach, or tell the user
+   what's blocking you", shown as *Skipped a repeated step*.
+2. **Command ban.** A tool in an active command's `never_use` returns "Blocked by the command …" (with what to use
+   instead), shown with a raised-hand icon.
+3. **Approval.** If the tool needs it and it isn't allowed for this session, the approval card appears and the
+   loop waits. A denial returns "The user denied this action. Don't retry it; ask them what they'd like instead."
+4. **Run** and append the result as a `tool` message (with images when the tool produced some).
+
+After the calls:
+
+- **Stuck detection.** When **4 or more** calls have been skipped as repeats during this request, the run stops
+  with "I seem to be going round in circles, so I've stopped. Tell me what to try next, or say 'carry on'…".
+- **Backstop.** There is no small step cap — local models cost nothing per step. The Mac app stops after 200
+  steps; VS Code uses `ingle.maxSteps` (default 200, `0` = no limit) and says so when it reaches it.
+- **Stop** cancels the stream, denies any open approval card and ends the loop.
+
+**Completion check (commands).** When a turn has no tool calls, every active command's requirements are checked
+against the calls made during this request. If something is missing, Ingle adds a hidden "nudge" message —
+"Ingle: the command "X" requires you to … before finishing. Do that now." — and loops. Each command gets **at
+most 2 nudges**; after that (or, in VS Code, if the required tool isn't available at all) the reply is marked
+`⚠ didn't follow X`. Details in [commands.md](commands.md#how-enforcement-works).
+
+**Errors** are turned into plain sentences (`ChatStore.friendly`, `friendly()`): engine unreachable, model not
+downloaded, model can't use tools.
+
+## 5. Compaction and fitting the context
+
+Ollama silently drops the start of a prompt that doesn't fit `num_ctx`. Ingle never lets that happen: it estimates
+the size of every request and makes it fit first.
+
+**Estimating.** Roughly 4 characters per token, about 800 tokens per image, plus a few per message. The system
+prompt **and the JSON of the tool list** count, because both are sent with every request.
+
+**Compacting at 75%.** If the estimate is over 75% of the context:
+
+| | Mac (`compact(_:keepTurns:auto:)`) | VS Code (`compact(chat, auto, signal)`) |
+|---|---|---|
+| What's kept verbatim | the last 2 user turns; if still too big, just the last one | the last 2 real user turns (needs at least 3 to compact) |
+| Transcript sent for summarising | capped at 2.5 × context characters: the first third and last two-thirds, "middle left out" | capped at 0.6 × 4 × context characters: the most recent part |
+| Summary prompt | dense Markdown bullets: goals and preferences, decisions, files/commands/URLs, what was tried, open questions and next steps | the same headings, plus "keep exact identifiers, paths and numbers" (`COMPACT_PROMPT`) |
+| Where it goes | an assistant message with `compactedCount`, inserted where the cut was | an assistant message with `compaction: { summarisedCount, auto }` |
+
+The full messages stay visible above an **"Earlier messages summarised · N messages"** divider; the model only sees
+the latest summary (in the system prompt) plus what came after it. A summary of a summary includes the previous
+summary, so nothing is lost across repeated compactions. Manual compaction (**Compact** next to the meter, ⇧⌘K,
+or `/compact`) summarises everything so far.
+
+**Fitting to 90%.** After compaction, the history is trimmed to 90% of the context minus the fixed part:
+
+- Mac `fit()`: first shortens the **oldest tool results** over 1,500 characters, then drops the oldest messages
+  (never the latest user message), then any leading tool messages.
+- VS Code `trim()`: first drops the oldest messages before the latest real user message, then leading tool
+  messages, then shortens tool results over 2,000 characters.
+
+**The context meter** under the message box shows the estimate (Mac: `contextUsage`; VS Code: the
+`contextUsage` message) and offers **Compact** once it passes 40% (Mac).
+
+## 6. Sub-agents
+
+`delegate(task)` hands a self-contained job to a **helper**: a fresh conversation on the **same model**, with only
+read-only tools, `think` off, at most **10 steps**, returning a concise result (findings, facts, sources).
+Helpers run one at a time because only one big model fits in memory, and they can't start more helpers.
+
+| | Mac `runSubAgent` | VS Code `runSubAgent` |
+|---|---|---|
+| Tools | `KnowledgeTools.subAgentAllowed`: web (if Web on), memory search/read, reports search/read, past chats, `use_skill`, `use_rule`, `ingle_help`, `list_files`/`read_file` | every offered tool with `readOnly: true` (files, search, problems, documents, images, repo map, web, memory search/read, knowledge reads, `mcp_tools`) |
+| Reading files | only inside workspace folders, and only when the chat's Mac button is on | inside the project freely; outside asks you ("Helper: Wants to read …") |
+| Command bans | not applied | applied (`bannedBy`) |
+| Activity line | "Helper is thinking…", "Helper: Search the web…" | same |
+
+## 7. Thinking
+
+The **Think** toggle sends `think: true`. Thinking arrives in a separate `thinking` stream and is shown collapsed
+("Thought for Ns"). Models that inline reasoning as `<think>…</think>` are split the same way (`ThinkSplitter`
+in [`MessageViews.swift`](../Sources/Ingle/MessageViews.swift); `InlineThink` in `chatEngine.ts`). If a model
+rejects `think`, the request is retried once without it (`OllamaError.thinkingUnsupported`, `ThinkUnsupported`).
+Helpers, compaction and tab-title summaries always run with `think: false`.
+
+## 8. Model tuning
+
+`ModelTuning.options` ([`Ollama.swift`](../Sources/Ingle/Ollama.swift)) and `tuning()`
+([`ollama.ts`](../Extensions/vscode/src/engine/ollama.ts)) send, on every request:
+
+- `num_ctx` = the assistant's context length (default 32,768; per assistant in Settings → Models).
+- For any model whose tag contains `qwen3`, the Qwen model cards' presets:
+  - thinking: `temperature 0.6`, `top_p 0.95`, `top_k 20`, `min_p 0`;
+  - not thinking: `temperature 0.7`, `top_p 0.8`, `top_k 20`, `min_p 0`, `presence_penalty 1.5`.
+
+Other models get Ollama's defaults (plus `num_ctx`). Note that Ollama's Go runner has been reported to accept and
+silently ignore the penalty options (ollama/ollama#14493), which is one reason the app-side repeat guard exists —
+see [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md#2-local-models-are-less-reliable-with-tools).
+
+## 9. Vision and images
+
+- **Detection:** `/api/show` capabilities include `vision`; cached per model (`visionCache`). If the engine is
+  down the answer isn't cached, so it's asked again later.
+- **Mac:** attached and tool images are converted to JPEG at most 1,600 px (`ImageStore`, HEIC included) and kept
+  in `~/Library/Application Support/Ingle/images`. Vision models get them as base64 `images`; other models get the
+  text read by Apple's Vision framework (`recognizeText`) appended to the message. `read_file` on an image and
+  `screenshot` attach the image to the tool result.
+- **VS Code:** `prepareImage` uses `sips` to make a JPEG at 1,600 px plus a 256 px thumbnail; non-vision models get
+  OCR text via a small JXA script calling Vision. Images returned by `view_image` are sent in a short user message
+  `(Image from view_image)` after that batch of tool results, because Ollama only accepts images on user messages.
+
+## Trade-offs
+
+| We chose | We gave up | Why |
+|---|---|---|
+| **Keyword tool filtering** per turn | Embedding-based tool retrieval (as in RAG-MCP) | It's instant, needs no extra model, is predictable and easy to debug, and gets most of the benefit: core tools stay, rarely-needed ones only appear when words suggest them. The cost is misses ("check what I said on Tuesday" won't offer past-chat tools unless a trigger word appears) and false positives. A `request_tool` meta-tool or embeddings could replace it later. |
+| **No small step cap**, with repeat detection and a 200-step backstop | A predictable upper bound on time | A local model costs nothing per step, and long refactors genuinely need dozens of steps; a cap of 10–25 (common in cloud tools) would stop real work. Stuck runs are caught by the repeat guard instead. A model that loops with *different* arguments each time isn't caught until the backstop. |
+| Skip the **3rd** identical call; stop after **4** skips | Running legitimate repeats (e.g. re-running tests after an edit is fine — the arguments match but the world changed) | Re-running the same `run_command` three times with nothing in between is almost always a loop with small models. The model is told why, so it can change approach. |
+| **Compact at 75%**, fit to 90% | Using the last quarter of the window for history | The tool list, system prompt and the reply itself need room, and estimates are rough (4 chars/token). Compacting earlier means more frequent summaries; compacting later risks Ollama cutting the prompt silently. |
+| Summaries written by **the same model** | A dedicated summariser | No second model in memory. A weak model writes weaker summaries — mitigated by a structured prompt that keeps paths, names and errors. |
+| **Nudges capped at 2** per command | Guaranteed compliance | Unlimited nudging can loop forever when a model can't or won't comply; two tries fix most cases, and the ⚠ chip makes the failure visible rather than silent. |
+| One **system message** rebuilt every step | Prompt caching across steps | Ollama keeps the KV cache for an identical prefix, so stable parts come first (persona, commands, index); volatile parts (matched context, summary) are near the end in VS Code. The Mac app puts the summary first, which can reduce cache reuse after compaction. |
+| **Same model** for helpers | Parallel helpers on a small model | Only one big model fits in memory on most Macs; loading a second would evict the first. |
+| Approximate token counting (chars/4) | Exact counts | Ollama has no cheap tokenise endpoint for every model; the 75%/90% margins absorb the error. |
