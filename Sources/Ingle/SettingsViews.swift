@@ -255,7 +255,7 @@ struct ModelSettings: View {
     @AppStorage(Prefs.K.ctxDaily) private var ctxDaily = Prefs.contextLength
     @AppStorage(Prefs.K.ctxHard) private var ctxHard = Prefs.contextLength
     @AppStorage(Prefs.K.thinkingDeciderEnabled) private var thinkingDeciderEnabled = false
-    @AppStorage(Prefs.K.thinkingDeciderModel) private var thinkingDeciderModel = "strands-decider"
+    @AppStorage(Prefs.K.thinkingDeciderModel) private var thinkingDeciderModel = "strands-decider:2b-nvfp4"
     @State private var pendingDelete: String?
 
     var body: some View {
@@ -465,7 +465,7 @@ private struct GetModelSection: View {
             }
 
             HStack {
-                if let status = mm.installStatus {
+                if !mm.installingThinkingDecider, let status = mm.installStatus {
                     Text(status).font(.system(size: 11)).foregroundStyle(Ember.secondary).lineLimit(2)
                 }
                 Spacer()
@@ -475,7 +475,7 @@ private struct GetModelSection: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(tag.isEmpty || mm.installing != nil)
             }
-            if mm.installing != nil {
+            if mm.installing != nil && !mm.installingThinkingDecider {
                 if let p = mm.installProgress { ProgressView(value: p) } else { ProgressView().controlSize(.small) }
             }
         } header: {

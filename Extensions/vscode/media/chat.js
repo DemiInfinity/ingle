@@ -1252,8 +1252,10 @@
       e.model = h('span', { class: 'model' });
       e.thinkBtn = h('button', { class: 'chip-btn think-btn', type: 'button', 'data-act': 'toggle-think', 'aria-expanded': 'false' },
         h('span', { class: 'think-label' }), icon('chevron', 'chev'));
+      e.decider = h('span', { class: 'used-chip decider-chip', title: 'The local decision model detected a possible thinking loop and restarted the reply without thinking.' },
+        icon('sync'), h('span', { text: 'Decider intervened' }));
       e.used = h('span', { class: 'used-chip', title: 'Rules, skills and memories Ingle matched to your message and gave the assistant' });
-      e.chips = h('div', { class: 'msg-chips' }, e.thinkBtn, e.used);
+      e.chips = h('div', { class: 'msg-chips' }, e.thinkBtn, e.decider, e.used);
       e.thinking = h('div', { class: 'thinking', hidden: true });
       e.dots = h('div', { class: 'typing', 'aria-label': 'Writing', role: 'img' }, h('span'), h('span'), h('span'));
       e.body = h('div', { class: 'md' });
@@ -1357,6 +1359,7 @@
 
     // Used context
     const used = Array.isArray(m.usedContext) ? m.usedContext.filter(Boolean) : [];
+    e.decider.hidden = m.deciderIntervened !== true;
     e.used.hidden = !used.length;
     if (used.length) {
       const text = used.join(' · ');
@@ -1366,7 +1369,7 @@
         e.used.setAttribute('aria-label', `Used context: ${used.join(', ')}`);
       }
     }
-    e.chips.hidden = !hasThinking && !used.length;
+    e.chips.hidden = !hasThinking && !used.length && m.deciderIntervened !== true;
 
     // Body
     e.dots.hidden = !(live && !p.body);

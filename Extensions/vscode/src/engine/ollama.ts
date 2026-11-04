@@ -28,6 +28,7 @@ export interface ChatHandlers {
   onContent?(text: string): boolean | void;
   onThinking?(text: string): boolean | void;
   onThinkingLoop?(): void;
+  onDeciderIntervened?(): void;
 }
 
 export interface ChatResult {
@@ -37,6 +38,7 @@ export interface ChatResult {
   evalCount: number;
   evalDuration: number; // nanoseconds
   thinkingLoopStopped?: boolean;
+  deciderIntervened?: boolean;
 }
 
 /** Detect four consecutive copies of a 24–256 character phrase, using a bounded tail. */
@@ -98,6 +100,13 @@ export class OllamaClient {
   }
 
   private async thinkingLoopConfidence(model: string, state: string, signal: AbortSignal): Promise<number | null> {
+    const confidence = await this.exactThinkingLoopConfidence(model, state, signal);
+    if (confidence !== null || !model.startsWith('strands-decider:2b-')) return confidence;
+    // Fall back to Strands' installed default tag if the selected quantized tag has not been pulled yet.
+    return this.exactThinkingLoopConfidence('strands-decider', state, signal);
+  }
+
+  private async exactThinkingLoopConfidence(model: string, state: string, signal: AbortSignal): Promise<number | null> {
     try {
       const res = await fetch(this.url('v1/systemone'), {
         method: 'POST',
@@ -206,6 +215,7 @@ export class OllamaClient {
         const result = await this.stream(req, tries[i], signal, handlers);
         if (result.thinkingLoopStopped) {
           handlers.onThinkingLoop?.();
+          if (result.deciderIntervened) handlers.onDeciderIntervened?.();
           const messages = [...req.messages];
           if (result.thinking) {
             messages.push({ role: 'assistant', content: 'My previous thinking before it started repeating (incomplete context; do not repeat it):\n' + result.thinking.slice(-3000) });
@@ -213,6 +223,7 @@ export class OllamaClient {
           messages.push({ role: 'user', content: 'Your previous response started repeating its reasoning before answering. Stop thinking and answer the original request directly now, using the conversation above and any useful context. Be concise and do not repeat the loop.' });
           const fallback = await this.stream({ ...req, messages, think: false }, false, signal, handlers);
           if (fallback.thinkingLoopStopped) handlers.onThinkingLoop?.();
+          if (fallback.deciderIntervened) handlers.onDeciderIntervened?.();
           return fallback;
         }
         return result;
@@ -287,6 +298,7 @@ export class OllamaClient {
             if (score === null) deciderFailed = true;
             else if (score >= 0.88) {
               result.thinkingLoopStopped = true;
+              result.deciderIntervened = true;
               result.toolCalls = [];
               finished = true;
               return;

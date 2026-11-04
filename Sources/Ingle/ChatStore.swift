@@ -19,6 +19,8 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var tokensPerSecond: Double?
     var seconds: Double?
     var thoughtSeconds: Double?
+    /// True when the optional semantic thinking decider stopped this response and triggered a no-thinking retry.
+    var deciderIntervened: Bool?
     var usedContext: [String]?
     /// Images on this message, stored as JPEGs in Application Support/Ingle/images.
     var imageFiles: [String]?
@@ -867,6 +869,7 @@ final class ChatStore {
                             conversations[j].messages[k].content += chunk.content
                         }
                         if chunk.resetToolCalls { calls.removeAll() }
+                        if chunk.deciderIntervened { conversations[j].messages[k].deciderIntervened = true }
                         calls += chunk.toolCalls
                         if chunk.done {
                             if chunk.evalDuration > 0 {

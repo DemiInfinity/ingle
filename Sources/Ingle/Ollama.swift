@@ -37,6 +37,7 @@ struct ChatChunk: Sendable {
     var thinking = ""
     var toolCalls: [ToolCall] = []
     var resetToolCalls = false
+    var deciderIntervened = false
     var done = false
     var evalCount = 0
     var evalDuration: Int64 = 0
@@ -111,6 +112,16 @@ struct OllamaClient: Sendable {
 
     /// Ask an Ollama decision model whether a short reasoning window is stuck in a loop.
     func thinkingLoopConfidence(model: String, state: String) async throws -> Double {
+        do {
+            return try await exactThinkingLoopConfidence(model: model, state: state)
+        } catch {
+            // If the chosen Strands weight tag is missing, use the installed mutable default tag when available.
+            guard model.hasPrefix("strands-decider:2b-") else { throw error }
+            return try await exactThinkingLoopConfidence(model: "strands-decider", state: state)
+        }
+    }
+
+    private func exactThinkingLoopConfidence(model: String, state: String) async throws -> Double {
         var req = URLRequest(url: base.appendingPathComponent("v1/systemone"))
         req.httpMethod = "POST"
         req.timeoutInterval = 20
@@ -252,7 +263,7 @@ struct OllamaClient: Sendable {
                             let result = try await streamChat(model: model, messages: messages, tools: tools, think: attempt,
                                                               numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
                             if result.loopStopped {
-                                continuation.yield(ChatChunk(content: "\n\nI noticed my thinking started repeating, so I stopped it and am answering directly.\n\n", resetToolCalls: true))
+                                continuation.yield(ChatChunk(content: "\n\nI noticed my thinking started repeating, so I stopped it and am answering directly.\n\n", resetToolCalls: true, deciderIntervened: result.deciderIntervened))
                                 var retryMessages = messages
                                 if !result.thinking.isEmpty {
                                     let context = String(result.thinking.suffix(3_000))
@@ -262,7 +273,7 @@ struct OllamaClient: Sendable {
                                 let fallback = try await streamChat(model: model, messages: retryMessages, tools: tools, think: .off,
                                                                     numCtx: numCtx, keepAlive: keepAlive, continuation: continuation)
                                 if fallback.loopStopped {
-                                    continuation.yield(ChatChunk(content: "\n\nI stopped a second repeated thinking response. Please try a shorter prompt or Low effort.\n", resetToolCalls: true))
+                                    continuation.yield(ChatChunk(content: "\n\nI stopped a second repeated thinking response. Please try a shorter prompt or Low effort.\n", resetToolCalls: true, deciderIntervened: fallback.deciderIntervened))
                                 }
                             }
                             break
@@ -282,7 +293,7 @@ struct OllamaClient: Sendable {
 
     private func streamChat(model: String, messages: [[String: Any]], tools: [[String: Any]]?, think: OllamaThink?,
                             numCtx: Int, keepAlive: String,
-                            continuation: AsyncThrowingStream<ChatChunk, Error>.Continuation) async throws -> (loopStopped: Bool, thinking: String) {
+                            continuation: AsyncThrowingStream<ChatChunk, Error>.Continuation) async throws -> (loopStopped: Bool, deciderIntervened: Bool, thinking: String) {
         var body: [String: Any] = [
             "model": model,
             "messages": messages,
@@ -311,6 +322,7 @@ struct OllamaClient: Sendable {
         var thought = ""
         var repeatGuard = ThinkingRepeatGuard()
         var loopStopped = false
+        var deciderIntervened = false
         var lastDecisionLength = 0
         var deciderFailed = false
         for try await line in bytes.lines {
@@ -347,7 +359,11 @@ struct OllamaClient: Sendable {
                 let state = "User task:\n\(String(task.suffix(1_000)))\n\nRecent reasoning:\n\(String(thought.suffix(2_500)))"
                 do {
                     semanticLoop = try await thinkingLoopConfidence(model: Prefs.thinkingDeciderModel, state: state) >= 0.88
-                    if semanticLoop { loopStopped = true; chunk.toolCalls = [] }
+                    if semanticLoop {
+                        loopStopped = true
+                        deciderIntervened = true
+                        chunk.toolCalls = []
+                    }
                 } catch {
                     // A missing, unsupported, or unavailable optional decider never prevents the answer.
                     deciderFailed = true
@@ -359,7 +375,7 @@ struct OllamaClient: Sendable {
             }
             if chunk.done { break }
         }
-        return (loopStopped, thought)
+        return (loopStopped, deciderIntervened, thought)
     }
 
     private static func json(_ line: String) -> [String: Any]? {

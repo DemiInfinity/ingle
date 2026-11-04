@@ -1750,6 +1750,10 @@ export class ChatEngine implements vscode.Disposable {
                 : '\n\nI stopped a second repeated thinking response. Please try a shorter prompt or Low effort.\n');
               thinkingRepeatGuard = new ThinkingRepeatGuard();
             },
+            onDeciderIntervened: () => {
+              reply.deciderIntervened = true;
+              this.postFor(chat.id, { type: 'messageUpdate', message: forUI(reply) });
+            },
           },
         );
         const tail = inline.push('', true);

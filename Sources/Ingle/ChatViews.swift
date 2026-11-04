@@ -135,6 +135,7 @@ struct ChatDetail: View {
     @State private var draft = ""
     /// Follow new text (replies, thinking, task list) while the user is at the bottom; scrolling up stops it.
     @State private var follow = true
+    @State private var scrollRequest = 0
     @State private var attachments: [Attachment] = []
     @State private var importing = false
     @State private var dropping = false
@@ -284,27 +285,27 @@ struct ChatDetail: View {
             }
             .modifier(FollowScroll(follow: $follow))
             // New text only pulls the view down while following; the user's own message always does.
-            .onChange(of: conversation.messages.last?.content) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: conversation.messages.last?.thinking) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: conversation.messages.last?.toolCalls.count) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: conversation.messages.last?.content) { if follow { scrollToLatest(proxy) } }
+            .onChange(of: conversation.messages.last?.thinking) { if follow { scrollToLatest(proxy) } }
+            .onChange(of: conversation.messages.last?.toolCalls.count) { if follow { scrollToLatest(proxy) } }
             .onChange(of: conversation.messages.count) {
                 if conversation.messages.last?.isRealUser == true { follow = true }
-                if follow { proxy.scrollTo("bottom", anchor: .bottom) }
+                if follow { scrollToLatest(proxy) }
             }
-            .onChange(of: conversation.tasks) { if follow { proxy.scrollTo("bottom", anchor: .bottom) } }
+            .onChange(of: conversation.tasks) { if follow { scrollToLatest(proxy) } }
             .onChange(of: streaming) {
                 guard follow else { return }
                 Task {
                     try? await Task.sleep(for: .milliseconds(80))
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    scrollToLatest(proxy, animated: true)
                 }
             }
-            .onAppear { follow = true; proxy.scrollTo("bottom", anchor: .bottom) }
+            .onAppear { follow = true; scrollToLatest(proxy) }
             .overlay(alignment: .bottom) {
                 if !follow && !conversation.messages.isEmpty {
                     Button {
                         follow = true
-                        withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                        scrollToLatest(proxy, animated: true)
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.down").font(.system(size: 11, weight: .semibold))
@@ -326,6 +327,21 @@ struct ChatDetail: View {
                 }
             }
             .animation(.easeOut(duration: 0.15), value: follow)
+        }
+    }
+
+    /// Wait until SwiftUI has laid out the latest streamed text, and coalesce changes from the same update pass.
+    private func scrollToLatest(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        scrollRequest += 1
+        let request = scrollRequest
+        Task { @MainActor in
+            await Task.yield()
+            guard request == scrollRequest, follow else { return }
+            if animated {
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+            } else {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
         }
     }
 
@@ -1041,14 +1057,19 @@ private struct ScrollSpot: Equatable {
 /// pulling the view down until the user scrolls up.
 struct FollowScroll: ViewModifier {
     @Binding var follow: Bool
+    @State private var userScrollPhase = false
 
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) {
-            content.onScrollGeometryChange(for: ScrollSpot.self) { g in
+            content
+            .onScrollPhaseChange { _, phase in
+                userScrollPhase = phase == .tracking || phase == .interacting || phase == .decelerating
+            }
+            .onScrollGeometryChange(for: ScrollSpot.self) { g in
                 let bottom: CGFloat = g.contentOffset.y + g.containerSize.height
                 return ScrollSpot(offset: g.contentOffset.y, fromBottom: g.contentSize.height - bottom)
             } action: { old, new in
-                guard abs(new.offset - old.offset) > 0.5 else { return }
+                guard userScrollPhase, abs(new.offset - old.offset) > 0.5 else { return }
                 let near: Bool = new.fromBottom < 80
                 if near != follow { follow = near }
             }
@@ -1061,14 +1082,20 @@ struct FollowScroll: ViewModifier {
 /// macOS 14 fallback: the 1-point view at the end of the transcript; while it's on screen, follow.
 struct BottomSentinel: ViewModifier {
     @Binding var follow: Bool
+    @State private var visible = false
 
     func body(content: Content) -> some View {
         if #available(macOS 15.0, *) {
             content
         } else {
             content
-                .onAppear { follow = true }
-                .onDisappear { follow = false }
+                .onAppear { visible = true; follow = true }
+                .onDisappear {
+                    visible = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        if !visible { follow = false }
+                    }
+                }
         }
     }
 }

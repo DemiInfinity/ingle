@@ -152,6 +152,19 @@ struct MessageRow: View {
                 Text(ModelNames.display(message.model ?? ""))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Ember.text.opacity(0.85))
+                if message.deciderIntervened == true {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text("Decider intervened")
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Ember.accent)
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Ember.accent.opacity(0.1)))
+                    .help("The local decision model detected a possible thinking loop and restarted the reply without thinking.")
+                }
                 if let used = message.usedContext, !used.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "sparkles").font(.system(size: 9))

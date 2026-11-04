@@ -220,6 +220,7 @@ final class ModelManager {
     var installing: String?
     var installProgress: Double?
     var installStatus: String?
+    var installingThinkingDecider = false
 
     /// Download a model, give it a job, and optionally delete the model it replaces.
     func install(_ tag: String, as role: ModelRole, removeOld: Bool) async {
@@ -271,15 +272,16 @@ final class ModelManager {
     func updateThinkingDecider(_ tag: String) async {
         guard installing == nil else { return }
         installing = tag
+        installingThinkingDecider = true
         installProgress = nil
-        installStatus = "Checking (ModelNames.pretty(tag))…"
-        defer { installing = nil }
+        installStatus = "Checking \(ModelNames.pretty(tag))…"
+        defer { installing = nil; installingThinkingDecider = false }
         let label = ModelNames.pretty(tag)
         do {
             for try await step in client.pull(tag) {
                 installProgress = step.fraction
                 if let f = step.fraction {
-                    installStatus = "Downloading (label) · \(Int(f * 100))%"
+                    installStatus = "Downloading \(label) · \(Int(f * 100))%"
                 } else {
                     installStatus = "\(label): \(step.status)"
                 }

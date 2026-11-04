@@ -23,6 +23,7 @@ export interface ChatMessage {
   model?: string;               // pretty model name, e.g. "Qwen3.6 35B"
   tool?: ToolInfo;
   usedContext?: string[];       // rules/skills/memories attached automatically
+  deciderIntervened?: boolean;  // semantic loop decider stopped thinking and triggered a direct retry
   stats?: { tokensPerSecond: number; seconds: number };
   failed?: boolean;
   thoughtSeconds?: number;

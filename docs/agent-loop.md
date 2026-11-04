@@ -208,7 +208,8 @@ After the calls:
   The retry receives the conversation, the partial thinking as context, and instructions to answer directly; a note
   in the reply explains the retry. If thinking repeats again, Ingle stops and leaves the note visible. Optionally,
   a local decision model can also assess a short recent reasoning window every 768 characters; a high loop score
-  triggers the same retry. If the decider is missing or fails, the exact-repeat guard still works.
+  triggers the same retry and marks the reply **Decider intervened**. If the decider is missing or fails, the
+  exact-repeat guard still works.
 - **Backstop.** There is no small step cap — local models cost nothing per step. The Mac app stops after 200
   steps; VS Code uses `ingle.maxSteps` (default 200, `0` = no limit) and says so when it reaches it.
 - **Stop** cancels the stream, denies any open approval card and ends the loop.
@@ -376,7 +377,7 @@ sets how hard the assistant tries **in this chat**. Each level is a bundle of se
   compaction and tab-title summaries always run with `think: false`. If a response repeats the same phrase four
   times in a row while thinking, Ingle stops it and retries with thinking off, passing the partial reasoning and
   conversation as context so the reply can still answer. Settings → Models can enable a local semantic loop decider
-  (`strands-decider` by default); it checks bounded recent windows and is optional. Its selected tag can be pulled
+  (`strands-decider:2b-nvfp4` by default); it checks bounded recent windows and is optional. Its selected tag can be pulled
   again from that setting to apply registry updates or switch to a smaller/larger weight variant.
 - **Tool filtering.** Strict (Low): the helper (`delegate`) is never offered, and `report_read`/`report_search`
   (and in VS Code `repo_map`) need asking for. Relaxed (High/Max): the helper is always offered. Commands still

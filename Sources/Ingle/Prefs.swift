@@ -73,7 +73,7 @@ enum Prefs {
         K.showName: false,
         K.server: "http://localhost:11434",
         K.thinkingDeciderEnabled: false,
-        K.thinkingDeciderModel: "strands-decider",
+        K.thinkingDeciderModel: "strands-decider:2b-nvfp4",
         K.ctx: 32768,
         K.folders: ["~/Projects"],
         K.autoRead: true,
