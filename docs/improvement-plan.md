@@ -33,7 +33,8 @@ Wave 3 and Wave 4b run together, in rounds that keep tasks touching the same fil
 |---|---|---|
 | A0 | 8 (unify commands), 33 (code intelligence engine + MCP server, new folder only) | now, alongside the secrets store (28) |
 | A | 29 (effort), 30 (Code mode foundation) | 28 is merged |
-| B | 31 (coding tools), 32 (workflow), 15 (checkpoints) | 8, 29 and 30 are merged |
+| B | 31 (coding tools), 15 (checkpoints) | 8, 29 and 30 are merged |
+| B1 | 32 (workflow: task list, plan mode, changes panel using 15's undo, commit) | 15 is merged |
 | B2 | 33b (built-in code intelligence), 34 (coverage checks), 35 (second opinion) | round B and 33 are merged |
 | C | 36 (background runs; includes making the agent loop run several jobs at once) | round B2 is merged |
 | D | 37 (monitors and schedules), 9 (shared spec + `IngleCore`), 11 (model picker), 38 (command-line Ingle) | 36 is merged |
