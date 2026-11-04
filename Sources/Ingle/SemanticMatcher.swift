@@ -25,6 +25,8 @@ final class SemanticMatcher {
     func matches(query: String, candidates: [Candidate], limit: Int = 3) async -> [String] {
         guard Prefs.smartMatching, !candidates.isEmpty,
               !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        // Short or chatty messages ("that's clever", "thanks") aren't requests a skill could help with.
+        guard Self.words(query).count >= 3 else { return [] }
         if hasModel, let semantic = await semanticMatches(query: query, candidates: candidates, limit: limit) {
             return semantic
         }
@@ -45,8 +47,13 @@ final class SemanticMatcher {
             guard let v = cache[c.text] else { return nil }
             return (c.id, Self.cosine(q, v))
         }.sorted { $0.1 > $1.1 }
-        let threshold = 0.58
-        return scored.prefix(limit).filter { $0.1 >= threshold }.map { $0.0 }
+        // Only clear winners: well above an absolute bar AND standing out from the rest of the candidates
+        // (with nomic-embed-text, loosely related texts often score 0.55–0.65).
+        let values = scored.map(\.1)
+        let mean: Double = values.reduce(0, +) / Double(max(1, values.count))
+        let variance: Double = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(max(1, values.count))
+        let bar: Double = max(0.70, mean + 2 * variance.squareRoot())
+        return scored.prefix(limit).filter { $0.1 >= bar }.map { $0.0 }
     }
 
     private func embed(_ texts: [String]) async -> [[Double]]? {
@@ -88,7 +95,7 @@ final class SemanticMatcher {
             let overlap = Self.words(c.text).intersection(q).count
             let nameHit = Self.words(c.id).intersection(q).isEmpty ? 0 : 2
             return (c.id, overlap + nameHit)
-        }.filter { $0.1 >= 2 }.sorted { $0.1 > $1.1 }
+        }.filter { $0.1 >= 3 }.sorted { $0.1 > $1.1 }
         return scored.prefix(limit).map { $0.0 }
     }
 }

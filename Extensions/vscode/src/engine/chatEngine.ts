@@ -59,8 +59,9 @@ interface PendingApproval {
 }
 
 interface Matched {
-  names: string[];
-  text: string;
+  names: string[];   // shown on the reply's chip: things actually in use
+  text: string;      // full text given to the model (memories, forced skills)
+  hints: string[];   // matched skills/rules/reports offered as suggestions, not loaded
 }
 
 /** User messages may carry hidden text for the model (extracted documents, OCR) and notes for the reply. */
@@ -698,7 +699,7 @@ export class ChatEngine implements vscode.Disposable {
   // MARK: matched context
 
   private async matchContext(client: OllamaClient, query: string, root: string | undefined): Promise<Matched> {
-    const result: Matched = { names: [], text: '' };
+    const result: Matched = { names: [], text: '', hints: [] };
     if (!this.settings.smartMatching || !query.trim()) return result;
     const candidates: Candidate[] = [];
     const bodies = new Map<string, { label: string; title: string; body: string }>();
@@ -731,11 +732,16 @@ export class ChatEngine implements vscode.Disposable {
     if (!candidates.length) return result;
     const installed = await client.tags();
     const hits = await this.matcher.matches(client, installed, query.slice(0, 4000), candidates, 3);
+    // Matches are only suggestions: the assistant loads one if it really applies, and only then does it
+    // appear on the reply's chip. Memories are small facts, so they're included quietly.
     for (const id of hits) {
       const b = bodies.get(id);
       if (!b) continue;
-      result.names.push(b.label);
-      result.text += `### ${b.title}\n${b.body}\n\n`;
+      const name = id.slice(id.indexOf(':') + 1);
+      if (id.startsWith('memory:')) result.text += `### ${b.title}\n${b.body}\n\n`;
+      else if (id.startsWith('skill:')) result.hints.push(`- skill ${name} — use_skill("${name}")`);
+      else if (id.startsWith('rule:')) result.hints.push(`- rule ${name} — use_rule("${name}")`);
+      else if (id.startsWith('report:')) result.hints.push(`- earlier research ${name} — report_read("${name}")`);
     }
     return result;
   }
@@ -1090,7 +1096,8 @@ export class ChatEngine implements vscode.Disposable {
       if (project) parts.push(project);
     }
     if (repoMap) parts.push('## Repo map (the project at a glance, most relevant first — read_file for details, repo_map for more)\n' + repoMap);
-    if (matched.text) parts.push('## Loaded for this request (matched automatically — follow them)\n' + matched.text.trim());
+    if (matched.text) parts.push('## Loaded for this request\n' + matched.text.trim());
+    if (matched.hints.length) parts.push('## Possibly relevant (matched automatically — load one with its tool only if it clearly applies to this request; otherwise ignore them)\n' + matched.hints.join('\n'));
     parts.push(guidancePrompt(this.settings, chat.web, tools.some((t) => t.name === 'delegate')));
     if (summary) parts.push('## Summary of earlier messages in this chat (they were compacted)\n' + summary);
     return parts.join('\n\n');
@@ -1289,6 +1296,21 @@ export class ChatEngine implements vscode.Disposable {
           : undefined;
         if (skip) skips++;
         const record = await this.runToolCall(chat, call, tools, vision, signal, skip, active);
+        // Show a skill, rule or report on the chip once the assistant has actually opened it.
+        const callName = call.function?.name ?? '';
+        if (!skip && ['use_skill', 'use_rule', 'report_read'].includes(callName)) {
+          const opened = str(parseArgs(call.function?.arguments), 'name').trim();
+          const label = callName === 'report_read' ? `report: ${opened}` : opened;
+          const lastReply = [...chat.messages].reverse().find((m) => m.role === 'assistant') as Stored | undefined;
+          const row = chat.messages[chat.messages.length - 1] as Stored | undefined;
+          if (opened && !used.includes(label) && !row?.tool?.denied) {
+            used.push(label);
+            if (lastReply) {
+              lastReply.usedContext = [...(lastReply.usedContext ?? []), label];
+              this.postFor(chat.id, { type: 'messageUpdate', message: forUI(lastReply) });
+            }
+          }
+        }
         if (record) done.push(record);
       }
       this.store.save();

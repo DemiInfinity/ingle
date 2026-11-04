@@ -133,7 +133,7 @@ struct MessageRow: View {
                     .padding(.horizontal, 8)
                     .frame(height: 20)
                     .background(Capsule().fill(Ember.accent.opacity(0.1)))
-                    .help("Rules and skills Ingle matched to your message and gave the assistant")
+                    .help("What the assistant used for this reply: skills and rules it opened, research it read, and commands in force (⚑)")
                 }
                 if !p.thinking.isEmpty {
                     Button {

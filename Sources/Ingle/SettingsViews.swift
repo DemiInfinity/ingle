@@ -717,8 +717,8 @@ struct ExtensionsSettings: View {
 
             Section {
                 Toggle(isOn: $smartMatch) {
-                    TitleAndHint(title: "Attach matching rules and skills automatically",
-                                 hint: "Before each message, Ingle finds rules and skills that fit it and hands them over, so the assistant doesn’t have to remember to look.")
+                    TitleAndHint(title: "Suggest matching rules and skills",
+                                 hint: "Before each message, Ingle finds skills, rules and earlier research that clearly fit it and points the assistant to them. It loads one only if it applies, and the reply shows what it used.")
                 }
                 if smartMatch {
                     if SemanticMatcher.shared.hasModel {

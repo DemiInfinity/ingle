@@ -33,7 +33,7 @@ export function keywordMatches(query: string, candidates: Candidate[], limit = 3
       for (const w of words(c.id)) if (q.has(w)) { nameHit = 2; break; }
       return { id: c.id, score: overlap + nameHit };
     })
-    .filter((s) => s.score >= 2)
+    .filter((s) => s.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((s) => s.id);
@@ -58,6 +58,8 @@ export class Matcher {
   /** IDs of candidates that match the query, best first. */
   async matches(client: OllamaClient, installed: string[], query: string, candidates: Candidate[], limit = 3): Promise<string[]> {
     if (!candidates.length || !query.trim()) return [];
+    // Short or chatty messages ("that's clever", "thanks") aren't requests a skill could help with.
+    if (words(query).size < 3) return [];
     const hasModel = installed.some((n) => n === EMBED_MODEL || n.startsWith(EMBED_MODEL + ':'));
     if (hasModel) {
       const semantic = await this.semantic(client, query, candidates, limit);
@@ -76,11 +78,14 @@ export class Matcher {
     }
     const q = (await client.embed(EMBED_MODEL, ['search_query: ' + query.slice(0, 2000)]))?.[0];
     if (!q) return null;
-    return candidates
+    const scored = candidates
       .map((c) => ({ id: c.id, score: this.cache.has(c.text) ? cosine(q, this.cache.get(c.text)!) : 0 }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .filter((s) => s.score >= 0.58)
-      .map((s) => s.id);
+      .sort((a, b) => b.score - a.score);
+    // Only clear winners: above an absolute bar AND standing out from the rest
+    // (with nomic-embed-text, loosely related texts often score 0.55–0.65).
+    const mean = scored.reduce((t, s) => t + s.score, 0) / Math.max(1, scored.length);
+    const sd = Math.sqrt(scored.reduce((t, s) => t + (s.score - mean) ** 2, 0) / Math.max(1, scored.length));
+    const bar = Math.max(0.7, mean + 2 * sd);
+    return scored.slice(0, limit).filter((s) => s.score >= bar).map((s) => s.id);
   }
 }

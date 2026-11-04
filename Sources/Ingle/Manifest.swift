@@ -152,7 +152,7 @@ enum HelpTopics {
         case "memory":
             return "Long-term memory lives in ~/.ingle/memory as Markdown, one file per subject (about-me, preferences, work, projects, people…), each with a one-line description. The memory index is in every chat; memory_search and memory_read look things up, memory_save adds a fact, memory_rewrite and memory_forget correct or remove. Matching memories are also attached automatically. Settings → Web & Memory: switch memory off, Ask before saving, open or edit files, Forget Everything. Passwords, keys and card numbers are never saved."
         case "reports":
-            return "After web research the assistant saves a short report (title, summary, findings, sources) to ~/.ingle/research. The research index is in every chat, report_search and report_read recall them, and matching reports are attached automatically, so research builds up over time instead of being redone. Settings → Web & Memory → Research reports opens the folder."
+            return "After web research the assistant saves a short report (title, summary, findings, sources) to ~/.ingle/research. The research index is in every chat, report_search and report_read recall them, and matching reports are suggested to the assistant (it opens one with report_read if it applies), so research builds up over time instead of being redone. Settings → Web & Memory → Research reports opens the folder."
         case "history":
             return "The assistant can look back through the user's other chats: chat_list (recent chats), chat_search (find something said before) and chat_read (open one). The newest few chat titles are listed in every chat."
         case "builder":

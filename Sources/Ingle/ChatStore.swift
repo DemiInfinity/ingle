@@ -332,8 +332,10 @@ final class ChatStore {
             let startConv = index(id).map { conversations[$0] }
             let editor = (startConv?.useEditor ?? true) ? EditorBridge.shared.freshContext : nil
             let project = editor?.workspace
-            var attachedNames: [String] = []
+            var attachedNames: [String] = []     // shown on the reply's chip: things actually in use
             var attachedText = ""
+            var suggestions: [String] = []       // matched, offered, not loaded
+            var usedNames: [String] = []         // skills/rules/reports the assistant actually opened
             // Commands that apply to this request — enforced below, not just suggested.
             let requestText = startConv?.messages.last(where: { $0.isRealUser })?.content ?? ""
             var tracker = CommandTracker(CommandStore.active(for: requestText, project: project))
@@ -371,22 +373,20 @@ final class ChatStore {
                     attachedNames.append(forced.name)
                 }
                 for hit in await SemanticMatcher.shared.matches(query: String(query.prefix(4000)), candidates: candidates) {
+                    // Matches are only suggestions: the assistant loads one if it really applies, and only
+                    // then does it show on the reply's chip. Memories are small facts, so they're included quietly.
                     if hit.hasPrefix("rule:") {
                         let name = String(hit.dropFirst(5))
-                        attachedText += "### Rule: \(name)\n\(RuleStore.read(name, project: project))\n\n"
-                        attachedNames.append(name)
+                        suggestions.append("- rule \(name) — use_rule(\"\(name)\")")
                     } else if hit.hasPrefix("report:") {
                         let name = String(hit.dropFirst(7))
-                        attachedText += "### Earlier research: \(name)\n\(String(ReportStore.read(name).prefix(5000)))\n\n"
-                        attachedNames.append("report: \(name)")
+                        suggestions.append("- earlier research \(name) — report_read(\"\(name)\")")
                     } else if hit.hasPrefix("memory:") {
                         let name = String(hit.dropFirst(7))
                         attachedText += "### Memory: \(name)\n\(String(MemoryStore.read(name).prefix(4000)))\n\n"
-                        attachedNames.append("memory: \(name)")
                     } else if hit.hasPrefix("skill:"), !attachedNames.contains(String(hit.dropFirst(6))) {
                         let name = String(hit.dropFirst(6))
-                        attachedText += "### Skill: \(name)\n\(String(SkillStore.read(name).prefix(12_000)))\n\n"
-                        attachedNames.append(name)
+                        suggestions.append("- skill \(name) — use_skill(\"\(name)\")")
                     }
                 }
             }
@@ -428,7 +428,10 @@ final class ChatStore {
                     if let projectRules = editor.projectInstructions { system.append(projectRules) }
                 }
                 if !attachedText.isEmpty {
-                    system.append("## Loaded for this request (matched automatically — follow them)\n" + attachedText)
+                    system.append("## Loaded for this request\n" + attachedText)
+                }
+                if !suggestions.isEmpty {
+                    system.append("## Possibly relevant (matched automatically — load one with its tool only if it clearly applies to this request; otherwise ignore them)\n" + suggestions.joined(separator: "\n"))
                 }
                 tools.append(MacTools.helpTool)
                 if Prefs.memoryEnabled {
@@ -492,7 +495,8 @@ final class ChatStore {
                     history.insert(["role": "system", "content": system.joined(separator: "\n\n")], at: 0)
                 }
                 var reply = ChatMessage(role: .assistant, content: "", model: model)
-                if !attachedNames.isEmpty { reply.usedContext = attachedNames }
+                let chip = attachedNames + usedNames
+                if !chip.isEmpty { reply.usedContext = chip }
                 conversations[i].messages.append(reply)
                 conversations[i].updated = Date()
 
@@ -599,6 +603,19 @@ final class ChatStore {
                         activity = nil
                     }
                     tracker.record(call, succeeded: allowed)
+                    // Show a skill, rule or report on the chip once the assistant has actually opened it.
+                    if allowed, ["use_skill", "use_rule", "report_read"].contains(call.name) {
+                        let opened = call.arg("name").trimmingCharacters(in: .whitespaces)
+                        let label = call.name == "report_read" ? "report: " + opened : opened
+                        if !opened.isEmpty, !usedNames.contains(label), !attachedNames.contains(label) {
+                            usedNames.append(label)
+                            if let ju = index(id), let ku = conversations[ju].messages.lastIndex(where: { $0.role == .assistant }) {
+                                var chip = conversations[ju].messages[ku].usedContext ?? []
+                                chip.append(label)
+                                conversations[ju].messages[ku].usedContext = chip
+                            }
+                        }
+                    }
                     guard let j2 = index(id) else { break }
                     var toolMessage = ChatMessage(
                         role: .tool, content: output, toolName: call.name,
