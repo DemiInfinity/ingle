@@ -131,11 +131,12 @@ skills and research are suggested rather than pasted; the repo map is capped (~1
 or if a web page or file it reads tries to instruct it.
 
 **What we did:** every command, file change, app action, MCP call and out-of-workspace read needs approval
-(Deny / Allow for This Session / Allow); session allowances end when the app quits and can be cleared any time;
+(Deny / Allow for This Session / Allow); session allowances are narrow — the exact command in the same folder, writes
+in one folder, the same app action, one MCP `server/tool` — end when the app quits and can be cleared any time;
 Terminal and Mac control are separate, and Mac control is off by default per chat; web access is read-only and blocks
 local-network addresses; models are told never to work around a denial; commands can ban tools outright.
-**Status:** Done. **Trade-off:** approvals interrupt you; "Allow for This Session" is the escape hatch, scoped to one
-kind of action. See [terminal-and-mac-control.md](terminal-and-mac-control.md) and
+**Status:** Done. **Trade-off:** approvals interrupt you; "Allow for This Session" is the escape hatch, scoped to the
+same command, folder, target or MCP tool (it used to cover every later action of that kind). See [terminal-and-mac-control.md](terminal-and-mac-control.md) and
 [security-and-privacy.md](security-and-privacy.md).
 
 ---

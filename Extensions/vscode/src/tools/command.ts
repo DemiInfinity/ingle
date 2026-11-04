@@ -102,7 +102,7 @@ const runCommand: ToolDef = {
     const answer = await ctx.requestApproval({
       kind: 'command', title: 'Wants to run a command',
       detail: given ? `cd ${tidy(cwd)} && ${command}` : command,
-    });
+    }, cwd);
     if (answer !== 'allow') return DENIED;
     ctx.setActivity('Running a command…');
     try { return await runShell(command, cwd, ctx.signal); } finally { ctx.setActivity(null); }
@@ -121,7 +121,7 @@ const openUrl: ToolDef = {
     let url: URL;
     try { url = new URL(raw); } catch { return "That isn't a web address. Use a full https:// link."; }
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'I can only open http:// and https:// links.';
-    const answer = await ctx.requestApproval({ kind: 'open', title: 'Wants to open a link', detail: url.toString() });
+    const answer = await ctx.requestApproval({ kind: 'open', title: 'Wants to open a link', detail: url.toString() }, url.toString());
     if (answer !== 'allow') return DENIED;
     try {
       const ok = await vscode.env.openExternal(vscode.Uri.parse(url.toString(), true));

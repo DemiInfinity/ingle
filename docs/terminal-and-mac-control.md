@@ -89,11 +89,11 @@ Because Ingle is ad-hoc signed during the preview, macOS may forget these grants
 flowchart LR
     Call[Tool call] --> Q{needs approval?}
     Q -- no --> Run
-    Q -- yes --> S{allowed for this session?}
+    Q -- yes --> S{scope allowed for this session?}
     S -- yes --> Run
     S -- no --> Card[Approval card:<br/>Deny · Allow for This Session · Allow]
     Card -- Allow --> Run[Run the tool]
-    Card -- Allow for This Session --> Add[add tool name to sessionAllowed] --> Run
+    Card -- Allow for This Session --> Add[add its approval scope to sessionAllowed] --> Run
     Card -- Deny --> Denied["'The user denied this action. Don't retry it…'"]
 ```
 
@@ -113,8 +113,26 @@ editor (see [vscode-extension.md](vscode-extension.md#editing-files-safely)). On
 
 ### Allow for This Session
 
-**Allow for This Session** adds the **tool name** to a set of session allowances, and from then on that kind of
-action runs without asking:
+**Allow for This Session** remembers the call's **approval scope** — not the tool name — and from then on only calls
+with the same scope run without asking. The card says what the button covers, e.g. *Allow for This Session covers
+“npm test” in Ingle, until Ingle quits.*
+
+| Tool | Scope (what is remembered) | Example: allowed after one approval | Still asks |
+|---|---|---|---|
+| `run_command` | exact command text + working folder | `npm test` in `~/Projects/Ingle` again | `npm test -- --watch`, `rm -rf build`, `npm test` in another folder |
+| `write_file`, `edit_file` | the file's folder (that folder only) | other writes in `Sources/Ingle/` | writes in `Sources/` or `Sources/Ingle/Sub/` |
+| `list_files`, `read_file`, other reads outside the workspace | the folder (that folder only) | other reads in `~/Documents` | reads in `~/Documents/Taxes` |
+| `open` (Mac), `open_url` (VS Code) | exact target / URL | opening Safari again | opening Mail |
+| `applescript` | exact script | the identical script | any change to it |
+| `screenshot` | (no arguments) | further screenshots | — |
+| `mcp_call` and MCP tools | `server/tool` | `github/list_issues` with any arguments | `github/create_issue` |
+| anything else | exact arguments | the identical call | any other arguments |
+
+The scope is built in one place per app — `MacTools.approvalScope(_:)` in `Tools.swift` and `approvalScope()` in
+`chatEngine.ts` — and the two must match. A tool that isn't listed gets the safe default (exact arguments), so a new
+tool only gets a wider scope if someone adds a case for it on purpose.
+
+Where the allowances live:
 
 - **Mac:** `ChatStore.sessionAllowed` — for **every chat** in the app, until Ingle quits. A small
   **"N allowed"** badge in the message bar lists them (hover) and clears them (click), via
@@ -122,8 +140,8 @@ action runs without asking:
 - **VS Code:** `EngineShared.sessionAllowed` — shared by **every Ingle tab**, until VS Code closes (or the extension
   is reloaded). Clear it with the command **Ingle: Ask Before Every Action Again** (`ingle.forgetApprovals`).
 
-It is deliberately coarse: allowing `run_command` allows *any* command, and allowing `read_file` for an
-out-of-project read allows all later out-of-project reads. Nothing is saved to disk. Helpers (sub-agents) can't
+Allowing one command never allows a different one, and allowing a folder never covers its subfolders. Nothing is
+saved to disk. Helpers (sub-agents) can't
 write anything, so they never use these allowances for changes.
 
 ## Trade-offs
@@ -132,7 +150,7 @@ write anything, so they never use these allowances for changes.
 |---|---|---|
 | **Terminal always on**, approvals per action | A per-chat switch for files and commands | Coding help needs to read and run things; an extra switch was one more thing to forget. The approval card is the real safety boundary, and reads are free only inside folders you chose. |
 | **Mac control behind a per-chat switch** | Convenience | AppleScript and screenshots reach every app and everything on screen — mail, messages, banking — so they need a deliberate, visible opt-in per chat on top of approvals. |
-| **Session-wide allowances by tool name** | Fine-grained rules (per command prefix, per folder, per chat) | Approving every `npm test` in a long task is tiring, and approval fatigue makes people click Allow without reading. A coarse, clearly-badged, memory-only allowance that you can clear in one click is easy to understand. The risk is real: after allowing `run_command`, a confused model can run anything. A per-command allow-list is a candidate for the [roadmap](roadmap.md). |
+| **Session allowances by narrow scope** (exact command + folder, one folder for writes, `server/tool` for MCP) | Allowing a whole kind of action at once; command prefixes and wildcards; per-chat allowances | Approving every `npm test` in a long task is tiring, and approval fatigue makes people click Allow without reading — but allowing *all* commands after one meant a confused or misled model could run anything. A narrow, clearly-labelled, memory-only allowance keeps repeated steps quick without handing over the whole machine. You will still see a card for each new command. |
 | `zsh -lc` login shell | A clean, predictable environment | Your Terminal `PATH` (Homebrew, nvm, pyenv) just works; but login scripts run every time and can be slow or noisy. |
 | 2-minute command timeout | Long builds and dev servers | Keeps the loop responsive; a model can't leave a server running in the background. Long jobs should be run by you in Terminal. |
 | AppleScript via a temp file and `osascript` | Running scripts in-process with `NSAppleScript` | No escaping bugs, the same behaviour you'd get in Script Editor, and permissions are attributed to Ingle. |

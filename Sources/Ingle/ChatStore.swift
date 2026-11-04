@@ -71,6 +71,8 @@ struct PendingApproval: Identifiable {
     let conversation: Conversation.ID
     let call: ToolCall
     let info: MacTools.Info
+    /// What "Allow for This Session" would cover.
+    let scope: MacTools.ApprovalScope
 }
 
 /// Text handed over from the editor ("Ask Ingle about this"), waiting for the chat view to pick it up.
@@ -109,8 +111,9 @@ final class ChatStore {
 
     private var task: Task<Void, Never>?
     private var approval: CheckedContinuation<Bool, Never>?
-    /// Kinds of action the user allowed for this session ("Allow for This Session"), until Ingle quits.
-    private(set) var sessionAllowed: Set<String> = []
+    /// Approval scopes the user allowed for this session ("Allow for This Session"), until Ingle quits:
+    /// scope key → label. See `MacTools.approvalScope`.
+    private(set) var sessionAllowed: [String: String] = [:]
     private var visionCache: [String: Bool] = [:]
     /// Images produced by the last tool call (read_file on an image), attached to its tool message.
     private var lastToolImages: [String] = []
@@ -293,7 +296,7 @@ final class ChatStore {
 
     func resolve(_ allow: Bool, always: Bool = false) {
         if always, let p = pending {
-            sessionAllowed.insert(p.call.name)
+            sessionAllowed[p.scope.key] = p.scope.label
         }
         approval?.resume(returning: allow)
         approval = nil
@@ -301,10 +304,11 @@ final class ChatStore {
     }
 
     private func requestApproval(_ id: Conversation.ID, _ call: ToolCall, _ info: MacTools.Info) async -> Bool {
-        if sessionAllowed.contains(call.name) { return true }
+        let scope: MacTools.ApprovalScope = MacTools.approvalScope(call)
+        if sessionAllowed[scope.key] != nil { return true }
         return await withCheckedContinuation { continuation in
             approval = continuation
-            pending = PendingApproval(conversation: id, call: call, info: info)
+            pending = PendingApproval(conversation: id, call: call, info: info, scope: scope)
         }
     }
 
