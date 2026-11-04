@@ -40,6 +40,20 @@ and makes sure a 20 GB model isn't sitting on your memory when you're not using 
 
 Everything runs on your Mac. No accounts, no tracking, no subscription.
 
+## 🎯 Our mission
+
+**Give people the full AI-assistant experience at the local level, without losing out at any stage.**
+Ingle isn't trying to be Claude or ChatGPT. It's trying to be the best *local* assistant there is:
+
+- **No missing step.** Chat, plan, edit, test, review and commit, all on your own machine.
+- **Never lose your work.** Plans are files you can read, every run can be undone, and everything lives in folders you
+  own.
+- **Never lose privacy or control.** Nothing leaves your Mac unless you choose, and every action asks first unless you
+  say otherwise.
+- **Never stuck.** A local model has limits. When a job is beyond it, Ingle should say so plainly and help you take it
+  further (with a bigger local model, or a ready-made brief you can take to a cloud assistant) instead of failing
+  quietly. *This part is being built now.*
+
 ## ✨ What it does
 
 ### 🛡️ Commands: the obedience layer
