@@ -23,7 +23,7 @@ index, `settings.json` written by the Mac app). Status: **early preview**. Licen
 ./build.sh                    # swift build -c release → build/Ingle.app (+ copies & slims the Ollama runtime)
 ./build.sh --install          # also copies to /Applications and opens it
 INGLE_MLX=v3 ./build.sh       # keep only mlx_metal_v3 (smaller; macOS 14+). Options: both (default) | v3 | v4 | none
-cd Extensions/vscode && node node_modules/typescript/bin/tsc -p . --noEmit   # type-check the extension
+cd Extensions/vscode && npm run engine && node node_modules/typescript/bin/tsc -p . --noEmit   # build vendor/ingle-code, then type-check
 node --check Extensions/vscode/media/chat.js                                 # syntax-check the webview
 cd Extensions/vscode && npm test              # extension unit tests (node:test, offline; output in out-test/)
 cd Extensions/vscode && ./install.sh          # compile, package ingle.vsix, install into VS Code
