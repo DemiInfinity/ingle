@@ -1,20 +1,29 @@
 # Licensing
 
-Ingle is **source-available** under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
-In plain words (the licence text is what actually counts):
+Ingle is **open source** under the [GNU Affero General Public License, version 3](LICENSE) (AGPL-3.0-only), with
+one additional term: **you must credit the author**. The exact terms are in [LICENSE.md](LICENSE.md). In plain
+words (the licence text is what actually counts):
 
-| You may | You may not, without a separate licence |
+| You may | On these conditions |
 |---|---|
-| Use Ingle for yourself — personal projects, learning, hobby work | Sell Ingle, or a product or service built on it |
-| Read, build and change the code | Use it inside a business for commercial work |
-| Share it, or your changed version, with others **for non-commercial use**, keeping the licence and the Required Notice line | Remove the licence or the Required Notice |
-| Use it at charities, schools, public research and government bodies (the licence explicitly allows these) | Offer it as a paid or ad-supported service |
+| Use Ingle for anything: personal, education, **commercial** | Keep the credit (below) |
+| Read, build, change and improve the code | If you share or sell your changed version, or run it as a service for others, **publish your changes under the same licence** |
+| Build your own product or service on Ingle, and charge for it | Keep the credit **visible to your users**, and share your changes under the AGPL |
+| Redistribute Ingle or your version | Include the licence, `LICENSE.md` and the `NOTICE` file |
 
-Because commercial use isn't allowed, Ingle is not "open source" by the Open Source Initiative's definition —
-it's free to use and modify for non-commercial purposes, with the code fully visible.
+**The credit.** Every copy and every work based on Ingle must keep this notice, in the source (a `NOTICE` or `README`
+file) **and where users can see it** in the running program (an About screen, credits page, settings, or
+`--version`):
 
-**Commercial use:** if you'd like to use Ingle commercially, open an issue titled "Commercial licence" or
-contact the copyright holder named in [LICENSE.md](LICENSE.md) to arrange a commercial licence.
+> Based on Ingle by DemiInfinity — https://github.com/DemiInfinity/ingle
+
+You can add to it ("…, modified by Acme"), but not remove or hide it.
+
+**If you don't want to credit or share, pay instead.** To remove the credit, or to keep your changes private, you need
+a **commercial licence**. Open an issue titled "Commercial licence" at https://github.com/DemiInfinity/ingle to ask.
+
+**Earlier versions.** Versions published before 4 November 2026 were under the PolyForm Noncommercial License 1.0.0,
+and copies of those stay under it.
 
 ## Third-party components
 
@@ -37,6 +46,6 @@ to compile it.
 ## Contributions
 
 By contributing you agree to the contributor terms in [CONTRIBUTING.md](CONTRIBUTING.md#contributor-terms),
-which let the project keep offering Ingle under both the non-commercial licence and separate commercial licences.
+which let the project keep offering Ingle under both the AGPL (with the attribution term) and separate commercial licences.
 
 *This page explains the licence; it isn't legal advice.*

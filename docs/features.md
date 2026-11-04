@@ -73,7 +73,7 @@ extension) or **Both**. Where a feature exists in both but behaves differently, 
 | Launch at login | Mac | `SMAppService` toggle in Settings → General. | [mac-app.md](mac-app.md#settings) |
 | About, Terms, Privacy, licences | Both | Mac: Settings → About opens the bundled legal files and Ollama's licences. VS Code: **Ingle: About / Terms of Use / Privacy Policy**. | [building-and-releasing.md](building-and-releasing.md#licence-and-legal-files) |
 | **Project** | | | |
-| Licence and contributions | — | PolyForm Noncommercial 1.0.0, contributor terms, DCO sign-off, issue and PR templates. | [building-and-releasing.md](building-and-releasing.md#licence-and-legal-files) |
+| Licence and contributions | — | AGPL-3.0 with an attribution term (commercial licences on request), contributor terms, DCO sign-off, issue and PR templates. | [building-and-releasing.md](building-and-releasing.md#licence-and-legal-files) |
 | Release export | — | `scripts/export-release.sh` makes a clean copy and refuses if private words slipped in. | [building-and-releasing.md](building-and-releasing.md#making-a-clean-release-copy) |
 
 See also [weaknesses-and-mitigations.md](weaknesses-and-mitigations.md) for what these features don't do yet, and

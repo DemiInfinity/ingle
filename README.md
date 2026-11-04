@@ -9,7 +9,7 @@
 **A native Mac app and VS Code extension for local AI models.**
 Private by design. Free per message. Yours to shape.
 
-[![Licence: PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-ff9f6b)](LICENSE.md)
+[![Licence: AGPL-3.0 with attribution](https://img.shields.io/badge/licence-AGPL--3.0%20%2B%20attribution-ff9f6b)](LICENSE.md)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-2d2327)
 ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-native-2d2327)
 ![Swift](https://img.shields.io/badge/Swift-SwiftUI-f05138)
@@ -196,10 +196,12 @@ Ingle wouldn't exist without them. Thank you.
 
 ## 📜 Licence
 
-**Free for personal and other non-commercial use** under the
-[PolyForm Noncommercial License 1.0.0](LICENSE.md). Want to use Ingle commercially? Get in touch for a
-commercial licence. [LICENSING.md](LICENSING.md) explains it in plain words, including the licences of the
-bundled engine.
+**Open source under the [AGPL-3.0](LICENSE), with one extra term: credit the author.** Use it for anything,
+commercial work included, change it and build on it. Just keep the credit *"Based on Ingle by DemiInfinity"*
+visible to your users, and share your changes under the same licence. Want to remove the credit or keep your changes
+private? That needs a commercial licence: open an issue titled "Commercial licence". [LICENSE.md](LICENSE.md) has the
+exact terms, and [LICENSING.md](LICENSING.md) explains them in plain words, including the licences of the bundled
+engine.
 
 <div align="center">
 <br>

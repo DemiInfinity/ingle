@@ -1164,6 +1164,20 @@ struct AboutSettings: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Ember.tertiary)
 
+            // The author credit. The licence (AGPL-3.0 + a Section 7(b) attribution term, see LICENSE.md) requires
+            // every copy and work based on Ingle to keep it visible to users — so Ingle shows it too.
+            VStack(spacing: 3) {
+                Text("Ingle by DemiInfinity")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Ember.text.opacity(0.85))
+                Link("github.com/DemiInfinity/ingle", destination: URL(string: "https://github.com/DemiInfinity/ingle")!)
+                    .font(.system(size: 11))
+                    .tint(Ember.accent)
+                Text("Free and open source: AGPL-3.0 with attribution")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Ember.tertiary)
+            }
+
             // Credit where it's due: the engine that does the real work.
             VStack(spacing: 6) {
                 Text("Powered by Ollama")

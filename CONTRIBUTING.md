@@ -87,8 +87,8 @@ Keep your fork current with `git fetch upstream && git rebase upstream/main` bef
 
 ## Contributor terms
 
-Ingle is licensed for non-commercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE.md), and the
-copyright holder may also offer it under separate commercial licences. So that contributions can be included
+Ingle is licensed under the AGPL-3.0 with an attribution term ([LICENSE.md](LICENSE.md)), and the copyright holder
+may also offer it under separate commercial licences. So that contributions can be included
 under both, by submitting a contribution you agree that:
 
 1. You wrote it, or otherwise have the right to submit it under these terms.

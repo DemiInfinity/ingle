@@ -29,6 +29,7 @@ cp Support/Info.plist "$OUT/Contents/Info.plist"
 # Terms, privacy and licence, opened from Settings → About.
 mkdir -p "$OUT/Contents/Resources/Legal"
 for f in TERMS PRIVACY LICENSE LICENSING; do [[ -f "$f.md" ]] && cp "$f.md" "$OUT/Contents/Resources/Legal/"; done
+for f in LICENSE NOTICE; do [[ -f "$f" ]] && cp "$f" "$OUT/Contents/Resources/Legal/"; done
 if [[ -n "${INGLE_BUNDLE_ID:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${INGLE_BUNDLE_ID}" "$OUT/Contents/Info.plist"
 fi

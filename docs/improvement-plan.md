@@ -705,6 +705,8 @@ in scripts, and offline. The benchmark also needs a headless way to run tasks, a
   into `/usr/local/bin` or `~/.local/bin`, plus `Extensions/cli/install.sh`. Node 18+ is required; say so clearly
   if it's missing.
 - Works on Linux too (it's plain Node), which is a first step towards roadmap Phase 4.
+- **The licence credit.** `ingle --version` and the interactive banner show "Based on Ingle by DemiInfinity —
+  https://github.com/DemiInfinity/ingle" (required by the AGPL Section 7(b) attribution term in `LICENSE.md`).
 **Files.** The core extraction (`Extensions/vscode/src/engine/chatEngine.ts` → core + `VSCodeHost`,
 `tools/files.ts`, `repomap.ts`, `paths.ts`, `engine/diff.ts`), new `Extensions/cli/**` (entry point, terminal UI
 with no npm deps, `TerminalHost`, tests), `SettingsViews.swift` (install button), `build.sh` (copy the CLI into

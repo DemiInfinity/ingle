@@ -8,9 +8,9 @@ don't use it.
 ## 1. What Ingle is
 
 Ingle is software that runs AI models on your own Mac and lets them help you chat, research and write code.
-It's provided free for personal and other non-commercial use under the
-[PolyForm Noncommercial License 1.0.0](LICENSE.md) — see [LICENSING.md](LICENSING.md). Commercial use needs a
-separate licence from the copyright holder.
+It's free and open source under the GNU Affero General Public License, version 3, with an additional term
+requiring credit to the author ([LICENSE.md](LICENSE.md); plain words in [LICENSING.md](LICENSING.md)). Removing the
+credit or keeping changes private needs a separate commercial licence from the copyright holder.
 
 ## 2. AI output can be wrong
 

@@ -14,8 +14,8 @@ A local-first AI assistant for Apple Silicon Macs, in two parts that share one b
    Talks to the same engine directly; works without the Mac app open.
 
 Shared state lives in **`~/.ingle/`** (rules, skills, commands, memory, research, `mcp.json`, `secrets.json` names only, generated `INGLE.md`
-index, `settings.json` written by the Mac app). Status: **early preview**. Licence: **PolyForm Noncommercial 1.0.0**
-(not MIT — see `LICENSING.md`). Default assistants: **Ember** (daily coding) and **Flint** (hard jobs).
+index, `settings.json` written by the Mac app). Status: **early preview**. Licence: **AGPL-3.0-only + a Section 7(b) attribution term**
+(`LICENSE` is the verbatim AGPL text, `LICENSE.md` has the copyright and the attribution term, `NOTICE` the credit line; keep the visible credit in the app; see `LICENSING.md`). Default assistants: **Ember** (daily coding) and **Flint** (hard jobs).
 
 ## Build and check
 
