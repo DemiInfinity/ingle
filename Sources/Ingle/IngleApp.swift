@@ -49,6 +49,10 @@ struct IngleApp: App {
                 Button("Cycle Effort") { chats.cycleEffort() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .sidebar) {
+                Button("Show or Hide Preview") { PreviewStore.shared.toggle() }
+                    .keyboardShortcut("p", modifiers: [.command, .option])
+            }
         }
 
         Settings {

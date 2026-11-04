@@ -425,6 +425,14 @@ struct ChangesPanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Ember.secondary)
                 .help("Side by side")
+                if f.action != .remove && FileManager.default.fileExists(atPath: f.path) {
+                    Button { Preview.open(URL(fileURLWithPath: f.path)) } label: {
+                        Image(systemName: "eye").font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Ember.secondary)
+                    .help("Preview")
+                }
                 if f.action != .recreate {
                     Button { ChangesPanel.openInEditor(f.path) } label: {
                         Image(systemName: "arrow.up.forward.app").font(.system(size: 11))

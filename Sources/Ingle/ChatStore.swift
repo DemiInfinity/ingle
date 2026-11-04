@@ -397,6 +397,10 @@ final class ChatStore {
 
     /// /compact, /new, /mcp, /skill-reload. Returns true if the text was a command (not sent to the model).
     func runSlashCommand(_ text: String) -> Bool {
+        if text.lowercased() == "/preview" || text.lowercased().hasPrefix("/preview ") {
+            previewCommand(String(text.dropFirst(8)))
+            return true
+        }
         switch text.lowercased() {
         case "/compact": compactNow()
         case "/new": newChat()

@@ -1183,3 +1183,10 @@ body.vscode-light .dot-connected { background: #1a7f37; }
 .plan-name { font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-status { padding: 0 6px; border-radius: 8px; background: var(--raised); color: var(--muted); font-size: 0.88em; }
 .plan-status.plan-approved { color: var(--ember); }
+
+/* Previewer links (task 39) */
+.tool-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tool-row .tool-head { flex: 1 1 auto; }
+.tool-preview { flex: none; }
+.file-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+code.file-link:hover, a.file-link:hover { color: var(--vscode-textLink-foreground); }

@@ -79,6 +79,12 @@
         "category": "Ingle"
       },
       {
+        "command": "ingle.openPreview",
+        "title": "Open Preview",
+        "category": "Ingle",
+        "icon": "$(eye)"
+      },
+      {
         "command": "ingle.forgetApprovals",
         "title": "Ask Before Every Action Again",
         "category": "Ingle"
@@ -175,7 +181,8 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "npm run --silent copy-preview && tsc -p ./",
+    "copy-preview": "node -e \"const fs=require('fs');fs.rmSync('media/preview',{recursive:true,force:true});fs.cpSync('../../Support/preview','media/preview',{recursive:true})\"",
     "package": "vsce package --allow-missing-repository --skip-license",
     "pretest": "rm -rf out-test && tsc -p tsconfig.test.json",
     "test": "node --test out-test/test/*.test.js"

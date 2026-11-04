@@ -1,0 +1,93 @@
+/* Ingle's previewer, in the Ember palette (Theme.swift): same colours, radius and type in both apps. */
+:root {
+  --bg: #1C1618; --sidebar: #251C20; --surface: #2D2327; --raised: #3A2C31; --code: #141113;
+  --text: #F3E6DE; --secondary: #A8999D; --tertiary: #7A6C70; --accent: #FF9F6B; --danger: #FF7A6B;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hk: #FF8F70; --ht: #F2C46D; --hs: #A9D18E; --hn: #D7A8EC; --hc: #8C7D82; --hf: #82C8F5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 14px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { padding: 20px 24px 48px; max-width: 920px; margin: 0 auto; }
+body[data-kind="csv"] main, body[data-kind="tsv"] main, body[data-kind="html"] main, body[data-kind="code"] main { max-width: none; }
+body[data-kind="html"] main { padding: 0; height: calc(100vh - var(--bar, 0px)); }
+body[data-kind="html"] header:not([hidden]) ~ main { --bar: 33px; }
+.empty, .note { color: var(--secondary); font-size: 12px; }
+.error { color: var(--danger); font-size: 12.5px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* VS Code's bar (the Mac app draws its own) */
+header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+  background: var(--sidebar); border-bottom: 1px solid var(--hairline); font-size: 12px; color: var(--secondary); }
+header[hidden] { display: none; }
+header .grow { flex: 1; }
+#name { color: var(--text); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+header button { font: inherit; color: var(--text); background: rgba(255, 255, 255, 0.07); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+header button:hover { background: rgba(255, 255, 255, 0.12); }
+#banner { color: var(--secondary); }
+
+/* Markdown */
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
+.markdown h1 { font-size: 1.7em; margin-top: 0.4em; }
+.markdown h2 { font-size: 1.3em; padding-bottom: 0.25em; border-bottom: 1px solid var(--hairline); }
+.markdown h3 { font-size: 1.1em; }
+.markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown table { margin: 0 0 0.9em; }
+.markdown ul, .markdown ol { padding-left: 1.6em; }
+.markdown li + li { margin-top: 0.15em; }
+.markdown li.task { list-style: none; margin-left: -1.4em; }
+.markdown li.task.done { color: var(--secondary); }
+.markdown li.task.done > p, .markdown li.task.done { text-decoration-color: var(--tertiary); }
+.markdown input[type=checkbox] { accent-color: var(--accent); margin: 0 0.5em 0 0; vertical-align: -1px; width: 13px; height: 13px; }
+.markdown input[type=checkbox]:not([disabled]) { cursor: pointer; }
+.markdown blockquote { margin-left: 0; padding: 0.1em 1em; border-left: 3px solid var(--accent); color: var(--secondary); }
+.markdown hr { border: 0; border-top: 1px solid var(--hairline); margin: 1.5em 0; }
+.markdown img { max-width: 100%; border-radius: 8px; }
+.markdown :not(pre) > code { font: 0.88em ui-monospace, "SF Mono", Menlo, monospace; background: var(--surface); padding: 0.12em 0.35em; border-radius: 5px; }
+.markdown table { border-collapse: collapse; display: block; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--hairline); padding: 5px 10px; }
+.markdown th { background: var(--surface); font-weight: 600; }
+.front { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 1.2em; font-size: 11.5px; }
+.front div { display: flex; gap: 5px; background: var(--surface); border-radius: 999px; padding: 2px 10px; }
+.front dt { color: var(--secondary); }
+.front dd { margin: 0; color: var(--text); }
+.math { overflow-x: auto; margin: 0 0 0.9em; }
+.mermaid { margin: 0 0 1em; text-align: center; overflow-x: auto; }
+.mermaid svg { max-width: 100%; height: auto; }
+
+/* Code */
+pre.code { background: var(--code); border-radius: 10px; padding: 12px 14px; overflow: auto; margin: 0 0 1em;
+  font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: rgba(243, 230, 222, 0.9); tab-size: 4; }
+pre.code code { font: inherit; background: none; padding: 0; }
+pre.lines { margin: 0; min-height: calc(100vh - 68px); }
+.hk { color: var(--hk); } .ht { color: var(--ht); } .hs { color: var(--hs); } .hn { color: var(--hn); }
+.hc { color: var(--hc); font-style: italic; } .hf { color: var(--hf); }
+
+/* Tables (CSV/TSV) */
+.table { overflow: auto; border: 1px solid var(--hairline); border-radius: 10px; max-height: calc(100vh - 90px); }
+.table table { border-collapse: collapse; font-size: 12.5px; min-width: 100%; }
+.table th { position: sticky; top: 0; background: var(--surface); text-align: left; font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; }
+.table th:hover { color: var(--accent); }
+.table th, .table td { padding: 5px 10px; border-bottom: 1px solid var(--hairline); border-right: 1px solid var(--hairline); }
+.table td { white-space: pre; }
+.table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+
+/* Trees (JSON/YAML) */
+.tree { font: 12.5px/1.6 ui-monospace, "SF Mono", Menlo, monospace; }
+.tree details, .tree .leaf { padding-left: 16px; }
+.tree > details, .tree > .leaf { padding-left: 0; }
+.tree summary { cursor: pointer; list-style: none; margin-left: -12px; }
+.tree summary::before { content: "▸"; display: inline-block; width: 12px; color: var(--tertiary); }
+.tree details[open] > summary::before { content: "▾"; }
+.tree .key { color: var(--ht); }
+.tree .count { color: var(--tertiary); }
+.v-string { color: var(--hs); } .v-number { color: var(--hn); } .v-boolean { color: var(--hk); } .v-null { color: var(--tertiary); }
+
+/* Images and pages */
+.image { display: flex; justify-content: center; align-items: center; min-height: calc(100vh - 80px);
+  background: repeating-conic-gradient(#2D2327 0% 25%, #251C20 0% 50%) 50% / 20px 20px; border-radius: 10px; padding: 16px; }
+.image img { max-width: 100%; max-height: calc(100vh - 112px); }
+iframe.page { border: 0; width: 100%; height: 100%; background: #fff; display: block; }

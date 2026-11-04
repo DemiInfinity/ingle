@@ -497,6 +497,9 @@
   }
 
   /** Inline Markdown → HTML. Input is raw text; output contains only our own tags. */
+  /** `path/to/file.ext`, `./x`, `~/x` or `/abs/x.ext` in a code span (not commands or plain words). */
+  const FILE_PATH = /^(?:~\/|\.{0,2}\/)?[\w@.+-]+(?:\/[\w@.+ -]+)*\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+
   function inline(src) {
     const slots = [];
     const put = (html) => `\u0000${slots.push(html) - 1}\u0000`;
@@ -505,12 +508,20 @@
     // Code spans first: nothing inside them is formatted.
     s = s.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (_, _t, code) => {
       const inner = /^ .* $/.test(code) ? code.slice(1, -1) : code;
+      // A file path (has a folder or an extension) opens in the previewer.
+      if (FILE_PATH.test(inner)) return put(`<code class="file-link" data-act="file-link" data-path="${inner}" title="Open Preview" role="button" tabindex="0">${inner}</code>`);
       return put(`<code>${inner}</code>`);
     });
 
     // [text](url) and ![alt](url): only http(s) becomes a link (VS Code opens it externally).
     s = s.replace(/!?\[([^\]\n]+)\]\(\s*([^)\s]+)(?:\s+&quot;([^\n]*?)&quot;)?\s*\)/g, (_, text, url, title) => {
-      if (!/^https?:\/\//i.test(url)) return text;
+      if (!/^https?:\/\//i.test(url)) {
+        // A link to a local file opens in the previewer.
+        if (!/^[a-z][a-z0-9+.-]*:/i.test(url) || /^file:/i.test(url)) {
+          return put(`<a href="#" class="file-link" data-act="file-link" data-path="${url}" title="Open Preview">${emphasis(text)}</a>`);
+        }
+        return text;
+      }
       return put(`<a href="${url}" title="${title || url}">${emphasis(text)}</a>`);
     });
 
@@ -1260,8 +1271,9 @@
         e.chips, e.thinking, e.dots, e.body, e.foot, e.planCard, e.planBar, e.undo);
     } else {
       e.head = h('button', { class: 'tool-head', type: 'button', 'data-act': 'toggle-tool', 'aria-expanded': 'false' });
+      e.prev = h('button', { class: 'icon-btn sm tool-preview', type: 'button', 'data-act': 'tool-preview', title: 'Open Preview', hidden: true }, icon('eye'));
       e.out = h('pre', { class: 'tool-out', hidden: true, tabindex: '0' });
-      root.append(e.head, e.out);
+      root.append(h('div', { class: 'tool-row' }, e.head, e.prev), e.out);
     }
     return e;
   }
@@ -1437,6 +1449,7 @@
             h('span', { class: 'undo-verb undo-' + f.action, text: CHANGE_VERB[f.action] || 'Edited' }),
             h('span', { class: 'undo-path', text: f.path, title: f.path }), stats),
           full ? h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'chg-diff', 'data-i': String(i), title: 'Open in VS Code’s diff editor', 'aria-label': 'Diff ' + f.path }, icon('diff')) : null,
+          full && f.action !== 'remove' ? h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'chg-preview', 'data-i': String(i), title: 'Open Preview', 'aria-label': 'Preview ' + f.path }, icon('eye')) : null,
           full && f.action !== 'recreate' ? h('button', { class: 'icon-btn sm', type: 'button', 'data-act': 'chg-open', 'data-i': String(i), title: 'Open in editor', 'aria-label': 'Open ' + f.path }, icon('file')) : null));
       if (isOpen && full) li.append(diffPre(full.diff));
       return li;
@@ -1491,7 +1504,7 @@
       h('span', { class: 'plan-name', text: pl.name, title: pl.file }),
       h('span', { class: 'plan-status plan-' + pl.status, text: PLAN_STATUS[pl.status] || pl.status }),
       h('span', { class: 'grow' }),
-      h('button', { class: 'btn', type: 'button', 'data-act': 'plan-open', title: 'Open the plan (Markdown preview)' }, 'Open'),
+      h('button', { class: 'btn', type: 'button', 'data-act': 'plan-open', title: 'Show the plan rendered beside the editor' }, icon('eye'), 'Open Preview'),
       h('button', { class: 'btn', type: 'button', 'data-act': 'plan-edit', title: 'Edit the plan file — Approve uses what the file says' }, icon('edit'), 'Edit'),
       canApprove && pl.status === 'draft'
         ? h('button', { class: 'btn primary', type: 'button', 'data-act': 'approve-plan', title: 'Start the work with this plan (read from the file) as the task list' }, icon('check'), 'Approve')
@@ -1533,6 +1546,8 @@
       } }, icon('close')))));
   }
 
+  const PREVIEW_TOOLS = new Set(['write_file', 'edit_file', 'read_file', 'open_preview']);
+
   function fillTool(e, m) {
     const t = m.tool || { name: 'tool', title: 'Tool', detail: '', icon: '' };
     const denied = !!t.denied;
@@ -1555,6 +1570,9 @@
       e.head.setAttribute('aria-expanded', open ? 'true' : 'false');
       e.head.setAttribute('aria-label', `${title}${t.detail ? ': ' + t.detail : ''}. ${open ? 'Hide' : 'Show'} output`);
     }
+    // Files the assistant wrote, edited, read or showed get an Open Preview button.
+    e.prev.hidden = denied || running || !PREVIEW_TOOLS.has(t.name) || !t.detail;
+    e.prev.setAttribute('aria-label', 'Preview ' + (t.detail || ''));
     e.out.hidden = !open;
     if (open) setText(e.out, output || (running ? 'Running…' : denied ? 'You denied this step.' : 'No output.'));
   }
@@ -1690,13 +1708,14 @@
     } else if (act === 'undo-go' || act === 'undo-force') {
       undoNotes.delete(id);
       post({ type: 'undoRun', id, force: act === 'undo-force' });
-    } else if (act === 'chg-file' || act === 'chg-diff' || act === 'chg-open') {
+    } else if (act === 'chg-file' || act === 'chg-diff' || act === 'chg-open' || act === 'chg-preview') {
       const data = changesData.get(id);
       const i = Number(btn.dataset.i);
       const f = data && data !== 'loading' ? data.files[i] : null;
       if (!f) return;
       if (act === 'chg-diff') post({ type: 'showRunDiff', id, path: f.path });
       else if (act === 'chg-open') post({ type: 'openFile', path: f.path });
+      else if (act === 'chg-preview') post({ type: 'previewFile', path: f.path });
       else {
         const k = id + '|' + i;
         if (openDiffs.has(k)) openDiffs.delete(k); else openDiffs.add(k);
@@ -1715,6 +1734,10 @@
       c.phase = 'committing'; c.error = '';
       post({ type: 'commit', id, message: c.message });
       fill(e, m, liveInfo());
+    } else if (act === 'tool-preview') {
+      if (m.tool && m.tool.detail) post({ type: 'previewFile', path: m.tool.detail });
+    } else if (act === 'file-link') {
+      post({ type: 'previewFile', path: btn.dataset.path || '' });
     } else if (act === 'plan-open' || act === 'plan-edit') {
       if (m.plan) post({ type: act === 'plan-open' ? 'openPlan' : 'editPlan', file: m.plan.file });
     } else if (act === 'approve-plan') {

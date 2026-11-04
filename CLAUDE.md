@@ -49,6 +49,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `PlanFiles.swift` | **Plan files** (`.ingle/plans/*.md`: render, parse, tick, `open`), `PlanCard` — in step with `planFiles.ts` |
 | `TaskList.swift` | **Task list** (`update_tasks`, `TaskListView`), **plan mode** (`planModeTools`, refusal, `PlanApproveBar`), steering text — rules in step with `tasks.ts` |
 | `ChangesPanel.swift` | **Changes panel** under a run's last reply (diffs, Open in editor, Undo this run, Commit) and `GitCommit` (commit exactly the run's files, never push) — in step with `gitCommit.ts` |
+| `Preview/` | **Previewer** (task 39): `PreviewPane` (pane right of the chat, ⌥⌘P, tabs, Preview/Source/Split), `PreviewTabs` (`Preview.open(url)` — the one way in — `PreviewStore`, `open_preview`, `/preview`), `WebPreview` (per-tab `WKWebView`, `ingle-preview://` scheme limited to the file's folder, network-blocking rule list), `FileWatcher` |
 | `Checkpoints.swift` | **Undo this run**: `snapshot(path:run:)` (called by every file-changing tool; the one list is `fileChangingTools`), `finish`, `changes`, `restore(force:)`, pruning — same format as `checkpoints.ts` |
 | `Commands.swift` | **Commands** (obedience layer): `CommandStore` (files in `~/.ingle/commands`), `CommandTracker` (requirements, blocking, nudges) |
 | `Prefs.swift` | UserDefaults keys/defaults, `Persona` (default characters + `systemPrompt(for:web:)` with the built-in facts every model gets), `ModelNames`, `ModelProfiles` (names/personas for any model), `Companion` (does the other app exist?) |
@@ -81,6 +82,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 | `engine/prompt.ts` | Persona/facts (mirrors `Persona.systemPrompt`), index, editor context, guidance, companion fact |
 | `engine/ollama.ts`, `server.ts`, `chatStore.ts`, `matcher.ts`, `names.ts`, `diff.ts` | Client + `tuning()`, engine start, per-workspace chat storage, matching, model names, diff documents |
 | `engine/modes.ts`, `tools/planFiles.ts`, `tools/tasks.ts`, `engine/steer.ts`, `tools/gitCommit.ts` | Task list + plan mode filter, steering queue, commit a run's files (all pure, tested in `test/workflow.test.ts`) |
+| `ui/previewPanel.ts`, `tools/previewCore.ts`, `tools/preview.ts` | **Previewer**: `PreviewPanels.open(file)` (webview beside the editor, strict CSP, folder watch), pure kinds/ticks/links (tested), `open_preview` |
 | `tools/checkpoints.ts` | **Undo this run** (pure, tested): `snapshot()` from every file-changing tool (`FILE_CHANGING_TOOLS` lives here), `finish`, `changes`, `restore`, `prune` |
 | `tools/secretsCore.ts`, `secrets.ts` | Secrets store (pure logic, tested) and `secret_list` + getting values from the Mac app / `security` |
 | `tools/*.ts` | `ToolDef`s: files (read/list/find/search/problems/edit with diff/write), command, documents/images (macOS tools), web, memory, knowledge, `commands.ts`, `mcp.ts`, `repomap.ts`, `stores.ts` (reads `~/.ingle`) |
@@ -102,6 +104,10 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
   `modes.ts`; Edit/Auto auto-approve inside the project, Auto's risky-command list in one function per app, tested);
   plans saved as `.ingle/plans/*.md` (Approve reads the file, steps ticked in it); changes panel + Commit (exactly the run's files, approval, never
   pushes, sign-off off by default); typing during a run queues the message for the model's next step. Per chat state.
+- **Previewer:** one renderer page for both apps in `Support/preview/` (marked, Mermaid, Temml vendored in `vendor/`,
+  credited in `LICENSING.md`; `build.sh` copies it into the app, `npm run compile` into `media/preview`). No network ever
+  (rule list + CSP on the Mac, CSP in VS Code); HTML in its own sandbox with a JavaScript switch. Plan cards, file links,
+  tool rows, the changes panel and `open_preview` (no approval) open files there.
 - **Terminal vs Mac control:** Terminal tools always on; the Mac button only gates `open`/`applescript`/`screenshot`.
 - **Code mode (Mac app):** a chat on a project folder. Reads inside it are free, outside ask; writes/commands ask. Coding
   persona = the extension's `personaPrompt` + `guidancePrompt` meaning (keep in step). Mac control off.

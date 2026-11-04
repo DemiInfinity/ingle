@@ -189,9 +189,9 @@ enum PlanFiles {
         try? next.write(toFile: file, atomically: true, encoding: .utf8)
     }
 
-    /// The one place that opens a plan file. For now the default app (NSWorkspace); task 39's previewer will take this over.
-    static func open(_ url: URL) {
-        NSWorkspace.shared.open(url)
+    /// The one place that opens a plan file: the preview pane beside the chat (Edit opens it in Split, to edit the file).
+    @MainActor static func open(_ url: URL, edit: Bool = false) {
+        Preview.open(url, mode: edit ? .split : nil)
     }
 }
 
@@ -217,8 +217,8 @@ struct PlanCard: View {
                 .background(Capsule().fill(Color.white.opacity(0.07)))
             Spacer(minLength: 8)
             Button("Open") { PlanFiles.open(URL(fileURLWithPath: plan.file)) }
-                .help("Open the plan")
-            Button { ChangesPanel.openInEditor(plan.file) } label: { Label("Edit", systemImage: "pencil") }
+                .help("Show the plan in the preview pane")
+            Button { PlanFiles.open(URL(fileURLWithPath: plan.file), edit: true) } label: { Label("Edit", systemImage: "pencil") }
                 .help("Edit the plan file — Approve uses what the file says")
             if let approve, plan.status == "draft" {
                 Button(action: approve) { Label("Approve", systemImage: "checkmark") }

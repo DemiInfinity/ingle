@@ -19,3 +19,5 @@ private/
 # Copied in by Extensions/vscode/install.sh
 Extensions/vscode/legal/
 Extensions/vscode/LICENSE.md
+# Copied from Support/preview by `npm run compile`
+Extensions/vscode/media/preview/

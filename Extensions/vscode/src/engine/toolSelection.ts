@@ -3,6 +3,7 @@
 // Local models pick tools far less reliably as the list grows (≈85% right with 5 tools, ≈45% with 20),
 // so optional tools are only offered when the message plausibly needs them.
 import { bannedToolNames, requiredTools, type CommandEntry } from '../tools/commands';
+import { PREVIEW_WANTS } from '../tools/previewCore';
 import { wantsSSH } from '../tools/sshConfig';
 
 /** Optional tools and the words in the user's message that make them worth offering. */
@@ -18,6 +19,7 @@ export const TOOL_WANTS: Record<string, RegExp> = {
   memory_read: /remember|memory|memories|forget|about me|preference/,
   memory_rewrite: /remember|memory|memories|forget|about me|preference/,
   memory_forget: /remember|memory|memories|forget|about me|preference/,
+  open_preview: PREVIEW_WANTS,
 };
 
 /** Words that make the `delegate` (helper) tool worth offering. */

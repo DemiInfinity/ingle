@@ -29,6 +29,8 @@ cp Support/Info.plist "$OUT/Contents/Info.plist"
 # Terms, privacy and licence, opened from Settings → About.
 mkdir -p "$OUT/Contents/Resources/Legal"
 for f in TERMS PRIVACY LICENSE LICENSING; do [[ -f "$f.md" ]] && cp "$f.md" "$OUT/Contents/Resources/Legal/"; done
+# The previewer's page (Markdown, Mermaid, maths, tables…): static files, nothing fetched at runtime.
+ditto Support/preview "$OUT/Contents/Resources/Preview"
 if [[ -n "${INGLE_BUNDLE_ID:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${INGLE_BUNDLE_ID}" "$OUT/Contents/Info.plist"
 fi

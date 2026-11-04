@@ -39,6 +39,7 @@ import {
 } from '../tools/tasks';
 import { insertQueued, SteerQueue, steerText } from './steer';
 import { planFromReply, plansDir, readPlanFile, savePlan, tasksFromPlanFile, tickPlanFile } from '../tools/planFiles';
+import { openInPreview } from '../tools/preview';
 import {
   autoApproval, DEBUG_UNCONFIRMED_CHIP, debugFinishNudge, debugRecord, debugRefusal, debugSaw, debugTasks, debugTick, isWorkMode, modeOf,
   MODES, newDebugState, WORK_MODES, type DebugState, type WorkMode,
@@ -486,6 +487,7 @@ export class ChatEngine implements vscode.Disposable {
         case 'showRunDiff': return await this.showRunDiff(msg.id, msg.path);
         case 'openFile': return await this.openRunFile(msg.path);
         case 'openPlan': return await this.openPlan(msg.file, false);
+        case 'previewFile': return await this.previewFile(msg.path);
         case 'editPlan': return await this.openPlan(msg.file, true);
         case 'draftCommit': return await this.draftCommit(msg.id);
         case 'commit': return await this.commitRun(msg.id, msg.message);
@@ -1340,14 +1342,20 @@ export class ChatEngine implements vscode.Disposable {
     }
   }
 
-  /** One place that opens a plan file (task 39's previewer will take this over): Markdown preview, or the editor for Edit. */
+  /** One place that opens a plan file: Ingle's previewer beside the editor, or the editor for Edit. */
   private async openPlan(file: string, edit: boolean) {
     const chat = this.current();
     if (!chat.messages.some((m) => m.plan?.file === file)) return;
     if (!fs.existsSync(file)) { this.post({ type: 'notice', text: `${path.basename(file)} no longer exists.` }); return; }
-    const uri = vscode.Uri.file(file);
-    if (edit) await vscode.window.showTextDocument(uri, { preview: false });
-    else await vscode.commands.executeCommand('markdown.showPreview', uri);
+    if (edit) await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
+    else await this.previewFile(file);
+  }
+
+  /** A file link, tool row or changed file: shown in the previewer (relative paths are in the workspace). */
+  private async previewFile(p: string) {
+    if (!p.trim()) return;
+    const problem = await openInPreview(resolvePath(p, workspaceRoot()));
+    if (problem) this.post({ type: 'notice', text: problem });
   }
 
   private postQueued(chatId: string) {

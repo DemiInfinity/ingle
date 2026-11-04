@@ -29,6 +29,7 @@ enum MacTools {
              ["path": prop("File path"), "content": prop("The full new file contents")], required: ["path", "content"]),
         tool("run_command", "Run a zsh command in Terminal on the user's Mac and return its output. The user must approve. Use for git, builds, tests, scripts and searching.",
              ["command": prop("The command to run"), "cwd": prop("Optional working folder")], required: ["command"]),
+        Preview.definition,
     ]
 
     /// Controlling the Mac itself — only when the Mac button is on in the chat.
@@ -147,6 +148,7 @@ enum MacTools {
         case "memory_rewrite": return Info(title: "Rewrite memory", detail: call.arg("file"), icon: "brain.head.profile")
         case "memory_forget": return Info(title: "Forget from memory", detail: "\(call.arg("file")): \(call.arg("text"))", icon: "brain.head.profile")
         case "ingle_help": return Info(title: "Check Ingle's help", detail: call.arg("topic"), icon: "questionmark.circle")
+        case "open_preview": return Info(title: "Show in the preview", detail: call.arg("path"), icon: "eye")
         case "secret_list": return Info(title: "List saved secrets", detail: "names only", icon: "key")
         case "mcp_tools": return Info(title: "Look inside an MCP server", detail: call.arg("server"), icon: "puzzlepiece.extension")
         case "mcp_call":
@@ -255,7 +257,8 @@ enum MacTools {
             if let codeFolder { return !Project.contains(codeFolder, call.arg("path")) }
             return !(Prefs.autoReadWorkspace && Prefs.inWorkspace(call.arg("path")))
         case "use_skill", "use_rule", "ingle_help", "mcp_tools", "secret_list", "web_search", "web_fetch", "memory_search", "memory_read",
-             "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate", "update_tasks":
+             "chat_list", "chat_search", "chat_read", "report_save", "report_search", "report_read", "delegate", "update_tasks",
+             "open_preview":   // only shows a file the user could already see
             return false
         case "find_files", "search_code", "repo_map":
             return false   // Code mode only, and they only read inside the project
@@ -306,6 +309,7 @@ enum MacTools {
         case "write_file": return writeFile(call.arg("path"), call.arg("content"), run: run)
         case "run_command": return await shell(call.arg("command"), cwd: call.arg("cwd"), env: env)
         case "secret_list": return Secrets.listText()
+        case "open_preview": return Preview.tool(path: call.arg("path"), folder: nil)
         case "ssh_command": return await SSH.run(host: call.arg("host"), command: call.arg("command"), cwd: call.arg("cwd"))
         case "open": return await shell("open \(quoteForOpen(call.arg("target")))", cwd: "")
         case "applescript": return await appleScript(call.arg("script"))

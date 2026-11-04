@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ChatPanels } from './ui/chatView';
+import { PreviewPanels } from './ui/previewPanel';
+import { setPreviewOpener } from './tools/preview';
 import { paths } from './shared/settings';
 
 // Ingle for VS Code: a chat panel in the sidebar that talks to your local models directly,
@@ -102,6 +104,9 @@ function fileName(doc: vscode.TextDocument): string {
 
 export function activate(context: vscode.ExtensionContext) {
   const tabs = new ChatPanels(context);
+  // The previewer (task 39): plan cards, file links, open_preview and Ingle: Open Preview all use it.
+  PreviewPanels.init(context);
+  setPreviewOpener((file) => PreviewPanels.open(file));
 
   const problemCommand = (fix: boolean) => async () => {
     const editor = vscode.window.activeTextEditor;
@@ -121,6 +126,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('ingle.newTab', () => { tabs.openNew(); }),
     vscode.commands.registerCommand('ingle.focus', () => tabs.reveal()),
+    vscode.commands.registerCommand('ingle.openPreview', async (uri?: vscode.Uri) => {
+      const file = uri?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+      if (!file) return;
+      const problem = await PreviewPanels.open(file);
+      if (problem) void vscode.window.showWarningMessage('Ingle: ' + problem);
+    }),
     vscode.commands.registerCommand('ingle.popOut', () => tabs.popOut()),
     vscode.commands.registerCommand('ingle.forgetApprovals', () => {
       const n = tabs.forgetApprovals();

@@ -4,17 +4,22 @@ import UniformTypeIdentifiers
 struct ChatRoot: View {
     @Environment(ChatStore.self) private var store
     @Environment(\.openWindow) private var openWindow
+    /// The sidebar steps aside while the preview pane is open, so the chat keeps room for its message bar.
+    @State private var columns: NavigationSplitViewVisibility = .all
 
     var body: some View {
         @Bindable var store = store
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 256, max: 340)
         } detail: {
-            if let c = store.current {
-                ChatDetail(conversation: c).id(c.id)
-            } else {
-                Ember.bg
+            // The preview pane (⌥⌘P) sits to the right of the chat; drag the divider to resize it.
+            PreviewSplit {
+                if let c = store.current {
+                    ChatDetail(conversation: c).id(c.id)
+                } else {
+                    Ember.bg
+                }
             }
         }
         .searchable(text: $store.search, placement: .sidebar, prompt: "Search chats")
@@ -22,6 +27,9 @@ struct ChatRoot: View {
             ToolbarItem(placement: .principal) { ModeSwitch() }
         }
         .toolbarBackground(Ember.bg, for: .windowToolbar)
+        .onChange(of: PreviewStore.shared.visible) { _, open in
+            withAnimation(.snappy) { columns = open ? .detailOnly : .all }
+        }
         .tint(Ember.accent)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -157,6 +165,8 @@ struct ChatDetail: View {
     private func pickSlash(_ item: SlashItem) {
         slashIndex = 0
         switch item.kind {
+        case .command where item.name == "preview":
+            draft = "/preview "   // takes a path
         case .command:
             draft = ""
             _ = store.runSlashCommand("/" + item.name)
@@ -193,6 +203,7 @@ struct ChatDetail: View {
             composer
         }
         .background(Ember.bg)
+        .environment(\.previewFolder, conversation.codeFolder)
         .navigationTitle(conversation.title)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }

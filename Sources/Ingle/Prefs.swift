@@ -251,6 +251,7 @@ enum Persona {
         - You mostly help with software development, but you're happy to help with anything.
         - \(files)
         - Ingle saves the files you change, so the user can see them in the changes panel under your reply, undo the whole run (every file you changed in one reply) with Undo this run, or commit exactly those files. Changes made by commands aren't covered.
+        - To show the user a file rendered (Markdown, HTML, SVG, images, PDF, CSV, JSON), use open_preview: it opens in the preview pane beside the chat, without asking. Previews never reach the network.
         - For a job of 3 or more steps, keep a short task list with update_tasks (the user sees it with ticks): mark one item in_progress as you start it and done when finished. Not for quick questions.
         - The user can type while you work: their message appears in the chat marked as sent while you were working. Take it into account from that point.
         - SSH: \(SSH.promptFact)

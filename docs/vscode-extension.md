@@ -134,7 +134,8 @@ and [`media/chat.js`](../Extensions/vscode/media/chat.js). **Both sides must mat
 | `approvePlan` | `id` | **Approve** under the plan reply |
 | `unqueue` | `id` | Take back a waiting steering message |
 | `runChanges` / `showRunDiff` / `openFile` | `id`, `path` | Changes panel: load the diffs, open VS Code's diff editor, open the file |
-| `openPlan` / `editPlan` | `file` | A plan card's **Open** (Markdown preview) and **Edit** (the file) |
+| `openPlan` / `editPlan` | `file` | A plan card's **Open Preview** (Ingle's previewer) and **Edit** (the file) |
+| `previewFile` | `path` | **Open Preview** on a tool row or a changed file, or a file link / `path` in a reply (relative to the workspace) |
 | `draftCommit` / `commit` | `id`, `message` | **Commit…** (draft) and **Commit** (after editing; asks for approval) |
 | `startEngine` | — | Start the engine now |
 | `openSettings` | — | Open `~/.ingle` |
@@ -172,6 +173,7 @@ throws. The list is in [`src/tools/index.ts`](../Extensions/vscode/src/tools/ind
 | `use_skill`, `use_rule`, `report_search`, `report_read`, `report_save`, `skill_create`, `rule_create` | [`knowledge.ts`](../Extensions/vscode/src/tools/knowledge.ts) | reads | creates always |
 | `command_create` | [`commands.ts`](../Extensions/vscode/src/tools/commands.ts) | no | always |
 | `mcp_tools`, `mcp_call` | [`mcp.ts`](../Extensions/vscode/src/tools/mcp.ts) | `mcp_tools` | `mcp_call` always |
+| `open_preview` | [`preview.ts`](../Extensions/vscode/src/tools/preview.ts) | yes | no (only shows a file; offered when the message asks to see something) |
 | `delegate` | `chatEngine.ts` | — | no |
 
 Per-turn selection and the guards are described in [agent-loop.md](agent-loop.md#3-tool-selection).
@@ -272,6 +274,28 @@ applying it as one edit.
   `settings.json` ("Connected in the Ingle app — VS Code starts its own when a chat uses it").
 - `mcp_call` checks the server and tool exist **before** asking you, then shows the arguments as JSON on the card.
 
+## Previewer
+
+The same page as the Mac app's preview pane ([`Support/preview/`](../Support/preview/): `index.html`, `preview.js`,
+`preview.css` and the vendored marked, Mermaid and Temml in `vendor/`), copied to `media/preview/` by
+`npm run compile` (git-ignored there) and shipped as static assets, so there are still no runtime npm deps.
+[`PreviewPanels.open(file)`](../Extensions/vscode/src/ui/previewPanel.ts) opens one `WebviewPanel` per file beside the
+editor (`ViewColumn.Beside`, focus stays put); a second open brings it forward. It's reached from **Open Preview** on
+plan cards, tool rows (`write_file`, `edit_file`, `read_file`, `open_preview`) and the changes panel, file links and
+`path`-like code spans in replies, the `open_preview` tool and **Ingle: Open Preview**.
+
+- **Renders** Markdown (GFM tables and task lists, code in Ingle's colours, Mermaid, `$…$` / `$$…$$` maths as MathML),
+  HTML, SVG and images, CSV/TSV as a sortable table, JSON/YAML as a foldable tree, and anything else as coloured code.
+  PDFs open in the Mac's default app (webviews have no PDF viewer). Raw HTML in Markdown is shown but never runs.
+- **Live:** the panel watches the file's folder (atomic saves replace the file) and re-renders on change, so plans
+  tick during a run. Ticking a task box in the preview edits the file. **Source** opens the file in the editor
+  beside it; saving there updates the preview.
+- **Safety:** the CSP has no network sources at all (`default-src 'none'`, scripts, styles, images and fonts only
+  from the extension and the file's folder through `localResourceRoots`). HTML renders in a sandboxed `srcdoc` frame
+  (`allow-scripts` only while JavaScript is on, never `allow-same-origin`, so it can't reach the panel or the
+  extension), under a bar that says "JavaScript on · network blocked" with a switch. Files with the macOS quarantine
+  flag (downloaded) start with JavaScript off and `open_preview` won't open them. Web links ask before opening.
+
 ## Commands and keybindings
 
 | Command | Title | Where |
@@ -284,6 +308,7 @@ applying it as one edit.
 | `ingle.explainProblem` | Ask Ingle to Explain This Problem | right-click |
 | `ingle.fixProblem` | Ask Ingle to Fix This Problem | Command Palette |
 | `ingle.openHome` | Open Ingle Folder (rules, skills, memory) | |
+| `ingle.openPreview` | Ingle: Open Preview | the active file in Ingle's previewer |
 | `ingle.forgetApprovals` | Ask Before Every Action Again | clears session allowances |
 | `ingle.terms`, `ingle.privacy`, `ingle.about` | Terms of Use, Privacy Policy, About Ingle | open the bundled legal files |
 
@@ -455,6 +480,8 @@ open-source remote extensions); test them separately.
 |---|---|
 | [`src/extension.ts`](../Extensions/vscode/src/extension.ts) | Activation, command registration, the bridge to the Mac app (`postToApp`, `snapshot`, debounced context), Explain/Fix/Ask helpers |
 | [`src/ui/chatView.ts`](../Extensions/vscode/src/ui/chatView.ts) | `ChatPanels`, `ChatTab`, webview HTML and CSP |
+| [`src/ui/previewPanel.ts`](../Extensions/vscode/src/ui/previewPanel.ts) | The previewer: `PreviewPanels.open(file)`, one webview per file beside the editor, CSP, folder watch, ticks, links |
+| [`src/tools/previewCore.ts`](../Extensions/vscode/src/tools/previewCore.ts) / [`preview.ts`](../Extensions/vscode/src/tools/preview.ts) | Preview kinds, task-box toggling, local links (pure, tested); the `open_preview` tool |
 | [`src/engine/chatEngine.ts`](../Extensions/vscode/src/engine/chatEngine.ts) | `EngineShared`, `ChatEngine`: state, chats, slash, `/mcp`, vision, editor context, matching, tool selection, approvals, attachments, sending, titles, the loop, trimming, tool calls, helpers, compaction, code actions |
 | [`src/engine/prompt.ts`](../Extensions/vscode/src/engine/prompt.ts) | `personaPrompt`, `indexPrompt`, `editorPrompt`, `projectInstructions`, `guidancePrompt`, `subAgentPrompt`, `COMPACT_PROMPT`, `companionFact` |
 | [`src/engine/ollama.ts`](../Extensions/vscode/src/engine/ollama.ts) | `OllamaClient` (version, tags, capabilities, embed, streaming chat with think retry), `tuning()` |
@@ -465,7 +492,7 @@ open-source remote extensions); test them separately.
 | [`src/engine/diff.ts`](../Extensions/vscode/src/engine/diff.ts) | `DiffProvider` for `ingle-diff:` documents |
 | [`src/engine/modes.ts`](../Extensions/vscode/src/engine/modes.ts) | Work modes: table, `riskyCommand`, `autoApproval`, Debug state and nudges (pure, tested) |
 | [`src/engine/steer.ts`](../Extensions/vscode/src/engine/steer.ts) | `SteerQueue` (messages typed during a run, per chat), `canInsertNow`, `insertQueued`, `steerText` (pure, tested) |
-| [`src/tools/planFiles.ts`](../Extensions/vscode/src/tools/planFiles.ts) | Plan Markdown files: path, render, parse, tick (pure, tested); opened by `ChatEngine.openPlan` |
+| [`src/tools/planFiles.ts`](../Extensions/vscode/src/tools/planFiles.ts) | Plan Markdown files: path, render, parse, tick (pure, tested); opened by `ChatEngine.openPlan` in the previewer |
 | [`src/tools/tasks.ts`](../Extensions/vscode/src/tools/tasks.ts) | `update_tasks`: parsing, result text, prompt section, plan → tasks; plan mode filter, refusal and wording (pure, tested) |
 | [`src/tools/gitCommit.ts`](../Extensions/vscode/src/tools/gitCommit.ts) | Commit a run's files: repo, diff, message prompt and clean-up, `git add` + `git commit` of exactly those files (tested) |
 | [`src/tools/types.ts`](../Extensions/vscode/src/tools/types.ts) | `ToolDef`, `ToolContext`, `ToolResult`, `toOllama`, `str` |

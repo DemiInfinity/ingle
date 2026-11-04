@@ -31,8 +31,17 @@ These are **not** changed by Ingle's licence and stay under their own terms:
 `build.sh` copies these licence files into the app; don't remove them when slimming the engine.
 Models you download are licensed by their makers (see each model's page) — Ingle doesn't ship any.
 
-The VS Code extension has no runtime dependencies; its build tools (TypeScript, `@vscode/vsce`) are only used
-to compile it.
+The previewer (both apps) ships these libraries as static files in `Support/preview/vendor/` (copied into
+`Ingle.app/Contents/Resources/Preview` and the extension's `media/preview`). Nothing is fetched at runtime.
+
+| Component | Version | Licence | Where its licence is |
+|---|---|---|---|
+| [marked](https://github.com/markedjs/marked) (Markdown parser) | 18.1.3 | MIT | `Support/preview/vendor/LICENSE-marked.txt` |
+| [Mermaid](https://github.com/mermaid-js/mermaid) (diagrams) | 12.3.0 | MIT | `Support/preview/vendor/LICENSE-mermaid.txt` |
+| [Temml](https://github.com/ronkok/Temml) (maths to MathML, with its `Temml.woff2` font) | 0.14.0 | MIT | `Support/preview/vendor/LICENSE-temml.txt` |
+
+The VS Code extension has no runtime npm dependencies; the previewer's files are static assets, and its build
+tools (TypeScript, `@vscode/vsce`) are only used to compile it.
 
 ## Contributions
 

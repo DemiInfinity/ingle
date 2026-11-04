@@ -220,8 +220,18 @@ struct MessageRow: View {
         }
     }
 
+    /// The file a tool row is about, when it can be shown in the preview (writes, edits, reads, open_preview).
+    private var previewable: URL? {
+        guard let name = message.toolName, ["write_file", "edit_file", "read_file", "open_preview"].contains(name),
+              !message.denied, let path = message.toolDetail, path.hasPrefix("/") || path.hasPrefix("~") else { return nil }
+        let url = URL(fileURLWithPath: Prefs.expand(path))
+        var dir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &dir) && !dir.boolValue ? url : nil
+    }
+
     private var tool: some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
             Button {
                 withAnimation(.snappy) { showOutput.toggle() }
             } label: {
@@ -256,6 +266,13 @@ struct MessageRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if let url = previewable {
+                Button { Preview.open(url) } label: { Image(systemName: "eye").font(.system(size: 11)) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Ember.secondary)
+                    .help("Preview \(url.lastPathComponent)")
+            }
+            }
             if showOutput {
                 ScrollView([.horizontal, .vertical]) {
                     Text(message.content)
@@ -424,27 +441,58 @@ enum Markdown {
 struct MarkdownView: View {
     let text: String
     var failed = false
+    /// A Code chat's project: relative file links and `paths` in replies resolve inside it.
+    @Environment(\.previewFolder) private var folder
 
     var body: some View {
+        content
+            .environment(\.openURL, OpenURLAction { url in
+                // Links to files on this Mac open in the preview pane; web links go to the browser as usual.
+                guard url.isFileURL || url.scheme == nil else { return .systemAction }
+                let base: URL? = folder.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                guard let file = url.isFileURL ? url : PreviewStore.resolve(url.relativeString, base: base) else { return .discarded }
+                Preview.open(file)
+                return .handled
+            })
+    }
+
+    /// Inline code that names an existing file becomes a link to it.
+    private func inline(_ s: String) -> AttributedString {
+        var a: AttributedString = Markdown.inline(s)
+        let base: URL? = folder.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        let runs = a.runs.filter { $0.inlinePresentationIntent?.contains(.code) == true && $0.link == nil }.map(\.range)
+        for r in runs {
+            let word: String = String(a[r].characters)
+            guard word.count < 300, word.range(of: #"^[~/.\w-][\w./~@+-]*\.[A-Za-z0-9]{1,8}$"#, options: .regularExpression) != nil,
+                  let url = PreviewStore.resolve(word, base: base) else { continue }
+            var dir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &dir), !dir.boolValue else { continue }
+            a[r].link = url
+            a[r].swiftUI.foregroundColor = Ember.accent
+        }
+        return a
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(Markdown.blocks(text).enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .paragraph(let s):
-                    Text(Markdown.inline(s))
+                    Text(inline(s))
                         .font(.system(size: 14))
                         .lineSpacing(4)
                         .foregroundStyle(failed ? Ember.warn : Ember.text.opacity(0.94))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 case .heading(let s, let level):
-                    Text(Markdown.inline(s))
+                    Text(inline(s))
                         .font(.system(size: level == 1 ? 18 : level == 2 ? 16 : 14.5, weight: .semibold))
                         .foregroundStyle(Ember.text)
                         .padding(.top, 4)
                 case .bullet(let s, let marker):
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(marker).foregroundStyle(Ember.secondary).frame(minWidth: 14, alignment: .trailing)
-                        Text(Markdown.inline(s))
+                        Text(inline(s))
                             .lineSpacing(4)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)

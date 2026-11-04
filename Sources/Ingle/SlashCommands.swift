@@ -20,6 +20,7 @@ enum SlashCommands {
         SlashItem(name: "skill-reload", detail: "Re-read skills, rules and MCP servers from disk", kind: .command, icon: "arrow.clockwise"),
         SlashItem(name: "commands", detail: "Commands Ingle enforces (rules the assistant must obey)", kind: .command, icon: "exclamationmark.shield"),
         SlashItem(name: "secret", detail: "Save a password or key in the Keychain, for the assistant to use with your approval", kind: .command, icon: "key"),
+        SlashItem(name: "preview", detail: "Show a file beside the chat: /preview <path> (on its own, shows or hides the pane)", kind: .command, icon: "eye"),
     ]
 
     static func items(skills: [Skill]) -> [SlashItem] {

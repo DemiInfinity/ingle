@@ -76,9 +76,34 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
 - **Approval card** (`ApprovalCard`): Deny / Allow for This Session / Allow — see
   [terminal-and-mac-control.md](terminal-and-mac-control.md#approvals).
 - **Shortcuts:** ⌘N new chat (a Code chat on the same project when you're in one), ⇧⌘C switch Chat / Code,
-  ⇧⌘K compact chat (`IngleApp.swift` commands).
+  ⇧⌘K compact chat, ⌥⌘P show or hide the preview (`IngleApp.swift` commands).
 - **Storage:** `ChatStore.save()` writes all conversations to `~/Library/Application Support/Ingle/chats.json`
   atomically after each step.
+
+### Preview pane
+
+A resizable pane to the right of the chat (`HSplitView` in `ChatRoot`; ⌥⌘P), with a tab per file
+([`Sources/Ingle/Preview/`](../Sources/Ingle/Preview/)). `Preview.open(url)` is the one way in: plan cards
+(`PlanFiles.open`; Edit opens Split), the eye button on tool rows and in the changes panel, file links and `path`-like
+inline code in replies (resolved against a Code chat's project), dropping a file on the pane, `/preview <path>`, and
+the `open_preview` tool (no approval; `HelpTopics` "preview"). Briefs and other features should call `Preview.open`.
+
+- **Renderer:** the page in [`Support/preview/`](../Support/preview/) (shared with VS Code; `build.sh` copies it to
+  `Contents/Resources/Preview`): marked for GitHub-flavoured Markdown (tables, task lists), Ingle's highlighting
+  (a port of `CodeHighlight`), Mermaid diagrams and Temml maths, loaded only when a file needs them; CSV/TSV as a
+  sortable table; JSON/YAML as a foldable tree; SVG and images; anything else as coloured code. HTML pages load
+  directly, PDFs use PDFKit (`PreviewPDFView`).
+- **Preview / Source / Split** for text files (`PreviewTabView`). Source is a plain `NSTextView` (no smart quotes)
+  that saves 0.6 s after you stop typing, or at once with ⌘S. `FileWatcher` (kqueue on the file and its folder, so
+  atomic saves are seen) reloads the tab when the file changes, so plans tick live during a run. Clicking a task box
+  changes that line in the file (`PreviewTasks.toggle`, in step with `previewCore.ts`).
+- **Safety** (`WebPreview.swift`): a `WKWebView` per tab with a non-persistent data store; a `WKContentRuleList` blocks
+  every http(s), ws(s), ftp and file request, and every response carries a CSP that only allows `ingle-preview:`;
+  `PreviewSchemeHandler` serves `ingle-preview://file/…` from the file's own folder only (never above it) and
+  `ingle-preview://app/…` from the renderer; no pop-ups; HTML pages get no message handler (the renderer's handler
+  only opens local links in a new tab and ticks boxes). HTML shows "JavaScript on · network blocked" with a per-tab
+  switch; quarantined (downloaded) HTML starts with JavaScript off and `open_preview` refuses to open it. Web links
+  ask before opening in the browser. The web views are inspectable (Safari's Develop menu) for checking.
 
 ### Code mode
 
@@ -156,6 +181,7 @@ skills, filtered as you type (↑↓, Tab/Return, Esc).
 | `/mcp` | The MCP servers dialog (`MCPSheet`): source, on/off, Connect/Reconnect/Disconnect, tools, Edit mcp.json, Reload, Connect all |
 | `/skill-reload` (also `/skills-reload`, `/reload`) | Re-read skills, rules and MCP servers; clear the embedding cache |
 | `/commands` | List commands Ingle enforces |
+| `/preview <path>` | Show a file in the preview pane (relative paths are in a Code chat's project); on its own, show or hide the pane |
 | `/<skill-name> …` | Send the message with that skill attached in full |
 
 ### Documents and images
@@ -254,7 +280,11 @@ servers and the engine Ingle started are stopped.
 | [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
 | [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 160 | Code mode views: `ModeSwitch` (with the mode badge), `ProjectPicker`, `ProjectChip` |
 | [`WorkMode.swift`](../Sources/Ingle/WorkMode.swift) | 260 | `WorkMode` (Ask · Edit · Auto · Plan · Debug: labels, prompt lines, `riskyCommand`, `autoApproval`), `DebugState`, `ModeMenu`, `ModeBadge` — in step with `modes.ts` |
-| [`PlanFiles.swift`](../Sources/Ingle/PlanFiles.swift) | 260 | `PlanFiles` (plan Markdown files: path, render, parse, tick, `open`), `PlanRef`, `PlanCard` — in step with `planFiles.ts` |
+| [`PlanFiles.swift`](../Sources/Ingle/PlanFiles.swift) | 260 | `PlanFiles` (plan Markdown files: path, render, parse, tick, `open` → the previewer), `PlanRef`, `PlanCard` — in step with `planFiles.ts` |
+| [`Preview/PreviewTabs.swift`](../Sources/Ingle/Preview/PreviewTabs.swift) | 330 | `PreviewKind`, `PreviewTab` (file, Source draft, saving, watcher), `PreviewTasks`, `PreviewStore`, `Preview.open` and the `open_preview` tool, `/preview` |
+| [`Preview/PreviewPane.swift`](../Sources/Ingle/Preview/PreviewPane.swift) | 260 | The pane: tab bar, drop target, toolbar, Preview / Source / Split, the JavaScript banner, `SourceTextView` |
+| [`Preview/WebPreview.swift`](../Sources/Ingle/Preview/WebPreview.swift) | 330 | `PreviewScheme`, `PreviewSchemeHandler`, `PreviewRules` (network block), `PreviewWebController`, `PreviewWebView`, `PreviewPDFView` |
+| [`Preview/FileWatcher.swift`](../Sources/Ingle/Preview/FileWatcher.swift) | 70 | kqueue file + folder watcher |
 | [`TaskList.swift`](../Sources/Ingle/TaskList.swift) | 250 | `TaskItem`, `TaskList` (update_tasks parsing, prompt, plan → tasks, plan mode tools and wording, steering text), `TaskListView`, `PlanApproveBar` |
 | [`ChangesPanel.swift`](../Sources/Ingle/ChangesPanel.swift) | 420 | `GitCommit` (repo, diff, commit exactly a run's files), the `ChatStore` commit extension (`draftCommit`, `commitRun`), `ChangesPanel` (diffs, Open in editor, Undo, Commit) |
 | [`CodeTools.swift`](../Sources/Ingle/CodeTools.swift) | 450 | Code mode tools: `find_files`, `search_code`, `edit_file`, `get_problems`, `repo_map`; `Diagnostics` (error parsing), `CodeFiles` (project file list), `Glob` |

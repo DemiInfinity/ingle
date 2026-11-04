@@ -1,0 +1,26 @@
+<!doctype html>
+<!--
+  Ingle's previewer: one page for the Mac app and the VS Code extension. The host fills {{CSP}} and {{ROOT}}
+  (where this folder is served from), then sends the file to show (see preview.js). Nothing here touches the
+  network: the libraries are in vendor/, and the hosts block http(s) as well.
+-->
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{{CSP}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ROOT}}preview.css">
+<link rel="stylesheet" href="{{ROOT}}vendor/temml.css">
+<script src="{{ROOT}}vendor/marked.js"></script>
+<script src="{{ROOT}}preview.js" data-root="{{ROOT}}"></script>
+</head>
+<body>
+<header id="bar" hidden>
+  <span id="name"></span>
+  <span class="grow"></span>
+  <span id="banner" hidden><button id="js" title="Switch JavaScript on or off for this page"></button> · network blocked</span>
+  <button id="source" title="Open the file in the editor">Source</button>
+</header>
+<main id="out"><p class="empty">Nothing to show yet.</p></main>
+</body>
+</html>

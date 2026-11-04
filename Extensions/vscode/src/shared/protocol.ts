@@ -204,7 +204,8 @@ export type FromWebview =
   | { type: 'runChanges'; id: string }                    // open the changes panel under reply `id`
   | { type: 'showRunDiff'; id: string; path: string }     // VS Code's diff editor for one file of that run
   | { type: 'openFile'; path: string }
-  | { type: 'openPlan'; file: string }                   // a plan file in the Markdown preview
+  | { type: 'openPlan'; file: string }                   // a plan file in Ingle's previewer
+  | { type: 'previewFile'; path: string }                // a file link, tool row or changed file in the previewer
   | { type: 'editPlan'; file: string }                   // a plan file in the editor
   | { type: 'draftCommit'; id: string }
   | { type: 'commit'; id: string; message: string };

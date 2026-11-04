@@ -46,6 +46,11 @@ are not sent to an AI company.
 | **You approve a command, an MCP tool or opening a link** | Whatever that command, tool or link does | The service it talks to |
 | **SSH is on and you approve a command on one of your servers** | That command, through your own SSH setup | Only that server, one you set up in `~/.ssh/config` and ticked in Settings → Mac Access → SSH |
 
+**Previews make no network requests.** The previewer (Markdown, HTML, diagrams, tables…) in both apps uses
+libraries that ship inside Ingle, and blocks every web request a previewed page tries to make — images, scripts,
+fonts, trackers — so opening a file there never contacts anyone. Links in a preview only open in your browser
+if you click one and say yes.
+
 Ingle blocks the assistant's web reading from reaching addresses on your local network, and the web tools only read
 — they can't log in, fill in forms or post anything. Like any website visit, the sites and search services
 you reach can see your IP address; their own privacy policies apply.
