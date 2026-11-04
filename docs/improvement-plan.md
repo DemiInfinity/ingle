@@ -472,9 +472,23 @@ its turn. The engine serving one request at a time is fine: jobs simply queue.
   stop button) instead of the store-wide `streamingID`/`task`/`approval`. A chat can be the foreground run while
   others run in the background. Keep `send`/`generate` behaviour for normal chats identical.
 - **Start one.** Use **Run in background** (a composer menu item and ⌘⏎), `/background <task>`, or the model calling a
-  `job_start` tool (with approval showing the task). A background run gets its own entry in a new sidebar section,
-  **Jobs**, with its status (working · waiting for you · done · failed · paused) and a live log. **Open as chat**
-  turns it into a normal chat so you can continue it.
+  `job_start` tool (with approval showing the task). A job **belongs to the chat that started it**. That chat shows
+  a small live chip ("⟳ running tests · 2 min") you can click for its log, and you keep chatting there or anywhere
+  else. A **Jobs** list (sidebar section and menu bar) shows every job's status (working · waiting for you · done ·
+  failed · paused).
+- **It comes back as a trigger (the user's decision).** When a job finishes, fails or gets stuck, Ingle posts a
+  **job event** into the chat that started it (a compact card: what it was, the outcome, a short result and a link
+  to the full log) and **starts an assistant turn automatically** so the assistant reacts. If you're mid-conversation
+  in that chat, the event waits in the queue and is handled straight after your current turn, never interrupting a
+  reply. If the chat isn't open, you get a notification and a badge, and the assistant's turn is waiting when you
+  open it.
+- **The assistant checks the job; it doesn't just relay it (the user's decision).** A job's report is a claim, not
+  proof. On a job event, the assistant verifies the result before telling you it's done: it looks at the diff,
+  reruns the check or reads the output that matters, as fits the job. Then it tells you plainly what's confirmed and
+  what isn't. If the check fails, it says so and offers to continue or fix it. The verification uses the same
+  approvals as anything else.
+- **Events are data, not instructions.** Job output and event cards reach the model marked as untrusted results
+  (like web content today). Nothing in them can approve an action, change settings or count as the user speaking.
 - **One engine, one queue (the user's decision).** No second model or parallel engine slots: a background job is
   just another stream **queued behind** your chat on the same engine and model. One `EngineQueue` hands out model
   steps one at a time. Your chat always goes to the front, and background jobs take the next free step between your
@@ -493,9 +507,10 @@ its turn. The engine serving one request at a time is fine: jobs simply queue.
 (sidebar section, composer menu), new `EngineQueue.swift`, `SettingsViews.swift`, `EditorBridge.swift`
 (list/start jobs for VS Code), VS Code: a read-only Jobs view in the webview and a "Run in background" command that
 sends the job to the Mac app. Docs: `docs/agent-loop.md`, `docs/mac-app.md`, `HelpTopics`.
-**Done when.** You can start "run the tests and fix failures" in the background, keep chatting normally in another
-chat, approve its command from a notification, and open the finished job as a chat. Stopping a job leaves nothing
-running.
+**Done when.** You can start "run the tests and fix failures" in the background and keep chatting normally,
+including in the same chat. You can approve its command from a notification. When it finishes, a job event appears in
+the chat that started it, and the assistant checks the result (e.g. reruns the tests) before reporting what's confirmed.
+An event that arrives mid-reply waits until the reply ends. Stopping a job leaves nothing running.
 
 ### [ ] 37. Monitors and schedules (round D)
 **Why.** Many background jobs are "keep an eye on X". Asking the model every few minutes would be slow and drain the
@@ -504,8 +519,10 @@ battery, so most of the watching should be done **without the model**.
 - **A monitor** = a check + an interval + what to do when it changes. The check is a command (`gh pr checks 42 --json
   state`), an MCP tool call (GitHub MCP `get_pull_request`), or a web page (only when Web is allowed for that job).
   Ingle runs the check itself, compares the result with last time, and **only wakes the model when something
-  changed**. Then it follows the instructions ("summarise what changed; if CI failed, read the logs and suggest a
-  fix") and notifies you. Changes are kept in the job's log.
+  changed**. A change comes back into the chat that created the monitor as a **job event** (same trigger as task
+  36), and the assistant checks it and follows the instructions ("summarise what changed; if CI failed, read the logs
+  and suggest a fix"), with a notification if the chat isn't open. Monitors started from Settings post into a chat
+  you choose (or a new one). Changes are kept in the job's log.
 - **A schedule** = a job that runs at set times ("every weekday at 9:00, summarise my open PRs"). Cron-like but
   written in plain words in the UI.
 - **Files, not hidden state.** Each monitor or schedule is a file in `~/.ingle/jobs/<name>.md` (frontmatter: `check`,
