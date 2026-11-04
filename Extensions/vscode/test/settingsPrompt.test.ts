@@ -34,3 +34,10 @@ test('settingsPrompt: the other assistant, awake or asleep', () => {
   const awake = settingsPrompt({ ...base, me: 'Ember', others: [{ name: 'Flint', role: 'hard jobs', awake: true }] });
   assert.match(awake, /Flint \(hard jobs\): awake too right now/);
 });
+
+test('settingsPrompt: knows who the user was talking to before switching', () => {
+  const t = settingsPrompt({ ...base, me: 'Ember', earlier: ['Flint'] });
+  assert.match(t, /Earlier in this chat the user was talking to Flint/);
+  assert.match(t, /now you, Ember, have taken over/);
+  assert.doesNotMatch(settingsPrompt({ ...base, me: 'Ember', earlier: ['Ember'] }), /Earlier in this chat/);
+});

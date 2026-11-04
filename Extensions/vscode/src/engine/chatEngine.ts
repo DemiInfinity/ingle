@@ -293,7 +293,9 @@ function estimate(messages: OllamaMessage[]): number {
 }
 
 /** Saved messages → what Ollama gets. Tool images go in a short user message after that batch of tool results. */
-function toOllamaHistory(msgs: Stored[], vision: boolean): OllamaMessage[] {
+/** `current` is the assistant answering now: replies from another assistant (the user switched mid-chat) are
+ *  labelled so it knows who said them. Same as historyJSON in ChatStore.swift. */
+export function toOllamaHistory(msgs: Stored[], vision: boolean, current?: string): OllamaMessage[] {
   const out: OllamaMessage[] = [];
   let pending: string[] = [];
   const flush = () => {
@@ -315,7 +317,9 @@ function toOllamaHistory(msgs: Stored[], vision: boolean): OllamaMessage[] {
     } else {
       if (m.failed) continue;
       if (!m.content && !m.toolCalls?.length) continue;
-      out.push({ role: 'assistant', content: m.content, tool_calls: m.toolCalls?.length ? m.toolCalls : undefined });
+      const author = m.assistantName;
+      const label = current && author && author !== current ? `[Earlier reply from ${author}, the other assistant]\n` : '';
+      out.push({ role: 'assistant', content: label + m.content, tool_calls: m.toolCalls?.length ? m.toolCalls : undefined });
     }
   }
   flush();
@@ -1589,6 +1593,8 @@ export class ChatEngine implements vscode.Disposable {
     parts.push(settingsPrompt({ model: a.model, role: roleName(a.id), effort: this.effortOf(chat), mode: modeOf(chat), reasoning: !!chat.reasoning,
       web: chat.web, sshHosts: enabledSSHHosts(this.settings), editor: editor ? chat.useContext !== false : undefined,
       me: a.name,
+      earlier: [...new Set((chat.messages as Stored[]).filter((m) => m.role === 'assistant' && m.assistantName && m.assistantName !== a.name)
+        .map((m) => m.assistantName as string))],
       others: this.settings.assistants.filter((x) => x.id !== a.id && x.model !== a.model)
         .map((x) => ({ name: x.name, role: x.id === 'hard' ? 'hard jobs' : 'daily coding', awake: running.includes(x.model) })) }));
     const commands = commandsBlock(active);
@@ -1721,7 +1727,7 @@ export class ChatEngine implements vscode.Disposable {
       for (let attempt = 0; attempt < 2; attempt++) {
         const c = this.lastCompaction(chat);
         system = this.buildSystem(chat, a, tools, editor, matched, c >= 0 ? chat.messages[c].content : '', repoMap, active, spec.promptLine, running);
-        history = toOllamaHistory(chat.messages.slice(c + 1) as Stored[], vision);
+        history = toOllamaHistory(chat.messages.slice(c + 1) as Stored[], vision, a.name);
         const tokens = Math.ceil((system.length + toolChars) / 4) + estimate(history);
         if (tokens <= limit * COMPACT_AT || attempt > 0) break;
         if (!(await this.compact(chat, true, signal))) break;

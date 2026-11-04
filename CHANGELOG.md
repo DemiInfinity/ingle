@@ -38,7 +38,9 @@ releases. Every change people can notice gets a line here. Ask the assistant "wh
   a better setting.
 - **Reasoning in VS Code too:** the brain pill works the same in both apps.
 - **Ember and Flint know about each other:** each knows whether the other is awake or asleep right now. Call Flint
-  while talking to Ember and she'll tell you, in her own words, whether Flint is up, and offer to switch.
+  while talking to Ember (or the other way round) and you'll hear, in their own words, whether the other is up, with
+  an offer to switch. Switch assistant mid-chat and the new one knows who you were talking to before, and which replies
+  were theirs.
 
 ### Changed
 - **Settings apply when you press Enter:** changing Model, Effort, Mode, Reasoning, Web or Mac while a reply is

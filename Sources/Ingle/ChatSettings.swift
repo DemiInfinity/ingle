@@ -6,7 +6,7 @@ import Foundation
 enum ChatSettingsPrompt {
     @MainActor
     static func block(model: String, effort: EffortLevel, mode: WorkMode, reasoning: Bool, web: Bool,
-                      mac: Bool, codeFolder: String?, editor: Bool?) -> String {
+                      mac: Bool, codeFolder: String?, editor: Bool?, earlier: [String] = []) -> String {
         var lines: [String] = [
             "## This chat's settings",
             "The user sets these in the message box; you can't change them. If a different setting would clearly help, say which in one short line.",
@@ -30,6 +30,7 @@ enum ChatSettingsPrompt {
         let hosts: [String] = SSH.isOn ? SSH.enabledHosts : []
         lines.append(hosts.isEmpty ? "- SSH: Off." : "- SSH: On — hosts: \(hosts.joined(separator: ", ")).")
         lines.append(contentsOf: othersLines(model: model))
+        lines.append(contentsOf: earlierLines(me: ModelNames.display(model), earlier: earlier))
         if let editor {
             lines.append(editor
                 ? "- Editor context: On — you see the user's open file and selection."
@@ -53,6 +54,14 @@ enum ChatSettingsPrompt {
             lines.append("  If the user speaks to \(other.name) by name, answer as yourself (\(me)) — never pretend to be \(other.name). In your own words, and differently each time, say that \(other.name) is \(awake ? "awake" : "asleep") and offer to switch with the assistant picker in the message box, or to help yourself.")
         }
         return lines
+    }
+
+    /// Who the user was talking to before switching to this assistant in the same chat.
+    static func earlierLines(me: String, earlier: [String]) -> [String] {
+        let others: [String] = earlier.filter { $0 != me }
+        guard !others.isEmpty else { return [] }
+        let who: String = others.joined(separator: " and ")
+        return ["- Earlier in this chat the user was talking to \(who) (their replies are marked \"[Earlier reply from …]\"); now you, \(me), have taken over. If the user asks who they were talking to, tell them it was \(who) before they switched to you. Don't add those labels to your own replies."]
     }
 
     /// What each effort level asks of the assistant (thinking is Reasoning's job, not Effort's).

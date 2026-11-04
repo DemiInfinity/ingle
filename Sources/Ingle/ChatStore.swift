@@ -910,8 +910,16 @@ final class ChatStore {
                 if let persona = Persona.systemPrompt(for: model, web: conv.webOn, codeFolder: codeFolder) { system.append(persona) }
                 // Every switch's current state and meaning, so the assistant knows what it can do right now.
                 let editorShared: Bool? = (codeFolder == nil && EditorBridge.shared.freshContext != nil) ? (conv.useEditor ?? true) : nil
+                // Assistants that wrote earlier replies in this chat (the user may have switched), in order, once each.
+                var earlier: [String] = []
+                for m in conv.messages where m.role == .assistant {
+                    guard let author = m.model, !author.isEmpty, author != model else { continue }
+                    let name: String = ModelNames.display(author)
+                    if !earlier.contains(name) { earlier.append(name) }
+                }
                 system.append(ChatSettingsPrompt.block(model: model, effort: effort, mode: conv.workModeValue, reasoning: reasoning,
-                                                       web: conv.webOn, mac: mac, codeFolder: codeFolder, editor: editorShared))
+                                                       web: conv.webOn, mac: mac, codeFolder: codeFolder, editor: editorShared,
+                                                       earlier: earlier))
                 if let block = CommandStore.promptBlock(tracker.commands) { system.append(block) }
                 // Only the short INGLE.md index goes in; details load on demand through tools.
                 system.append(IngleManifest.refresh(macAccess: mac, project: project, web: conv.webOn, currentChat: id, code: codeFolder != nil))
@@ -1718,6 +1726,13 @@ final class ChatStore {
         return conv.messages[start...].compactMap { m -> [String: Any]? in
             if m.role == .assistant, m.content.isEmpty, m.toolCalls.isEmpty, m.thinkingPhases != nil { return nil }
             var json = m.ollamaJSON
+            // A reply from the other assistant (the user switched mid-chat) is labelled, so this one knows who said it.
+            if m.role == .assistant, let author = m.model, !author.isEmpty, author != conv.model {
+                let name: String = ModelNames.display(author)
+                if name != ModelNames.display(conv.model) {
+                    json["content"] = "[Earlier reply from \(name), the other assistant]\n" + ((json["content"] as? String) ?? "")
+                }
+            }
             if let files = m.imageFiles, !files.isEmpty {
                 if vision {
                     json["images"] = files.compactMap(ImageStore.base64)

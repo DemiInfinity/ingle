@@ -246,6 +246,8 @@ export function settingsPrompt(s: {
   sshHosts: string[]; editor?: boolean;
   /** This assistant's name and the others, with whether each is loaded right now. */
   me?: string; others?: { name: string; role: string; awake: boolean }[];
+  /** Assistants that wrote earlier replies in this chat (the user switched to this one). */
+  earlier?: string[];
 }): string {
   const mode = MODES[s.mode];
   const lines = [
@@ -266,6 +268,11 @@ export function settingsPrompt(s: {
     const state = o.awake ? 'awake' : 'asleep';
     lines.push(`- ${o.name} (${o.role}): ${o.awake ? 'awake too' : 'asleep'} right now.`);
     lines.push(`  If the user speaks to ${o.name} by name, answer as yourself (${s.me ?? 'you'}) — never pretend to be ${o.name}. In your own words, and differently each time, say that ${o.name} is ${state} and offer to switch with the assistant picker in the message box, or to help yourself.`);
+  }
+  const earlier = (s.earlier ?? []).filter((n) => n !== s.me);
+  if (earlier.length) {
+    const who = earlier.join(' and ');
+    lines.push(`- Earlier in this chat the user was talking to ${who} (their replies are marked "[Earlier reply from …]"); now you, ${s.me ?? 'you'}, have taken over. If the user asks who they were talking to, tell them it was ${who} before they switched to you. Don't add those labels to your own replies.`);
   }
   if (s.editor !== undefined) {
     lines.push(s.editor
