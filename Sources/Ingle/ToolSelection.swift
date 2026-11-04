@@ -20,7 +20,7 @@ enum ToolSelection {
         mentions(t, ["chat", "conversation", "earlier", "last time", "yesterday", "last week", "discussed", "we talked", "you said", "i said", "before"])
     }
     static func wantsHelp(_ t: String) -> Bool {
-        mentions(t, ["ingle", "setting", "how do i", "how can i", "where is", "shortcut", "menu bar", "this app", "feature", "what can you"])
+        mentions(t, ["ingle", "setting", "how do i", "how can i", "where is", "shortcut", "menu bar", "this app", "feature", "what can you", "what's new", "whats new", "what's changed", "whats changed", "changelog", "change log", "release notes", "new version"])
     }
     static func wantsHelper(_ t: String) -> Bool {
         mentions(t, ["research", "compare", "look into", "investigate", "summarise", "summarize", "find out", "dig into", "go through", "sub-agent", "subagent", "helper", "in parallel"])

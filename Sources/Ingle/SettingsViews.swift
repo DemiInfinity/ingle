@@ -1287,6 +1287,7 @@ struct AboutSettings: View {
             .padding(.top, 8)
 
             HStack(spacing: 14) {
+                AboutDocLink(title: "What’s new", file: "CHANGELOG")
                 AboutDocLink(title: "Terms of Use", file: "TERMS")
                 AboutDocLink(title: "Privacy", file: "PRIVACY")
                 AboutDocLink(title: "Licence", file: "LICENSE")

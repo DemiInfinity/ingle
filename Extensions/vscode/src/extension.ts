@@ -149,8 +149,9 @@ export function activate(context: vscode.ExtensionContext) {
       const pick = await vscode.window.showInformationMessage(
         // The author credit is required by Ingle's licence (AGPL-3.0 + a Section 7(b) attribution term, see LICENSE.md).
         `Ingle for VS Code ${version}, by DemiInfinity (github.com/DemiInfinity/ingle). Free and open source: AGPL-3.0 with attribution. Powered by Ollama, the open-source engine by the Ollama team (MIT licence), built on llama.cpp and MLX.`,
-        'Terms of Use', 'Privacy', 'Licence', 'GitHub', 'ollama.com');
-      if (pick === 'Terms of Use') await vscode.commands.executeCommand('ingle.terms');
+        "What's new", 'Terms of Use', 'Privacy', 'Licence', 'GitHub', 'ollama.com');
+      if (pick === "What's new") await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.joinPath(context.extensionUri, 'legal', 'CHANGELOG.md'));
+      else if (pick === 'Terms of Use') await vscode.commands.executeCommand('ingle.terms');
       else if (pick === 'Privacy') await vscode.commands.executeCommand('ingle.privacy');
       else if (pick === 'Licence') await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.joinPath(context.extensionUri, 'legal', 'LICENSING.md'));
       else if (pick === 'GitHub') await vscode.env.openExternal(vscode.Uri.parse('https://github.com/DemiInfinity/ingle'));

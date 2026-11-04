@@ -41,6 +41,9 @@ same time, each in its own worktree/branch. A wave starts once the tasks it depe
   icons at the top of the sidebar); never add badges, buttons or indicators to the top bar. **Anything that affects the chat goes in the message box**: its pill row
   (Model, Effort, Mode, Web, Mac, …) or its ⋯ menu, styled like the existing pills. In VS Code, the same: chat controls
   live in the composer, not the tab's header.
+- **Update `CHANGELOG.md`** (the user's request): add a plain-words line for every change people can notice, under the
+  newest date. It ships inside both apps and the assistant reads it when asked "what's changed?". Move items out of
+  "Coming next" when they land.
 - Finish with a short report: what changed, what was checked, what wasn't.
 
 ---

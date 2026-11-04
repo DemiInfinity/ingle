@@ -131,7 +131,7 @@ Personal build settings go in git-ignored `local.env` (`INGLE_BUNDLE_ID`, `VSCOD
 
 ## Conventions
 
-UI placement: the chat window's top bar stays empty (Chat / Code is a pair of icons at the top of the sidebar); anything that affects the chat goes in the message box (pill row or its ⋯ menu), in both apps. British English everywhere (UI, prompts, docs). UI text is plain and short. Prompts are short (small context windows)
+UI placement: the chat window's top bar stays empty (Chat / Code is a pair of icons at the top of the sidebar); anything that affects the chat goes in the message box (pill row or its ⋯ menu), in both apps. Every user-visible change adds a plain-words line to `CHANGELOG.md` (newest first; it ships in the app and the assistant reads it for "what's changed?"). British English everywhere (UI, prompts, docs). UI text is plain and short. Prompts are short (small context windows)
 and identical in meaning between the two apps. TypeScript strict, no runtime deps. Never commit `local.env`, `private/`,
 build output or personal data. Commits are signed off (`git commit -s`); contributions fall under the contributor terms in
 `CONTRIBUTING.md`.

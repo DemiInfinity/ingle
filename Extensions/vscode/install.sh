@@ -12,7 +12,8 @@ npm run --silent compile
 
 # Terms, privacy and licence ship with the extension (Ingle: Terms of Use / Privacy Policy / About Ingle).
 mkdir -p legal
-for f in TERMS PRIVACY LICENSE LICENSING; do [[ -f "../../$f.md" ]] && cp "../../$f.md" legal/; done
+for f in TERMS PRIVACY LICENSE LICENSING CHANGELOG; do [[ -f "../../$f.md" ]] && cp "../../$f.md" legal/; done
+[[ -f ../../CHANGELOG.md ]] && cp ../../CHANGELOG.md CHANGELOG.md   # shown on the extension's page too
 [[ -f ../../LICENSE.md ]] && cp ../../LICENSE.md LICENSE.md
 for f in LICENSE NOTICE; do [[ -f "../../$f" ]] && cp "../../$f" "$f"; done
 

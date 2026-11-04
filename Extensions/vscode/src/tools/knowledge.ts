@@ -1,6 +1,7 @@
 // use_skill, use_rule, report_search / report_read / report_save, skill_create, rule_create —
 // Extensions.swift (SkillStore, RuleStore) and Knowledge.swift (ReportStore, Builder).
 import * as fs from 'fs';
+import * as path from 'path';
 import { DENIED } from './paths';
 import {
   createRule, createSkill, listReports, listRules, listSkills, readRule, readSkill, reportRead, reportSave, reportSearch,
@@ -15,6 +16,31 @@ const truthy = (a: ToolArgs, k: string) => a[k] === true || ['true', '1', 'yes']
 export const BUILDER_TOOLS = ['skill_create', 'rule_create', 'command_create'];
 
 export const knowledgeTools: ToolDef[] = [
+  {
+    // What's new: the CHANGELOG.md shipped with the extension (copied by install.sh), or the Mac app's copy.
+    // Same content as ingle_help("changes") in the Mac app.
+    name: 'ingle_changes',
+    description: "What's new in Ingle, newest first. Use it when the user asks what's changed, what's new or about updates.",
+    parameters: { type: 'object', properties: {}, required: [] },
+    readOnly: true,
+    available: () => true,
+    describe: () => ({ title: "Check what's new", detail: 'Ingle changelog', icon: 'book' }),
+    run: async () => {
+      const candidates = [
+        path.join(__dirname, '..', '..', 'legal', 'CHANGELOG.md'),
+        path.join(__dirname, '..', '..', 'CHANGELOG.md'),
+        '/Applications/Ingle.app/Contents/Resources/Legal/CHANGELOG.md',
+      ];
+      for (const f of candidates) {
+        try {
+          const log = fs.readFileSync(f, 'utf8');
+          const trimmed = log.length > 6000 ? log.slice(0, 6000) + '\n…(older changes: Ingle: About → What\'s new)' : log;
+          return "What's new in Ingle (newest first; summarise what matters to the user, in plain words):\n\n" + trimmed;
+        } catch { /* try the next place */ }
+      }
+      return "The list of changes isn't available in this install. It's CHANGELOG.md in Ingle's project folder.";
+    },
+  },
   {
     name: 'use_skill',
     description: 'Load the full instructions of one of the user\'s skills. Do this before any task a skill covers.',
