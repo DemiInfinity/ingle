@@ -3,7 +3,11 @@
 A working to-do list for the next round of work, written so each task can be handed to an agent (or a contributor)
 on its own. [roadmap.md](roadmap.md) is the long-term direction; this file is the next concrete steps.
 
-**The goal (the user's words): be the best local assistant possible, not a cloud copy.** Judge every task by
+**The mission (the user's words): give people the full AI-assistant experience at the local level, without losing out
+at any stage. Not trying to be Claude or ChatGPT.** In practice: no missing step in the workflow, never losing your work,
+never losing privacy or control, and never stuck (when the model can't, say so and offer a way forward).
+
+**The goal: be the best local assistant possible, not a cloud copy.** Judge every task by
 whether it makes the user's own model, on their own Mac, more reliable, more honest about its results, more efficient
 (memory, battery, heat) and fully usable offline. Spending local time to get more out of the same model is good. Pretending
 to be a frontier model is not. When a job is truly beyond the local model, say so and hand over a clean brief (task 35).
