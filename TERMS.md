@@ -70,7 +70,7 @@ unless the law where you live gives you the right to use your local courts.
 
 ## Contact
 
-Open an issue at https://github.com/OWNER/ingle or contact the copyright holder named in [LICENSE.md](LICENSE.md).
+Open an issue at https://github.com/DemiInfinity/ingle or contact the copyright holder named in [LICENSE.md](LICENSE.md).
 
 *These terms are written to be clear, but they aren't legal advice. If you rely on Ingle commercially, get your
 own advice.*

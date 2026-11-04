@@ -1,6 +1,6 @@
 # Contributing to Ingle
 
-Thanks for wanting to help. Ingle is a native Mac app and a VS Code extension for local AI models — see
+Thanks for wanting to help. Please read the [Code of Conduct](CODE_OF_CONDUCT.md). Ingle is a native Mac app and a VS Code extension for local AI models — see
 [README.md](README.md) for what it does and [docs/](docs/README.md) for how it works inside.
 
 ## Before you start
@@ -16,7 +16,9 @@ Thanks for wanting to help. Ingle is a native Mac app and a VS Code extension fo
 You need a Mac with Apple Silicon, macOS 14+, Swift (Xcode or `xcode-select --install`) and, for the extension, Node 18+.
 
 ```zsh
-git clone https://github.com/OWNER/ingle.git && cd ingle
+# Fork the repo on GitHub first (the Fork button), then:
+git clone https://github.com/YOUR-NAME/ingle.git && cd ingle
+git remote add upstream https://github.com/DemiInfinity/ingle.git
 cp local.env.example local.env      # optional: your own bundle id, publisher, private words
 ./build.sh                          # builds into ./build and opens it (add --install to copy to /Applications)
 cd Extensions/vscode && npm install && npm run compile   # or ./install.sh to package and install
@@ -61,6 +63,21 @@ There's no automated test suite yet (help welcome). Before opening a pull reques
 - [ ] Both apps still read files in `~/.ingle` written by the other.
 - [ ] Docs in `docs/` and the in-app help (`HelpTopics` in `Sources/Ingle/Manifest.swift`) are updated if behaviour changed —
       the assistants read that help to answer questions about Ingle, so it must stay accurate.
+
+## The fork-and-pull-request workflow
+
+1. **Fork** the repository on GitHub and clone your fork (above).
+2. **Branch** from an up-to-date `main`:
+   ```zsh
+   git fetch upstream && git checkout -b my-change upstream/main
+   ```
+3. **Commit** your work in small, clear steps (`git commit -s -m "Explain what changed"`).
+4. **Push** to your fork: `git push -u origin my-change`.
+5. **Open a pull request** from your branch to `DemiInfinity/ingle:main`. The template asks how you checked it.
+6. **Review** — expect questions or small requests; push more commits to the same branch to update the PR.
+7. **Merge** — once it's approved, the maintainer merges it. Thank you!
+
+Keep your fork current with `git fetch upstream && git rebase upstream/main` before starting new work.
 
 ## Pull requests
 

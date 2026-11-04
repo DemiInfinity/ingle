@@ -1,4 +1,4 @@
-Required Notice: Copyright 2026 COPYRIGHT_HOLDER (https://github.com/OWNER/ingle)
+Required Notice: Copyright 2026 Demi Taylor-Nimmo (https://github.com/DemiInfinity/ingle)
 
 # PolyForm Noncommercial License 1.0.0
 

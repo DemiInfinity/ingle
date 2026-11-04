@@ -77,7 +77,7 @@ and the change will be listed in the release notes.
 
 ## Contact
 
-Questions about privacy: open an issue at https://github.com/OWNER/ingle or contact the copyright holder named
+Questions about privacy: open an issue at https://github.com/DemiInfinity/ingle or contact the copyright holder named
 in [LICENSE.md](LICENSE.md).
 
 *This policy describes how the software behaves. It isn't legal advice.*

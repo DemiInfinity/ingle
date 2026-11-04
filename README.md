@@ -1,102 +1,172 @@
+<div align="center">
+
+<img src="Support/AppIcon.png" width="128" height="128" alt="Ingle app icon">
+
 # Ingle
 
-**Your AI, kept at home.** A native Mac app and VS Code extension for running local AI models with
-[Ollama](https://ollama.com) — private, offline-capable and free per message.
+### Your AI, kept at home.
 
-Ingle gives your local models names and personalities (by default **Ember** for everyday coding and
-**Flint** for hard problems), a proper chat window, a coding panel in VS Code, and the tools to actually
-get things done — while managing memory and power so a big model doesn't sit on your RAM all day.
+**A native Mac app and VS Code extension for local AI models.**
+Private by design. Free per message. Yours to shape.
 
-## Features
+[![Licence: PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-ff9f6b)](LICENSE.md)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-2d2327)
+![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-native-2d2327)
+![Swift](https://img.shields.io/badge/Swift-SwiftUI-f05138)
+![VS Code](https://img.shields.io/badge/VS%20Code-extension-007acc)
+![Powered by Ollama](https://img.shields.io/badge/powered%20by-Ollama-000000)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff9f6b)](CONTRIBUTING.md)
 
-**Mac app**
-- **Menu bar** — see which model is awake, switch models, put them to sleep, watch CPU, memory and GPU.
-  Models unload after a timer; Ingle warns before loading a big model on battery.
-- **Built-in engine** — ships with Ollama inside, starts it when you chat, and updates it from Settings
-  (with a notification when a new version is out). Uses your own Ollama instead if one is running.
-- **Chat** — streaming replies, thinking, code highlighting, chat history, regenerate, speed stats.
-- **Files and images** — attach code, PDFs, Word, Excel, Pages and images (HEIC too). Models that can't see
-  images get the text read from them on-device.
-- **Mac access** (per chat, off by default) — read files; with your approval run commands, write files, open apps.
-- **Web research** (read-only) — search and read pages, save short research reports for later.
+[Get started](#-get-started) · [Features](#-what-it-does) · [How it works](#-how-it-works) · [Docs](docs/README.md) · [Contribute](#-contributing)
+
+</div>
+
+---
+
+Cloud AI is brilliant, but every message leaves your machine, costs money and depends on someone else's
+servers. Local models have caught up fast — yet running them still feels like a science project: a terminal,
+a model name like `qwen3.6-35b-a3b-ud-iq4_xs`, a fan spinning while nothing's happening, and a chat box that
+can't actually *do* anything.
+
+**Ingle makes local AI feel like a proper assistant.** It gives your models names and personalities, puts them
+in your menu bar and your editor, lets them read your files, edit your code, search the web and remember you —
+and makes sure a 20 GB model isn't sitting on your memory when you're not using it.
+
+Everything runs on your Mac. No accounts, no tracking, no subscription.
+
+## ✨ What it does
+
+### 🔥 Meet Ember and Flint
+
+Two assistants with real characters, not version numbers. **Ember** is the quick, warm pair programmer for
+everyday coding. **Flint** is the calm senior engineer for hard problems. Rename them, rewrite their
+personalities, or give *any* model its own name and character — Ingle always tells every model how the app
+and its tools work, so nothing breaks when you make it yours.
+
+### 🍎 A Mac app that lives in your menu bar
+
+- **One click to switch models**, put them to sleep, or see CPU, memory and GPU at a glance.
+- **Power-aware** — models unload after a timer, and Ingle warns before loading a big model on battery.
+- **Built-in engine** — Ollama ships inside the app, starts by itself when you chat, and **updates from Settings**
+  with a notification when a new version is out (checksum-verified, with one-click roll back).
+- **A proper chat window** — streaming replies, thinking, syntax-highlighted code, history, and a context meter.
+- **Drop anything in** — code, PDFs, Word, Excel, Pages and images (HEIC too). Models that can't see images get
+  the text read from them on-device.
+
+### 💻 A coding partner inside VS Code
+
+- Opens as an **editor tab** from the icon next to Claude's — as many tabs as you like, each with its own chat.
+- **Reads your project, searches code, sees your problems panel, edits files with a diff you approve, and runs commands.**
+- A **repo map** — an outline of your project's files and key functions, ranked for every request — so a small
+  model knows where things live without reading everything.
+- Shares everything with the Mac app, and works without it.
+
+### 🧠 It remembers, researches and follows your rules
+
 - **Memory** — facts about you in plain Markdown files you can read and edit.
-- **Skills, rules and MCP** — Claude-style `SKILL.md` skills, always-on or matched rules, MCP servers;
-  all listed in a small index (`~/.ingle/INGLE.md`) so the model loads details only when needed.
-- **Commands** — rules Ingle *enforces*, not just suggests: "always use the figma MCP for component builds",
-  "never use write_file", "always run the linter after editing". Required tools are always offered, banned ones
-  are blocked, and the assistant can't finish until it has complied. Ask for one in a chat, or write
-  `~/.ingle/commands/<name>.md` yourself (`when`, `must_use`, `never_use`, `then_run`).
+- **Web research** (read-only, when you switch it on) — and it saves short research reports so it never redoes work.
+- **Skills and rules** in Claude's `SKILL.md` format, plus **MCP servers** — indexed in a tiny `INGLE.md`, so the
+  model loads details only when needed.
 - **Helpers** — hand a self-contained job to a read-only sub-agent.
-- **Long chats** compact themselves; `/` opens commands and skills (`/compact`, `/mcp`, `/skill-reload`, …).
-- **Your own characters** — rename any model and write its personality. Ingle always adds what every
-  model needs to know about itself and its tools.
 
-**VS Code extension** (`Extensions/vscode`)
-- An Ingle chat as an editor tab, opened from the icon in the editor title bar — as many tabs as you like.
-- Reads your project, searches code, sees problems, edits files (you approve each change, with a diff),
-  runs commands, and gets a **repo map** of your project ranked for each request.
-- Shares assistants, rules, skills and memory with the Mac app through `~/.ingle`, and works without it open.
+### 🛡️ Commands: the obedience layer
 
-## Requirements
+Local models are clever but forgetful with tools. So Ingle has **commands** — rules it *enforces* rather than
+suggests:
 
-- A Mac with Apple Silicon and macOS 14 or later.
-- Memory: 16 GB runs small models; 32 GB+ is comfortable for the 30B-class models Ingle defaults to.
-- To build: Swift (Xcode, or `xcode-select --install`). For the VS Code extension: Node 18+.
+> *"Write a command to always use the Figma MCP for component builds."*
 
-## Build and install
+From then on, when you ask for a component, the Figma tools are guaranteed to be offered, banned tools are
+blocked, and **the assistant can't finish until it has done what the command says** — Ingle sends it back if it
+tries. Commands can also require running your linter or tests after every edit.
+
+### 🧩 Built for small models
+
+Everything in Ingle is tuned for models that run on a laptop: only the tools a request needs are offered each
+turn, long chats **compact themselves**, recommended sampling settings are sent for each model, repeated
+mistakes are caught, and there's no arbitrary step limit — it keeps going until the job's done.
+
+## 🚀 Get started
+
+**You'll need** a Mac with Apple Silicon running macOS 14 or later — 16 GB of memory runs small models,
+32 GB or more is comfortable for the 30B-class models Ingle suggests — plus Swift
+(Xcode, or `xcode-select --install`). For the VS Code extension, Node 18+.
 
 ```zsh
-git clone https://github.com/OWNER/ingle.git && cd ingle
-./build.sh --install                   # builds Ingle.app with the Ollama engine and copies it to /Applications
-cd Extensions/vscode && ./install.sh   # optional: the VS Code extension
+git clone https://github.com/DemiInfinity/ingle.git
+cd ingle
+./build.sh --install                     # builds Ingle.app with its engine and copies it to Applications
+cd Extensions/vscode && ./install.sh     # optional: the VS Code extension
 ```
 
-Then open Ingle from the menu bar → Settings → Models to download models.
-`INGLE_MLX=v3 ./build.sh` makes a smaller build that runs on macOS 14+ (see `build.sh`).
+Then click the Ingle icon in your menu bar → **Settings → Models** and download a model. Say hello.
 
-## Privacy
+> 💡 `INGLE_MLX=v3 ./build.sh` makes a smaller build (about 230 MB of engine instead of 580 MB) that still runs
+> MLX models on macOS 14+. See [docs/engine.md](docs/engine.md).
 
-Everything runs on your Mac. Ingle talks to the internet only when you switch on **Web** in a chat (read-only:
-no logins, forms or local-network addresses), when you download models, and to check for engine updates
-(GitHub, once a day — you can turn that off).
+## 🔍 How it works
 
-## Where things live
+```mermaid
+flowchart LR
+    You([You]) --> Mac[Ingle for Mac<br/>menu bar · chat]
+    You --> VS[Ingle for VS Code<br/>editor tabs]
+    Mac --> Engine[(Ollama engine<br/>built in)]
+    VS --> Engine
+    Mac <--> Home[~/.ingle<br/>memory · rules · skills<br/>commands · MCP · research]
+    VS <--> Home
+    Engine --> Models[(Your local models)]
+```
 
-| What | Where |
+Both apps talk to the same local engine and share one folder, `~/.ingle`, so your assistants, memory, skills
+and commands follow you between your Mac and your editor. The full tour is in **[docs/](docs/README.md)**:
+[architecture](docs/architecture.md) · [the agent loop](docs/agent-loop.md) · [commands](docs/commands.md) ·
+[file formats](docs/ingle-home.md) · [engine](docs/engine.md) · [security](docs/security-and-privacy.md).
+
+## 🔒 Privacy
+
+| | |
 |---|---|
-| Rules, skills, commands, memory, research, MCP servers, index | `~/.ingle/` |
-| Chats and attached images | `~/Library/Application Support/Ingle/` |
-| Updated engine | `~/Library/Application Support/Ingle/Engine/` |
-| Models | `~/.ollama/models` |
-| Engine log | `~/Library/Logs/Ingle/ollama.log` |
-| Settings shared with VS Code | `~/.ingle/settings.json` (written by the app) |
+| Accounts, analytics, tracking | **None** |
+| Where your chats, memory and files live | **On your Mac**, in folders you can open |
+| When Ingle goes online | Only when you switch on **Web**, download a model, or check for engine updates (once a day, can be turned off) |
+| Actions on your Mac | Every file change, command and MCP call needs **your approval** |
 
-None of this is inside the project folder, so building, updating or publishing the code never touches it.
+Read the full [Privacy Policy](PRIVACY.md) and [Terms of Use](TERMS.md).
 
-## Developing
+## 🤝 Contributing
 
-- `Sources/Ingle/` — the SwiftUI app. Start with `IngleApp.swift`, `ChatStore.swift` (the agent loop),
-  `Tools.swift`, `Prefs.swift` (personas and the built-in instructions) and `EngineUpdater.swift`.
-- `Extensions/vscode/src/` — `engine/` (Ollama client, prompts, agent loop), `tools/`, `ui/`, and `media/` (the webview).
-- Personal build settings (your bundle identifier, extension publisher) go in `local.env` — see `local.env.example`.
-- `scripts/export-release.sh` makes a clean copy for publishing and checks it for any words you list as private.
+Ingle is built in the open and contributions are very welcome — bug fixes, features, docs, prompts, or just
+trying it on your Mac and telling us what broke.
 
-## Documentation and contributing
+1. **Fork** this repository (the *Fork* button at the top right).
+2. **Clone your fork** and create a branch: `git checkout -b my-improvement`.
+3. **Make your change** — [CONTRIBUTING.md](CONTRIBUTING.md) explains the code layout, the style and the checks to run.
+4. **Push** to your fork and **open a pull request** against `main`.
+5. We'll review it together, and once it's ready it gets **merged**. 🎉
 
-- [docs/](docs/README.md) — how everything works, file formats, building and releasing.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — setting up, style, checks and contributor terms.
+Got an idea first? [Open an issue](https://github.com/DemiInfinity/ingle/issues/new/choose) — it's the best way
+to talk it through before you build. Good places to start are in the [roadmap](docs/roadmap.md).
 
-## Licence
+## 🗺️ Roadmap
 
-**Free for personal and other non-commercial use** under the [PolyForm Noncommercial License 1.0.0](LICENSE.md);
-commercial use needs a separate licence. See [LICENSING.md](LICENSING.md) for what that means in plain words and
-for the licences of the bundled Ollama engine.
+Signed and notarised releases · automatic app updates · Windows and Linux support for the VS Code extension ·
+checkpoints you can rewind to · an optional "bring your own API key" fallback for the hardest jobs.
+See [docs/roadmap.md](docs/roadmap.md).
 
-[Terms of Use](TERMS.md) · [Privacy Policy](PRIVACY.md) — in short: no accounts, no tracking, nothing leaves your Mac
-unless you switch on Web, download a model or update the engine.
+## 🙏 Credits
 
-## Credits
+Ingle stands on the shoulders of **[Ollama](https://ollama.com)** — the open-source engine by the Ollama team —
+which in turn builds on **[llama.cpp](https://github.com/ggml-org/llama.cpp)** and **[MLX](https://github.com/ml-explore/mlx)**.
+Ingle wouldn't exist without them. Thank you.
 
-Ingle is built on [Ollama](https://ollama.com) — the open-source engine by the Ollama team, which in turn builds on
-[llama.cpp](https://github.com/ggml-org/llama.cpp) and [MLX](https://github.com/ml-explore/mlx). Ingle wouldn't exist
-without them.
+## 📜 Licence
+
+**Free for personal and other non-commercial use** under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). Want to use Ingle commercially? Get in touch for a
+commercial licence. [LICENSING.md](LICENSING.md) explains it in plain words, including the licences of the
+bundled engine.
+
+<div align="center">
+<br>
+<sub>Made with 🔥 on a Mac, for people who'd rather keep their AI at home.</sub>
+</div>
