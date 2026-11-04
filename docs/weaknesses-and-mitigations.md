@@ -14,10 +14,11 @@ Most of the evidence comes from a research review done while building Ingle (Nov
 tool, malforms calls, repeats itself and forgets instructions far more often than a frontier model. Three causes
 are under our control:
 
-- **Too many tools.** The RAG-MCP study found tool-selection accuracy fell from **about 85% with 5 tools to about 45%
-  with 20**; offering only the relevant tools roughly tripled accuracy (13.6% → 43.1%) and halved prompt tokens.
+- **Too many tools.** The [RAG-MCP study](https://arxiv.org/abs/2505.03275) found tool-selection accuracy fell from **about 85% with 5 tools to about 45%
+  with 20** (source needed); offering only the relevant tools roughly tripled accuracy (13.6% → 43.1%) and halved prompt tokens
+  ([arXiv:2505.03275](https://arxiv.org/abs/2505.03275)).
   Ingle originally offered about 25 tools on every turn.
-- **The engine fighting the model.** Ollama issue #14493 showed Qwen models being parsed with the wrong tool-call
+- **The engine fighting the model.** Ollama issue [#14493](https://github.com/ollama/ollama/issues/14493) showed Qwen models being parsed with the wrong tool-call
   format, recommended penalties being silently ignored, and `<think>` tags leaking. Overriding the parser in a
   Modelfile took one user's tool-call success from **2/5 to 4/5**.
 - **Silent context loss.** Ollama has historically defaulted to a tiny context and dropped the rest without
@@ -71,8 +72,9 @@ Bundling at all costs size but means the app works out of the box.
 
 ## 3. Keeping a bundled engine up to date
 
-**The problem.** Ollama releases often (several patch releases a week in mid-2026), and new model families need new
-versions. Security fixes matter too: CVE-2026-7482 ("Bleeding Llama", CVSS 9.1) affected Ollama before 0.17.1.
+**The problem.** Ollama releases often (several patch releases a week in mid-2026 — see [Ollama's releases](https://github.com/ollama/ollama/releases)), and new model families need new
+versions. Security fixes matter too: [CVE-2026-7482](https://www.cve.org/CVERecord?id=CVE-2026-7482) ("Bleeding Llama", CVSS 9.1) affected Ollama before
+[0.17.1](https://github.com/ollama/ollama/releases/tag/v0.17.1).
 An app that pins an old engine inherits its bugs and holes.
 
 **What we did**
@@ -95,7 +97,8 @@ release; Roll Back exists for that reason.
 ## 4. Mac-only
 
 **The problem.** The native app only reaches Mac users (roughly a third of professional developers in the 2025
-Stack Overflow survey: Windows 49.5%, macOS 32.9%). VS Code, by contrast, is used by about 76% of developers.
+Stack Overflow survey: Windows 49.5%, macOS 32.9%). VS Code, by contrast, is used by about 76% of developers
+([Stack Overflow Developer Survey 2025, Technology](https://survey.stackoverflow.co/2025/technology)).
 
 **What we did**
 

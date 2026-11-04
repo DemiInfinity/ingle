@@ -42,6 +42,17 @@ Everything runs on your Mac. No accounts, no tracking, no subscription.
 
 ## ✨ What it does
 
+### 🛡️ Commands: the obedience layer
+
+Local models are clever but forgetful with tools. So Ingle has **commands** — rules it *enforces* rather than
+suggests:
+
+> *"Write a command to always use the Figma MCP for component builds."*
+
+From then on, when you ask for a component, the Figma tools are guaranteed to be offered, banned tools are
+blocked, and **the assistant can't finish until it has done what the command says** — Ingle sends it back if it
+tries. Commands can also require running your linter or tests after every edit.
+
 ### 🔥 Meet Ember and Flint
 
 Two assistants with real characters, not version numbers. **Ember** is the quick, warm pair programmer for
@@ -61,7 +72,7 @@ and its tools work, so nothing breaks when you make it yours.
 
 ### 💻 A coding partner inside VS Code
 
-- Opens as an **editor tab** from the icon next to Claude's — as many tabs as you like, each with its own chat.
+- Opens as an **editor tab** from the Ingle icon at the top right of the editor — as many tabs as you like, each with its own chat.
 - **Reads your project, searches code, sees your problems panel, edits files with a diff you approve, and runs commands.**
 - A **repo map** — an outline of your project's files and key functions, ranked for every request — so a small
   model knows where things live without reading everything.
@@ -74,17 +85,6 @@ and its tools work, so nothing breaks when you make it yours.
 - **Skills and rules** in Claude's `SKILL.md` format, plus **MCP servers** — indexed in a tiny `INGLE.md`, so the
   model loads details only when needed.
 - **Helpers** — hand a self-contained job to a read-only sub-agent.
-
-### 🛡️ Commands: the obedience layer
-
-Local models are clever but forgetful with tools. So Ingle has **commands** — rules it *enforces* rather than
-suggests:
-
-> *"Write a command to always use the Figma MCP for component builds."*
-
-From then on, when you ask for a component, the Figma tools are guaranteed to be offered, banned tools are
-blocked, and **the assistant can't finish until it has done what the command says** — Ingle sends it back if it
-tries. Commands can also require running your linter or tests after every edit.
 
 ### 🧩 Built for small models
 
