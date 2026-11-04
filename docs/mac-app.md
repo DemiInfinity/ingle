@@ -58,11 +58,13 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
 ### The chat window
 
 - **Layout** ([`ChatViews.swift`](../Sources/Ingle/ChatViews.swift)): `NavigationSplitView` with a searchable
-  sidebar (chats grouped Today / Yesterday / Previous 7 days / Older; right-click to delete), a status card, and the
+  sidebar that follows the mode (Chat: chats grouped Today / Yesterday / Previous 7 days / Older; Code: Code chats
+  grouped by project folder; right-click to delete), a status card, and the
   **This Mac** card (`SystemCard` in [`SystemMonitor.swift`](../Sources/Ingle/SystemMonitor.swift): CPU, memory,
   GPU utilisation from `IOAccelerator`, 80 s GPU sparkline).
-- **Message bar:** paperclip, model pill (`ModelMenu`), **Think**, **Web**, **Mac**, the "N allowed" badge, a
-  hand icon explaining what asks first, Send/Stop. Above it: the editor chip (`EditorChip`) and the slash menu;
+- **Message bar:** paperclip, model pill (`ModelMenu`), **Think**, **Web**, **Mac** (hidden in Code mode), the "N allowed" badge, a
+  hand icon explaining what asks first, Send/Stop. Above it: the editor chip (`EditorChip`) or, in Code mode, the
+  project chip (`ProjectChip`), and the slash menu;
   below it: the context meter (`ContextMeter`) with **Compact**.
 - **Messages** ([`MessageViews.swift`](../Sources/Ingle/MessageViews.swift)): `MessageRow` renders user and
   assistant bubbles, tool rows (icon, title, detail, collapsible output, denied state), nudge notes, the compaction
@@ -72,9 +74,38 @@ mode) and bundled into `Ingle.app` by [`../build.sh`](../build.sh). See
   ([`CodeHighlight.swift`](../Sources/Ingle/CodeHighlight.swift)) for syntax colouring.
 - **Approval card** (`ApprovalCard`): Deny / Allow for This Session / Allow — see
   [terminal-and-mac-control.md](terminal-and-mac-control.md#approvals).
-- **Shortcuts:** ⌘N new chat, ⇧⌘K compact chat (`IngleApp.swift` commands).
+- **Shortcuts:** ⌘N new chat (a Code chat on the same project when you're in one), ⇧⌘C switch Chat / Code,
+  ⇧⌘K compact chat (`IngleApp.swift` commands).
 - **Storage:** `ChatStore.save()` writes all conversations to `~/Library/Application Support/Ingle/chats.json`
   atomically after each step.
+
+### Code mode
+
+A chat can belong to a project folder, the way Claude Code works, while normal chats stay simple.
+[`Project.swift`](../Sources/Ingle/Project.swift) has the folder logic; views are in
+[`CodeViews.swift`](../Sources/Ingle/CodeViews.swift).
+
+- **Switch:** **Chat / Code** at the top of the window (`ModeSwitch`), or ⇧⌘C. A new Code chat asks for a folder
+  (`ProjectPicker`: Choose Folder…, drop a folder in, or a recent project — the last eight, `Prefs.K.recentProjects`).
+  The folder shows as a chip with its git branch; it can be changed until the first message. A Code chat is blank
+  and unsaved until its first message, like any new chat.
+- **Storage:** `Conversation.mode` (`"code"`, nil = Chat) and `Conversation.projectPath`, both optional so older
+  `chats.json` still decodes. `Conversation.codeFolder` is the one place that says "this chat is Code mode on
+  folder X"; approvals, the prompt and the tools all go by it. (Roadmap Phase 3 may move Code chats to
+  `~/.ingle/coding/<project>/`.)
+- **Workspace and approvals:** the project folder is the workspace. `MacTools.needsApproval(_:codeFolder:)`:
+  `list_files` / `read_file` inside it need no approval, outside it they ask (the workspace folders setting doesn't
+  apply); writes and commands always ask, with the usual scoped allowances. `Project.prepare` makes relative paths and
+  a missing `cwd` mean the project folder, before approval, so the card, the session scope and the tool agree.
+  Helpers (`delegate`) read only inside the project.
+- **Prompt:** the coding persona (`Persona.systemPrompt(…, codeFolder:)` + `MacTools.codePrompt`, the same meaning
+  as `personaPrompt` + `guidancePrompt` in the VS Code extension's `engine/prompt.ts` — keep them in step), plus
+  `Project.promptSection`: folder, git branch, short `git status`, and the project's `AGENTS.md` / `CLAUDE.md` /
+  `.cursorrules` (`Project.instructions`, shared with the editor bridge). The project's `.ingle/rules` and
+  `.ingle/commands` apply. The editor chip isn't used in Code mode.
+- **Off in Code mode:** Mac control (the pill is hidden and its tools aren't offered). Web stays opt-in per chat.
+- Coding tools (`search_code`, `edit_file`, repo map) and the task list / plan mode / changes panel come in tasks 31
+  and 32.
 
 ### Slash commands
 
@@ -145,7 +176,7 @@ skills, filtered as you type (↑↓, Tab/Return, Esc).
 
 `HelpTopics` in [`Manifest.swift`](../Sources/Ingle/Manifest.swift) is a short guide to Ingle split into topics
 (overview, assistants, menu-bar, sleep, autocomplete, chat, mac-access, settings, models, extensions, web, memory,
-reports, history, builder, commands, helpers, editors, engine, files). The model reads it with `ingle_help(topic)`
+reports, history, builder, commands, helpers, editors, engine, files, ssh, secrets, code). The model reads it with `ingle_help(topic)`
 when you ask about Ingle. **Keep it accurate when behaviour changes** — it's what the assistants believe about the app.
 
 ### Settings
@@ -182,6 +213,8 @@ servers and the engine Ingle started are stopped.
 | [`Commands.swift`](../Sources/Ingle/Commands.swift) | 230 | `IngleCommand`, `CommandStore` (load, prompt block, index, enable, create), `CommandTracker` |
 | [`Prefs.swift`](../Sources/Ingle/Prefs.swift) | 320 | `Prefs` keys and defaults, `Persona` (defaults and `systemPrompt`), `ModelNames`, `ModelProfiles`, `Companion` |
 | [`Manifest.swift`](../Sources/Ingle/Manifest.swift) | 170 | `IngleManifest` (`INGLE.md`), `HelpTopics` |
+| [`Project.swift`](../Sources/Ingle/Project.swift) | 140 | Code mode: project folder, path resolving, git info, rules files, prompt section, recent projects |
+| [`CodeViews.swift`](../Sources/Ingle/CodeViews.swift) | 150 | Code mode views: `ModeSwitch`, `ProjectPicker`, `ProjectChip` |
 | [`Ollama.swift`](../Sources/Ingle/Ollama.swift) | 270 | `OllamaClient` (version, tags, ps, load/unload, delete, capabilities, pull, streaming chat with think retry), `ToolCall`, `ModelTuning` |
 | [`OllamaServer.swift`](../Sources/Ingle/OllamaServer.swift) | 90 | Start/stop the bundled engine; local vs remote |
 | [`EngineUpdater.swift`](../Sources/Ingle/EngineUpdater.swift) | 370 | Update checks, notifications, download, SHA-256, staging, slimming, swap, roll back, `Downloader` |
